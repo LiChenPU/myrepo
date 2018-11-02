@@ -1,5 +1,6 @@
 #install.packages("enviPat")
 #Testedit
+#online test
 library(enviPat)
 library(rcdk)
 
