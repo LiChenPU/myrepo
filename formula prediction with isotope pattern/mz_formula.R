@@ -7,8 +7,6 @@ library(enviPat)
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
-para = read_csv("mz_formula_para.csv")
-
 mode = -1
 H_mass = 1.00782503224
 e_mass = 0.00054857990943
@@ -23,7 +21,7 @@ mz_neutral = 745.0911
 #mz_neutral = 127.9430
 mz_integer = floor(mz_neutral+0.2)
 mz_decimal = mz_neutral - mz_integer
-ppm = 25/10^6
+ppm = 5/10^6
 tolerance = mz_neutral*ppm
 
 C_range = 1:99

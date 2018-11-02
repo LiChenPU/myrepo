@@ -1,0 +1,4 @@
+How each edge converts different class of metabolites?
+
+CH2 tends to be same class,
+HPO3 more likely change classes
