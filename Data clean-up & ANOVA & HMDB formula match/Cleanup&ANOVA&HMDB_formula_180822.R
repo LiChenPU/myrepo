@@ -16,7 +16,7 @@ hmdb_df = read_csv("hmdb_unique.csv")
 known_mz = read_csv("known_mz.csv")
 
 mode = -1
-normalized_to_col_median = T
+normalized_to_col_median = F
 
 time=Sys.time()
 
@@ -37,12 +37,6 @@ detection_limit=2500
   raw <- read_csv(filename)
   #Remove rows that has incomplete intensity data
   raw = raw[complete.cases(raw[, 14:ncol(raw)]),]
-  
-
-  # ggplot(raw, aes(x=goodPeakCount, y=maxQuality))+
-  #   geom_point()
-  # hist(raw$goodPeakCount)
-  # hist(raw$maxQuality)
   
   raw_rn = nrow(raw)
   sample_names=colnames(raw)[15:ncol(raw)]
