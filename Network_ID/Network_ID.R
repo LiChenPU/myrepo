@@ -32,7 +32,7 @@ df_raw = read_csv("hmdb_adduct.csv")
 
 df_raw = df_raw[(!df_raw$high_blank)|(!is.na(df_raw$Formula)),]
 #df_raw = sample_n(df_raw, 4000, replace = F)
-#df_raw = df_raw[1:6000,]
+df_raw = df_raw[1:2000,]
 }
 #Initialize data
 mode = -1
@@ -171,6 +171,7 @@ merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
   }
 }
 edge_list = bind_rows(edge_ls)
+edge_list$linktype=fun_group_1$fun_group[edge_list$linktype]
 #merge_edge_list = edge_list[edge_list$edge_massdif_score>0.7,]
 
 # test_j2 = edge_list
@@ -549,11 +550,14 @@ time["formula_pred"]=Sys.time()
 top_formula_n = 3
 New_nodes_in_network = 1
 step=0
+timer=Sys.time()
 while(New_nodes_in_network==1){
   
   all_nodes_df = bind_rows(lapply(sf, head,top_formula_n))
   new_nodes_df = all_nodes_df[all_nodes_df$steps==step 
                               &all_nodes_df$score>0,]
+  print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
+  print((Sys.time()-timer))
   
   if(nrow(new_nodes_df)==0){break}
   
@@ -571,7 +575,7 @@ while(New_nodes_in_network==1){
     
     for(i in 1:nrow(temp_edge_list)){
       tail=temp_edge_list$node2[i]
-      temp_fg = fun_group_1$fun_group[temp_edge_list$linktype[i]]
+      temp_fg = temp_edge_list$linktype[i]
       if(temp_fg=="Same"){temp_formula=head_formula}
       #else{temp_formula = get.formula(paste(head_formula,"+", temp_fg))@string}
       else{temp_formula = My_mergefrom(head_formula,temp_fg)}
@@ -610,7 +614,7 @@ while(New_nodes_in_network==1){
       
       for(i in 1:nrow(temp_edge_list)){
         head=temp_edge_list$node1[i]
-        temp_fg = fun_group_1$fun_group[temp_edge_list$linktype[i]]
+        temp_fg = temp_edge_list$linktype[i]
         if(temp_fg=="Same"){temp_formula=tail_formula}
         else{temp_formula = My_subfrom(tail_formula, temp_fg)}
         #else{temp_formula = formula_manipulate(tail_formula, temp_fg, -1)}
@@ -641,7 +645,7 @@ while(New_nodes_in_network==1){
   }
   
   step=step+1
-  print(paste("nrow",nrow(all_nodes_df),"in step",step))
+  
 }
 
 #merge_edge_list = rbind(edge_list_sub, HMDB_edge_list)
@@ -759,7 +763,7 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        #vertex.label.color = "black",
        vertex.label.cex = 1,
        #edge.color = 'black',
-       edge.label = fun_group_1$fun_group[edge.attributes(g_intrest)$linktype],
+       edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 5,
        edge.arrow.size = 0.05,
        main = paste("Subnetwork of mz", target_mz)
@@ -776,7 +780,7 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        vertex.label.color = "black",
        vertex.label.cex = 1,
        #edge.color = 'black',
-       edge.label = fun_group_1$fun_group[edge.attributes(g_intrest)$linktype],
+       edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 10,
        edge.arrow.size = 0.05,
        main = paste("Subnetwork of mz", target_mz)
@@ -808,7 +812,7 @@ merge_node_list[which(merge_node_list$Predict_formula=="C15H4O5"),]
          vertex.label.color = "red",
          vertex.label.cex = 1,
          #edge.color = 'black',
-         edge.label = fun_group_1$fun_group[edge.attributes(g_subnetwork_list[[i]][[1]])$linktype],
+         edge.label = edge.attributes(g_subnetwork_list[[i]][[1]])$linktype,
          vertex.size = 10,
          edge.arrow.size = .05,
          main = paste("Subnetwork",names(subnetwork)[[i]])
