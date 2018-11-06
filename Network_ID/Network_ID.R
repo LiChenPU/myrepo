@@ -21,6 +21,7 @@ colnames(time)="read_data"
 {
 
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  output_csv=F
 
 #data1 records select data from raw table.
 HMDB_node_list = read_csv("HMDB_node_list.csv")
@@ -32,7 +33,7 @@ df_raw = read_csv("hmdb_adduct.csv")
 
 df_raw = df_raw[(!df_raw$high_blank)|(!is.na(df_raw$Formula)),]
 #df_raw = sample_n(df_raw, 4000, replace = F)
-#df_raw = df_raw[1:2000,]
+df_raw = df_raw[1:2000,]
 }
 #Initialize data
 mode = -1
@@ -200,8 +201,10 @@ edge_list_sub["category"]=1
 
 # node_list_with_edge = unique(c(edge_list_sub$node1,edge_list_sub$node2))
 # node_list_with_edge = node_list_with_edge[node_list_with_edge<=nrow(node_list)]
+if(output_csv){
 write.csv(edge_list_sub,"formula_network_edge_list2.csv",row.names = F)
 write.csv(raw[,c("ID","originID")], "ID.csv",row.names = F)
+}
 
 ##Predict formula based on known formula and edgelist 
 time["formula_pred"]=Sys.time()
@@ -572,7 +575,11 @@ while(New_nodes_in_network==1){
     
     temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
     if(nrow(temp_edge_list)==0){next}
+    #head_score = sf[[head]]$score[min(which(sf[[head]]$formula==head_formula))]
+    head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
     
+    if(head_score==0){next}
+  
     for(i in 1:nrow(temp_edge_list)){
       tail=temp_edge_list$node2[i]
       temp_fg = temp_edge_list$linktype[i]
@@ -581,7 +588,7 @@ while(New_nodes_in_network==1){
       else{temp_formula = My_mergefrom(head_formula,temp_fg)}
       temp_steps = step+1
       temp_parent = head
-      temp_score = sf[[head]]$score[1]*temp_edge_list$edge_massdif_score[i]
+      temp_score = head_score*temp_edge_list$edge_massdif_score[i]
       #Criteria to enter new entry into formula list
       #1. new formula
       temp = sf[[tail]]
@@ -612,6 +619,11 @@ while(New_nodes_in_network==1){
       temp_edge_list=subset(edge_list_node2, edge_list_node2$node2==tail)
       if(nrow(temp_edge_list)==0){next}
       
+      #tail_score = sf[[tail]]$score[min(which(sf[[tail]]$formula==tail_formula))]
+      tail_score = sf[[tail]]$score[match(tail_formula,sf[[tail]]$formula)]
+      
+      if(tail_score==0){next}
+      
       for(i in 1:nrow(temp_edge_list)){
         head=temp_edge_list$node1[i]
         temp_fg = temp_edge_list$linktype[i]
@@ -622,7 +634,7 @@ while(New_nodes_in_network==1){
         { temp_score=0
         temp_formula=paste(tail_formula,temp_fg,sep="-")
         }
-        else{temp_score = sf[[tail]]$score[1]*temp_edge_list$edge_massdif_score[i]}
+        else{temp_score = tail_score*temp_edge_list$edge_massdif_score[i]}
         temp_steps = step+1
         temp_parent = tail
         #Criteria to enter new entry into formula list
@@ -682,15 +694,11 @@ time_used
 
 
 
-
-write.csv(merge_node_list, "merge_node_list.csv",row.names = F)
-write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
-write.csv(merge_edge_list,"merge_edge_list.csv", row.names = F)
-
-
-
-
-
+if(output_csv){
+  write.csv(merge_node_list, "merge_node_list.csv",row.names = F)
+  write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
+  write.csv(merge_edge_list,"merge_edge_list.csv", row.names = F)
+}
 
 read_from_csv = 0
 if(read_from_csv){
