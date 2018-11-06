@@ -32,7 +32,7 @@ df_raw = read_csv("hmdb_adduct.csv")
 
 df_raw = df_raw[(!df_raw$high_blank)|(!is.na(df_raw$Formula)),]
 #df_raw = sample_n(df_raw, 4000, replace = F)
-df_raw = df_raw[1:2000,]
+#df_raw = df_raw[1:2000,]
 }
 #Initialize data
 mode = -1
