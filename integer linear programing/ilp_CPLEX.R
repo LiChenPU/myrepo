@@ -149,6 +149,8 @@ My_mergefrom=function (formula1, formula2)
 }
 }
 
+time = Sys.time()
+
 #Read data
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -187,7 +189,7 @@ My_mergefrom=function (formula1, formula2)
 ##Core codes
 
 #Construct constraint matrix 
-read_from_csv = F
+read_from_csv = T
 if(!read_from_csv)
 {
   #Library nodes 
@@ -334,7 +336,8 @@ if(!read_from_csv)
                               v=triplet_df$v)
 }else
 {
-  triplet_df = read_csv("triplet_df.csv")
+  #triplet_df = read_csv("triplet_df.csv")
+  triplet_df = read.csv("triplet_df.csv")
   edge_info_sum = read_csv("edge_info_sum.csv")
   mat = simple_triplet_matrix(i=triplet_df$i,
                               j=triplet_df$j,
@@ -342,32 +345,33 @@ if(!read_from_csv)
   
 }
 
-#Other parameters
-{
-  #should have number of columns, i.e. j
-  obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
-  types <- c(rep("B",nrow(unknown_formula)+nrow(edge_info_sum)))
-  
-  #should have number of rows, i.e. i
-  dir <- c(rep("==",num_unknown_nodes), rep("<=", nrow(edge_info_sum)))
-  rhs = c(rep(1,num_unknown_nodes),rep(0,nrow(edge_info_sum)))
-  max <- TRUE
-}  
-
-
-#R glpk Solver
-ILP_result = Rglpk_solve_LP(obj, mat, dir, rhs, types = types, max = max,
-                            control = list(tm_limit=10*60*1000,canonicalize_status=F,verbose=T))
-para = data.frame(ILP_result$solution)
-unknown_formula["ILP_result"] = para$ILP_result.solution[1:nrow(unknown_formula)]
-edge_info_sum["ILP_result"] = para$ILP_result.solution[(nrow(unknown_formula)+1):nrow(para)]
+# 
+# #Other parameters
+# {
+#   #should have number of columns, i.e. j
+#   obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
+#   types <- c(rep("B",nrow(unknown_formula)+nrow(edge_info_sum)))
+#   
+#   #should have number of rows, i.e. i
+#   dir <- c(rep("==",num_unknown_nodes), rep("<=", nrow(edge_info_sum)))
+#   rhs = c(rep(1,num_unknown_nodes),rep(0,nrow(edge_info_sum)))
+#   max <- TRUE
+# }  
+# 
+# 
+# #R glpk Solver
+# ILP_result = Rglpk_solve_LP(obj, mat, dir, rhs, types = types, max = max,
+#                             control = list(tm_limit=10*60*1000,canonicalize_status=F,verbose=T))
+# para = data.frame(ILP_result$solution)
+# unknown_formula["ILP_result"] = para$ILP_result.solution[1:nrow(unknown_formula)]
+# edge_info_sum["ILP_result"] = para$ILP_result.solution[(nrow(unknown_formula)+1):nrow(para)]
 
 # test=data.frame(ILP_result$solution)
 # test=cbind(test,ILP_result$solution)
 # test2=test[test$ILP_result.solution!=test$`ILP_result$solution`,]
 
-time = Sys.time()
-print(time)
+
+print(Sys.time()-time)
 
 
 
@@ -382,7 +386,7 @@ print(time)
   
   
   rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
-  sense <- c(rep("E",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
+  sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
   lb <- rep(0, nc)
   ub <- rep(1, nc)
   # cn <- c("x1", "x2", "x3")
@@ -428,3 +432,17 @@ print(time)
 #Double check parameter - test with a smaller dataset with known solution exists
 #initialize ilp with a feasible solution
 #
+
+
+##Evaluation
+{
+  unknown_formula["ILP_result"] = test$x[1:nrow(unknown_formula)]
+  edge_info_sum["ILP_result"] = test$x[(nrow(unknown_formula)+1):length(test$x)]
+  
+  unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
+  
+  unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  
+  edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
+}
+
