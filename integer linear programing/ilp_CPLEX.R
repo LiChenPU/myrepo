@@ -169,6 +169,7 @@ time = Sys.time()
   lib_nodes = raw_node_list[raw_node_list$category==0,]
   unknown_nodes = raw_node_list[raw_node_list$category!=0,]
   unknown_nodes = unknown_nodes[!is.na(unknown_nodes$Predict_formula),]
+  num_unknown_nodes = nrow(unknown_nodes)
   
   lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
   lib_formula = lib_formula[lib_formula$steps==0,]
@@ -189,16 +190,11 @@ time = Sys.time()
 ##Core codes
 
 #Construct constraint matrix 
-read_from_csv = T
+read_from_csv = F
 if(!read_from_csv)
 {
-  #Library nodes 
-  
-  # num_lib_nodes = nrow(lib_nodes)
-  # triplet_library_node = data.frame(i=1:num_lib_nodes, j=1:num_lib_nodes, v=1)
-  
+
   #Unknown nodes
-  num_unknown_nodes = nrow(unknown_nodes)
   triplet_unknown_nodes_ls = list()
   temp_j=1
   
@@ -314,14 +310,6 @@ if(!read_from_csv)
   triplet_edge_ls_edge_sum$j=triplet_edge_ls_edge_sum$j+nrow(unknown_formula)
   triplet_edge_ls_node_sum = bind_rows(triplet_edge_ls_node)
   triplet_edge_ls_node_sum$i=triplet_edge_ls_node_sum$i+num_unknown_nodes
-  edge_info_sum = bind_rows(edge_info)
-  
-  
-  
-  
-  
-  
-
   
   #Generate sparse matrix on left hand side
   triplet_df = rbind(
@@ -329,6 +317,28 @@ if(!read_from_csv)
                      triplet_edge_ls_edge_sum,
                      triplet_edge_ls_node_sum
                      )
+  
+  
+  ##Objective parameter 
+  {
+    
+    edge_info_sum = bind_rows(edge_info)
+    test = edge_info_sum
+    test1 = test[test$ilp_index2>nrow(unknown_formula)|test$ilp_index1>nrow(unknown_formula),]
+    test1 = test1[duplicated(test1[,c("formula1","ilp_index1")]) | 
+                  duplicated(test1[,c("formula1","ilp_index1")], fromLast=TRUE) &
+                    test1$ilp_index2>232056,]
+    test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
+    test1$edge_score[duplicated(test1[,c("ilp_index1","formula1")])]=0
+    
+    
+    test5 = test4[duplicated(test4$edge_id),]
+    
+    
+    test6 = test1[duplicated(test1[,c("edge_id")]) | 
+                    duplicated(test1[,c("edge_id")], fromLast=TRUE),]
+  }
+  
   write_csv(triplet_df,"triplet_df.csv")
   write_csv(edge_info_sum,"edge_info_sum.csv")
   mat = simple_triplet_matrix(i=triplet_df$i,
@@ -344,6 +354,15 @@ if(!read_from_csv)
                               v=triplet_df$v)
   
 }
+
+
+
+
+
+
+
+
+
 
 # 
 # #Other parameters
@@ -418,7 +437,7 @@ print(Sys.time()-time)
   #dualoptCPLEX(env, prob)
   #mipoptCPLEX(env, prob)
   
-  test=solutionCPLEX(env, prob)
+  result_solution=solutionCPLEX(env, prob)
   writeProbCPLEX(env, prob, "prob.lp")
   
   lp <- initProbCPLEX(env)
@@ -436,8 +455,8 @@ print(Sys.time()-time)
 
 ##Evaluation
 {
-  unknown_formula["ILP_result"] = test$x[1:nrow(unknown_formula)]
-  edge_info_sum["ILP_result"] = test$x[(nrow(unknown_formula)+1):length(test$x)]
+  unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
+  edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
   
