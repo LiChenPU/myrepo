@@ -5,41 +5,58 @@ library(rcdk)
 library(dplyr)
 library(enviPat)
 
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+#Read data
+{
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  getwd()
+  raw_node_list=read_csv("merge_node_list.csv")
+  raw_pred_formula=read_csv("All_formula_predict.csv")
+}
 
+#Clean up
+{
+  lib_nodes = raw_node_list[raw_node_list$category==0,]
+  lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
+  unknown_nodes = raw_node_list[raw_node_list$category!=0,]
+  unknown_nodes_mz = unknown_nodes$mz
+  
+  pred_formula=raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
+  
+  sf=list()
+  for(i in 1:lib_nodes_cutoff){
+    sf[[i]]=pred_formula[pred_formula$id==i,]
+  }
+}
+
+#Parameter
+{
 mode = -1
 H_mass = 1.00782503224
 e_mass = 0.00054857990943
 mz_input = 1120.4598
-
 mz_neutral = mz_input - (H_mass-e_mass)*mode
-mz_neutral = 307.0838
-#mz_neutral = 506.9958
-mz_neutral = 181.0739
-#mz_neutral = 1115.3088
-mz_neutral = 745.0911
-#mz_neutral = 127.9430
-mz_integer = floor(mz_neutral+0.2)
-mz_decimal = mz_neutral - mz_integer
-ppm = 5/10^6
-tolerance = mz_neutral*ppm
+
 
 C_range = 1:99
 H_range = 1:130
 O_range = 0:20
 N_range = 0:12
-Cl_range = 0:5
+Cl_range = 0:3
 P_range = 0:5
 S_range = 0:5
-Na_range = 0:0
-K_range = 0:0
+Na_range = 0:3
+K_range = 0:3
 F_range = 0:0
 Br_range = 0:0
 I_range = 0:0
-Si_range = 0:0
+Si_range = 0:4
 
 db_min = 0
 db_max = 99
+H_min = 0
+C_min = 0
+C_max = 99
+
 
 
 N_rule = 1
@@ -59,10 +76,9 @@ B_iso=(10.0129370-10)
 Na_iso=(22.9897692809-23)
 K_iso=(38.96370668-39)
 M_ELECTRON=0.00054857990943
+}
 
-
-
-
+#my function to process formula 
 {
   formula_table = function(X){
     Xformula = get.formula(X)
@@ -86,27 +102,34 @@ M_ELECTRON=0.00054857990943
   }
 }
 
-
-
-H_min = 0
-C_min = 1
-C_max = 99
-flag=1
-db_range = 0:99
-
-
-
-temp_formula = formula_table("CHNOClSPNaKFBrISi")
-temp_formula = temp_formula[order(row.names(temp_formula)), , drop=FALSE]
-temp_formula_list = list()
-temp = data.frame(formula = "formula", differ = as.numeric(0), db_r=as.numeric(0), stringsAsFactors=F)
-
 time = Sys.time()
 iteration=0
-# for (i in (1:10)){
+
+
+mz_neutral = 307.0838
+#mz_neutral = 506.9958
+mz_neutral = 181.0739
+#mz_neutral = 1115.3088
+mz_neutral = 745.0911
+mz_neutral = 127.9430
 
 
 
+
+##Core code calculate formula given mz
+mz_formula = function(mz_neutral, ppm)
+{
+  
+  
+  mz_integer = floor(mz_neutral+0.2)
+  mz_decimal = mz_neutral - mz_integer
+  tolerance = mz_neutral*ppm/10^6
+  
+  temp_formula = formula_table("CHNOClSPNaKFBrISi")
+  temp_formula = temp_formula[order(row.names(temp_formula)), , drop=FALSE]
+  temp_formula_list = list()
+  temp = data.frame(formula = "formula", differ = as.numeric(0), db_r=as.numeric(0), stringsAsFactors=F)
+  
   for(Si in Si_range){
   for(I in I_range){
   for(Br in Br_range){
@@ -160,8 +183,45 @@ iteration=0
 }}}}}}}}}}}}
           
 formula_df = bind_rows(temp_formula_list)
+return(formula_df)
+}
 
 
+
+
+  ppm=5
+  mz_neutral=173.9651
+  mz_formula_df = mz_formula(mz_neutral, ppm)
+  
+  
+i=400
+ppm = 10
+timer = Sys.time()
+#for(i in 1:nrow(unknown_nodes)){
+for(i in 1:10){
+  i=388
+  if(i %% 50==0){
+    print(paste("i =", i))
+    print(Sys.time()-timer)
+  }
+  mz_neutral = unknown_nodes_mz[i]
+  #mz_formula_df = mz_formula(mz_neutral, ppm)
+  temp = sf[[i]]
+  
+  sf[[i]] = temp[sf[[i]]$formula %in% mz_formula_df$formula,]
+}
+print(Sys.time()-timer)
+
+
+
+
+
+
+
+
+#####
+#Calculate isotope pattern
+{
 data(isotopes)
 
 pattern<-isopattern(
@@ -223,7 +283,7 @@ test2 = formula_iso[formula_iso$`M+2`<0.3&formula_iso$`M+1`>0.22,]
 #write_excel_csv(pattern,"pattern.csv")
 
 
-
+}
 
 
 time = Sys.time()-time
