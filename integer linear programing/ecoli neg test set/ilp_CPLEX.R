@@ -429,6 +429,8 @@ print(Sys.time()-time)
   table(result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)])
   test=edge_info_sum[edge_info_sum$ILP_result==0.5,]
   
+  merge_formula$id[merge_formula$ilp_index==584]
+  
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
