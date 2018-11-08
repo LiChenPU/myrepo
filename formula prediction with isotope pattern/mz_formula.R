@@ -23,7 +23,7 @@ library(enviPat)
   pred_formula=raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
   
   sf=list()
-  for(i in 1:lib_nodes_cutoff){
+  for(i in 1:nrow(raw_node_list)){
     sf[[i]]=pred_formula[pred_formula$id==i,]
   }
 }
@@ -38,20 +38,20 @@ mz_neutral = mz_input - (H_mass-e_mass)*mode
 
 
 C_range = 1:99
-H_range = 1:130
+H_range = 1:100
 O_range = 0:20
 N_range = 0:12
 Cl_range = 0:3
 P_range = 0:5
 S_range = 0:5
-Na_range = 0:3
-K_range = 0:3
+Na_range = 0:0
+K_range = 0:0
 F_range = 0:0
 Br_range = 0:0
 I_range = 0:0
-Si_range = 0:4
+Si_range = 0:0
 
-db_min = 0
+db_min = -1
 db_max = 99
 H_min = 0
 C_min = 0
@@ -186,26 +186,17 @@ formula_df = bind_rows(temp_formula_list)
 return(formula_df)
 }
 
-
-
-
-  ppm=5
-  mz_neutral=173.9651
-  mz_formula_df = mz_formula(mz_neutral, ppm)
-  
-  
-i=400
 ppm = 10
 timer = Sys.time()
-#for(i in 1:nrow(unknown_nodes)){
-for(i in 1:10){
-  i=388
+
+for(i in 1:nrow(unknown_nodes)){
+#for(i in 1:10){
   if(i %% 50==0){
     print(paste("i =", i))
     print(Sys.time()-timer)
   }
   mz_neutral = unknown_nodes_mz[i]
-  #mz_formula_df = mz_formula(mz_neutral, ppm)
+  mz_formula_df = mz_formula(mz_neutral, ppm)
   temp = sf[[i]]
   
   sf[[i]] = temp[sf[[i]]$formula %in% mz_formula_df$formula,]
@@ -213,8 +204,8 @@ for(i in 1:10){
 print(Sys.time()-timer)
 
 
-
-
+pred_formula_prune = bind_rows(sf)
+write_csv(pred_formula_prune,"pred_formula_prune.csv")
 
 
 
