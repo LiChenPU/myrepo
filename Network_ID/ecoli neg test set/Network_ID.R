@@ -753,8 +753,8 @@ ppm = 10/10^6
 merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz*ppm,]
 #Analyze the network/subgraph of specific node
 {
-  interested_node = "3284"
-  g_intrest <- make_ego_graph(g_sub,2, nodes = interested_node, mode = c("all"))[[1]]
+  interested_node = "174"
+  g_intrest <- make_ego_graph(g_sub,1, nodes = interested_node, mode = c("all"))[[1]]
   test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
   colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
@@ -775,7 +775,7 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 5,
        edge.arrow.size = 0.05,
-       main = paste("Subnetwork of mz", target_mz)
+       main = paste("Subnetwork of mz", interested_node)
   )
   dev.off()
   plot(g_intrest,
@@ -792,9 +792,10 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 10,
        edge.arrow.size = 0.05,
-       main = paste("Subnetwork of mz", target_mz)
+       main = paste("Subnetwork of mz", interested_node)
   )
 }
+merge_node_list[merge_node_list$ID==1862,]
 test=data.frame(vertex.attributes(g_intrest))
 
 
