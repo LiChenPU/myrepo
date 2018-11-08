@@ -21,7 +21,7 @@ colnames(time)="read_data"
 {
 
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  output_csv=F
+  output_csv=T
 
 #data1 records select data from raw table.
 HMDB_node_list = read_csv("HMDB_node_list.csv")
@@ -29,11 +29,12 @@ data(isotopes)
 HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
 
 #HMDB_edge_list = read_csv("HMDB_edge_list.csv")
-df_raw = read_csv("hmdb_adduct.csv")
+df_raw = read.csv("ecoli neg.csv")
+df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="Adduct",]
 
-df_raw = df_raw[(!df_raw$high_blank)|(!is.na(df_raw$Formula)),]
+
 #df_raw = sample_n(df_raw, 4000, replace = F)
-df_raw = df_raw[1:2000,]
+#df_raw = df_raw[1:2000,]
 }
 #Initialize data
 mode = -1
@@ -498,6 +499,8 @@ time["formula_pred"]=Sys.time()
           }
         }
       }
+      number1=number1[order(element1)]
+      element1=element1[order(element1)]
       if (formula_all == TRUE) {
         formula_all <- ""
         counts <- c()
@@ -691,8 +694,6 @@ for (i in 2:ncol(time)){
 }
 names(time_used)=colnames(time)[1:(ncol(time)-1)]
 time_used
-
-
 
 if(output_csv){
   write.csv(merge_node_list, "merge_node_list.csv",row.names = F)
@@ -907,4 +908,3 @@ time_used
 # }
 # 
 # #write.csv(merge_node_list[merge_node_list$category==1|merge_node_list$category==2,], "neg_unknown_pred.csv")
-
