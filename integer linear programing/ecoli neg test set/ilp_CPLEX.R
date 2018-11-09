@@ -157,6 +157,7 @@ time = Sys.time()
   getwd()
   raw_node_list=read_csv("merge_node_list.csv")
   raw_edge_list=read_csv("merge_edge_list.csv")
+  raw_pred_formula=read_csv("pred_formula_prune.csv")
   raw_pred_formula=read_csv("All_formula_predict.csv")
 }
 
@@ -327,18 +328,31 @@ if(!read_from_csv)
     edge_info_sum = bind_rows(edge_info)
     edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
     test = edge_info_sum
-    test1 = test[test$ilp_index2>nrow(unknown_formula),]
+    
+    
+    
+    test1 = test[test$ilp_index2>nrow(unknown_formula)&
+                   test$ilp_index1<=nrow(unknown_formula),]
+    test2 = test[test$ilp_index1>nrow(unknown_formula)&
+                   test$ilp_index2<=nrow(unknown_formula),]
+    colnames(test2)=sub(1,3,colnames(test2))
+    colnames(test2)=sub(2,1,colnames(test2))
+    colnames(test2)=sub(3,2,colnames(test2))
+    
+    test1 = merge(test1,test2,all=T)
+    
     test1 = test1[duplicated(test1[,c("formula1","ilp_index1")]) | 
                   duplicated(test1[,c("formula1","ilp_index1")], fromLast=TRUE),]
     test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
     test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]
     edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=0
     
-    test2 = test[test$ilp_index1>nrow(unknown_formula),]
-    test2 = test2[duplicated(test2[,c("formula2","ilp_index2")]) | 
-                    duplicated(test2[,c("formula2","ilp_index2")], fromLast=TRUE),]
-    test2 = test2[order(test2$formula1,test2$edge_score,decreasing = T),]
-    edge_info_sum$edge_score[test2$edge_ilp_id[duplicated(test2[,c("ilp_index2","formula2")])]]=0
+    # test2 = test[test$ilp_index1>nrow(unknown_formula)&
+    #                test$ilp_index2<=nrow(unknown_formula),]
+    # test2 = test2[duplicated(test2[,c("formula2","ilp_index2")]) | 
+    #                 duplicated(test2[,c("formula2","ilp_index2")], fromLast=TRUE),]
+    # test2 = test2[order(test2$formula1,test2$edge_score,decreasing = T),]
+    # edge_info_sum$edge_score[test2$edge_ilp_id[duplicated(test2[,c("ilp_index2","formula2")])]]=0
     
     
     
@@ -429,14 +443,36 @@ print(Sys.time()-time)
   table(result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)])
   test=edge_info_sum[edge_info_sum$ILP_result==0.5,]
   
-  merge_formula$id[merge_formula$ilp_index==584]
+  #merge_formula$id[merge_formula$ilp_index==584]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
-  
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
-  # 
+  
+  
+  lin_result = read.csv("ecoli neg.csv", stringsAsFactors = F)
+  lin_result = lin_result[lin_result$feature=="Metabolite"|lin_result$feature=="Adduct",]
+  lin_result = lin_result[order(lin_result$mz),]
+  
+  data("isotopes")
+  lin_result["formula_check"]=check_chemform(isotopes,lin_result$formula)$new_formula
+  lin_result["ilp_id"]=1:nrow(lin_result)
+  
+  merge_Lin_ILP = merge(lin_result, unknown_node_CPLEX, by.x="ilp_id",by.y="ID",all=T)
+  
+  merge_Lin_ILP_metabolite = merge_Lin_ILP[merge_Lin_ILP$feature=="Metabolite",]
+  merge_Lin_ILP_metabolite_diff = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
+                                                             merge_Lin_ILP_metabolite$formula.y,]
+  
+  unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
+  
+  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C5H2N2O5"),
+                                        which(edge_info_sum$formula2=="C5H2N2O5"))),]
+  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C6H14O12P2"),
+                                        which(edge_info_sum$formula2=="C6H14O12P2"))),]
+  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C19H18O13"),
+                                               which(edge_info_sum$formula2=="C19H18O13"))),]
   # raw_merge = merge(raw, unknown_formula_CPLEX, by.x = "ID", by.y = "id",all=T)
   # raw_merge_diff = raw_merge[raw_merge$formula.x!=raw_merge$formula.y,]
 }
