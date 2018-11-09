@@ -9,6 +9,7 @@
   library(slam)
   library(Rglpk)
   library(cplexAPI)
+  library(enviPat)
 }
 
 #Function handle chemical formula
@@ -393,10 +394,12 @@ print(Sys.time()-time)
   obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
   lb <- rep(0, nc)
   ub <- rep(1, nc)
+  ctype <- rep("B",nc)
   
   nr <- max(mat$i)
   rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
   sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
+  
   # cn <- c("x1", "x2", "x3")
   # rn <- c("q1", "q2", "q3")
   
@@ -416,15 +419,16 @@ print(Sys.time()-time)
   
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+  copyColTypeCPLEX(env, prob, ctype)
   writeProbCPLEX(env, prob, "prob.lp")
   #copyColTypeCPLEX(env, prob, xctype)  
   
 }
 {
   #primoptCPLEX(env, prob)
-  lpoptCPLEX(env, prob)
+  #lpoptCPLEX(env, prob)
   #dualoptCPLEX(env, prob)
-  #mipoptCPLEX(env, prob)
+  mipoptCPLEX(env, prob)
   
   result_solution=solutionCPLEX(env, prob)
   writeProbCPLEX(env, prob, "prob.lp")
@@ -442,7 +446,7 @@ print(Sys.time()-time)
   edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
   table(result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)])
   test=edge_info_sum[edge_info_sum$ILP_result==0.5,]
-  
+  table(result_solution$x)
   #merge_formula$id[merge_formula$ilp_index==584]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
