@@ -11,7 +11,7 @@
   library(tidyr)
   library(dplyr)
   library(enviPat)
-
+  
 }
 
 
@@ -19,59 +19,59 @@
 time = data.frame(Sys.time())
 colnames(time)="read_data"
 {
-
+  
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   output_csv=T
-
-#data1 records select data from raw table.
-HMDB_node_list = read_csv("HMDB_node_list.csv")
-data(isotopes)
-HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
-
-#HMDB_edge_list = read_csv("HMDB_edge_list.csv")
-df_raw = read.csv("ecoli neg.csv")
-df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="Adduct",]
-
-
-#df_raw = sample_n(df_raw, 4000, replace = F)
-#df_raw = df_raw[1:2000,]
+  
+  #data1 records select data from raw table.
+  HMDB_node_list = read_csv("HMDB_node_list.csv")
+  data(isotopes)
+  HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
+  
+  #HMDB_edge_list = read_csv("HMDB_edge_list.csv")
+  df_raw = read.csv("ecoli neg.csv")
+  df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="Adduct",]
+  
+  
+  #df_raw = sample_n(df_raw, 4000, replace = F)
+  #df_raw = df_raw[1:2000,]
 }
 #Initialize data
 mode = -1
 {
-raw = df_raw
-colnames(raw)[1:3]=c("originID", "mz", "RT")
-raw = raw[with(raw, order(mz)),]
-raw["ID"]=1:nrow(raw)
-raw["MF"]=NA
-raw["category"]=2
-raw["compound_name"]=NA
-
-# node_list = data.frame(1:nrow(raw),raw$mz, raw$MF, raw$name, raw$category, stringsAsFactors=FALSE)
-
-node_list = raw[,c("ID","mz","RT","MF", "category","compound_name")]
-
-raw_rnum = nrow(raw)
-H_mass = 1.00782503224
-e_mass = 0.00054857990943
-node_list$mz = node_list$mz*abs(mode) - (H_mass-e_mass)*mode
-
-#node_list=node_list[1:10000,]
+  raw = df_raw
+  colnames(raw)[1:3]=c("originID", "mz", "RT")
+  raw = raw[with(raw, order(mz)),]
+  raw["ID"]=1:nrow(raw)
+  raw["MF"]=NA
+  raw["category"]=2
+  raw["compound_name"]=NA
+  
+  # node_list = data.frame(1:nrow(raw),raw$mz, raw$MF, raw$name, raw$category, stringsAsFactors=FALSE)
+  
+  node_list = raw[,c("ID","mz","RT","MF", "category","compound_name")]
+  
+  raw_rnum = nrow(raw)
+  H_mass = 1.00782503224
+  e_mass = 0.00054857990943
+  node_list$mz = node_list$mz*abs(mode) - (H_mass-e_mass)*mode
+  
+  #node_list=node_list[1:10000,]
 }
 #Initialize HMDB database and merge into targeted data
 {
-#HMDB_edge_list[,1:2]=HMDB_edge_list[,1:2]+nrow(node_list)
-HMDB_node_list[,1]=HMDB_node_list[,1]+max(node_list$ID)
-HMDB_node_list["category"]=0
-HMDB_node_list["RT"]=0
-colnames(HMDB_node_list)[1:2]=c("ID", "mz")
-#HMDB_edge_list["category"]=0
-#HMDB_edge_list$mass_dif=0
-#HMDB_edge_list$edge_massdif_score=1
-
-merge_node_list = rbind(node_list, HMDB_node_list)
-#merge_node_list = merge_node_list[1:10000,]
-merge_nrow = nrow(merge_node_list)
+  #HMDB_edge_list[,1:2]=HMDB_edge_list[,1:2]+nrow(node_list)
+  HMDB_node_list[,1]=HMDB_node_list[,1]+max(node_list$ID)
+  HMDB_node_list["category"]=0
+  HMDB_node_list["RT"]=0
+  colnames(HMDB_node_list)[1:2]=c("ID", "mz")
+  #HMDB_edge_list["category"]=0
+  #HMDB_edge_list$mass_dif=0
+  #HMDB_edge_list$edge_massdif_score=1
+  
+  merge_node_list = rbind(node_list, HMDB_node_list)
+  #merge_node_list = merge_node_list[1:10000,]
+  merge_nrow = nrow(merge_node_list)
 }
 
 ##find mass difference corresponding to a functional group, such as "CH2"
@@ -183,10 +183,10 @@ edge_list$linktype=fun_group_1$fun_group[edge_list$linktype]
 # test_unique=unique(test_j2)
 
 edge_list_sub = subset(edge_list, 
-                        (edge_list$node1<=nrow(node_list)|
-                         edge_list$node2<=nrow(node_list))&
+                       (edge_list$node1<=nrow(node_list)|
+                          edge_list$node2<=nrow(node_list))&
                          edge_list$node1!=edge_list$node2
-                       )
+)
 edge_list_sub["category"]=1
 
 
@@ -203,8 +203,8 @@ edge_list_sub["category"]=1
 # node_list_with_edge = unique(c(edge_list_sub$node1,edge_list_sub$node2))
 # node_list_with_edge = node_list_with_edge[node_list_with_edge<=nrow(node_list)]
 if(output_csv){
-write.csv(edge_list_sub,"formula_network_edge_list2.csv",row.names = F)
-write.csv(raw[,c("ID","originID")], "ID.csv",row.names = F)
+  write.csv(edge_list_sub,"formula_network_edge_list2.csv",row.names = F)
+  write.csv(raw[,c("ID","originID")], "ID.csv",row.names = F)
 }
 
 ##Predict formula based on known formula and edgelist 
@@ -569,45 +569,45 @@ while(New_nodes_in_network==1){
   
   #Handling head
   {
-  edge_list_node1 = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id,]
-  head_list = edge_list_node1$node1
-  
-  for (n in 1: nrow(new_nodes_df)){
-    head = new_nodes_df$id[n]
-    head_formula = new_nodes_df$formula[n]
+    edge_list_node1 = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id,]
+    head_list = edge_list_node1$node1
     
-    temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
-    if(nrow(temp_edge_list)==0){next}
-    #head_score = sf[[head]]$score[min(which(sf[[head]]$formula==head_formula))]
-    head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
-    
-    if(head_score==0){next}
-  
-    for(i in 1:nrow(temp_edge_list)){
-      tail=temp_edge_list$node2[i]
-      temp_fg = temp_edge_list$linktype[i]
-      if(temp_fg=="Same"){temp_formula=head_formula}
-      #else{temp_formula = get.formula(paste(head_formula,"+", temp_fg))@string}
-      else{temp_formula = My_mergefrom(head_formula,temp_fg)}
-      temp_steps = step+1
-      temp_parent = head
-      temp_score = head_score*temp_edge_list$edge_massdif_score[i]
-      #Criteria to enter new entry into formula list
-      #1. new formula
-      temp = sf[[tail]]
-      temp_subset=subset(temp, temp$formula==temp_formula)
-      if(nrow(temp_subset)!=0){
-        #2. much higher scores
-        if(temp_score<=(1.2*max(temp_subset$score))){
-          next
+    for (n in 1: nrow(new_nodes_df)){
+      head = new_nodes_df$id[n]
+      head_formula = new_nodes_df$formula[n]
+      
+      temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
+      if(nrow(temp_edge_list)==0){next}
+      #head_score = sf[[head]]$score[min(which(sf[[head]]$formula==head_formula))]
+      head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
+      
+      if(head_score==0){next}
+      
+      for(i in 1:nrow(temp_edge_list)){
+        tail=temp_edge_list$node2[i]
+        temp_fg = temp_edge_list$linktype[i]
+        if(temp_fg=="Same"){temp_formula=head_formula}
+        #else{temp_formula = get.formula(paste(head_formula,"+", temp_fg))@string}
+        else{temp_formula = My_mergefrom(head_formula,temp_fg)}
+        temp_steps = step+1
+        temp_parent = head
+        temp_score = head_score*temp_edge_list$edge_massdif_score[i]
+        #Criteria to enter new entry into formula list
+        #1. new formula
+        temp = sf[[tail]]
+        temp_subset=subset(temp, temp$formula==temp_formula)
+        if(nrow(temp_subset)!=0){
+          #2. much higher scores
+          if(temp_score<=(1.2*max(temp_subset$score))){
+            next
+          }
         }
+        #Enter new entry
+        temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent, temp_score)
+        temp = temp[with(temp, order(-score)),]
+        sf[[tail]]=temp
       }
-      #Enter new entry
-      temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent, temp_score)
-      temp = temp[with(temp, order(-score)),]
-      sf[[tail]]=temp
     }
-  }
   }
   
   #Handling tail
@@ -717,7 +717,7 @@ colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
 V(g)$color = colors[merge_node_list$category+1]
 E(g)$color = colors[merge_edge_list$category+1]
 merge_node_list["degree"]=degree(g, mode = c("all"))
-  
+
 g_sub = graph_from_data_frame(d = edge_list_sub, vertices = merge_node_list[merge_node_list$ID %in% c(edge_list_sub[,1], edge_list_sub[,2]),], directed = FALSE)
 colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
 V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
@@ -753,8 +753,8 @@ ppm = 10/10^6
 merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz*ppm,]
 #Analyze the network/subgraph of specific node
 {
-  interested_node = "3284"
-  g_intrest <- make_ego_graph(g_sub,2, nodes = interested_node, mode = c("all"))[[1]]
+  interested_node = "174"
+  g_intrest <- make_ego_graph(g_sub,1, nodes = interested_node, mode = c("all"))[[1]]
   test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
   colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
@@ -775,7 +775,7 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 5,
        edge.arrow.size = 0.05,
-       main = paste("Subnetwork of mz", target_mz)
+       main = paste("Subnetwork of mz", interested_node)
   )
   dev.off()
   plot(g_intrest,
@@ -792,9 +792,10 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
        edge.label = edge.attributes(g_intrest)$linktype,
        vertex.size = 10,
        edge.arrow.size = 0.05,
-       main = paste("Subnetwork of mz", target_mz)
+       main = paste("Subnetwork of mz", interested_node)
   )
 }
+merge_node_list[merge_node_list$ID==1862,]
 test=data.frame(vertex.attributes(g_intrest))
 
 
