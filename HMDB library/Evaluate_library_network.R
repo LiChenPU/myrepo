@@ -34,18 +34,104 @@ colnames(time)="read_data"
 
 #Clean data
 {
-  hmdb_merge=merge(hmdb_neutralformula,hmdb_endogenous, by.x = "HMDB_ID", by.y = "Accession Number", all=F)
+  hmdb_merge=merge(hmdb_neutralformula,hmdb_endogenous, by.x = "HMDB_ID", by.y = "Accession Number", all=T)
+  
+  #remove formula containing following elements
+  {
   unwanted_elements=c("F", "Br", "As", "Se", "I", "Mg", "Na", "Al", "Si","Gd", "Te",
                       #"Cl",
-                      "Mo", "Zn", "K", "Ga", "Ag", "Bi", "Sn", "Pt", "Ca", "Au")
+                      "Mo", "Zn", "K", "Ga", "Ag", "Bi", "Sn", "Pt", "Ca", "Au","Co",
+                      "Mn","Cr","Cu","Hg",
+                      ")")
   elements_list = sapply(unwanted_elements, grep, hmdb_merge$MF)
-  elements_unlist = unlist(elements_list)
+  elements_list2 = sapply(unwanted_elements, grep, hmdb_merge$Formula)
+  metal_nonmetal_list = grep("metal", hmdb_merge$`Super-Class`)
+  
+  elements_unlist = unique(c(unlist(elements_list),unlist(elements_list2),metal_nonmetal_list))
   data_known_no_elements = hmdb_merge[-elements_unlist,]
-  
   hmdb_merge=data_known_no_elements
+  }
+
+  #add back formula that is not present in sdf list
+  {
+  test = hmdb_merge[is.na(hmdb_merge$Name.x),]
+  test$Name.x=test$Name.y
+  test$MF = test$Formula
+  remove=c()
+  for(i in 1:nrow(test)){
+    if(!isvalid.formula(get.formula(test$MF[i]))){
+      remove=c(remove,i)
+      next
+    }
+    test$Exact_Mass[i] = get.formula(test$MF[i])@mass
+    
+  }
+  test3= test$Exact_Mass-test$`Monoisotopic mass`
+  remove=unique(c(remove,which(test3>0.0001|test3<(-0.0001))))
+  test=test[-remove,]
+  hmdb_merge=merge(hmdb_merge[!(is.na(hmdb_merge$Name.x)|is.na(hmdb_merge$Status)),],test,all=T)
+  }
   
+  
+  
+  
+  
+  hmdb_quantified = hmdb_merge[hmdb_merge$Status=="quantified",]
+  hmdb_detected = hmdb_merge[hmdb_merge$Status=="detected",]
+  hmdb_expected = hmdb_merge[hmdb_merge$Status=="expected",]
+  hmdb_predicted = hmdb_merge[hmdb_merge$Status=="predicted",]
+  
+  hmdb_unique = function(hmdb_quantified){
+    temp_ls = list()
+    n=1
+    for(i in unique(hmdb_quantified$MF)){
+      temp_df = hmdb_quantified[hmdb_quantified$MF==i,]
+      temp_df$Name.x[1] = paste(temp_df$Name.x, collapse = "; ")
+      temp_ls[[n]] = temp_df[1,]
+      n=n+1
+    }
+    hmdb_quantified_unique=bind_rows(temp_ls)
+    return(hmdb_quantified_unique)
+  }
+  
+  hmdb_detected_quantified=merge(hmdb_quantified,hmdb_detected,all=T)
+  hmdb_detected_quantified_unique = hmdb_unique(hmdb_detected_quantified)
+  
+  ##manual fix Stearoylglycerophosphocholine from "C26H55NO7P" to "C26H54NO7P"
+  hmdb_detected_quantified_unique$MF[which(hmdb_detected_quantified_unique$MF=="C26H55NO7P")] = "C26H54NO7P"
+  remove=c()
+  for(i in 1:nrow(hmdb_detected_quantified_unique)){
+    if(i%%1000==0){
+      print(i)
+    }
+    if(!isvalid.formula(get.formula(hmdb_detected_quantified_unique$MF[i]))){
+      remove=c(remove,i)
+      next
+    }
+  }
+  hmdb_detected_quantified_unique=hmdb_detected_quantified_unique[-remove,]
+  
+  hmdb_merge_unique = hmdb_unique(hmdb_merge)
+  hmdb_merge_unique$MF[which(hmdb_merge_unique$MF=="C26H55NO7P")] = "C26H54NO7P"
+  remove=c()
+  for(i in 1:nrow(hmdb_merge_unique)){
+    if(i%%1000==0){
+      print(i)
+    }
+    if(!isvalid.formula(get.formula(hmdb_merge_unique$MF[i]))){
+      remove=c(remove,i)
+      next
+    }
+  }
+  hmdb_merge_unique=hmdb_merge_unique[-remove,]
+  
+  write.csv(hmdb_detected_quantified_unique,"HMDB_detected_nodes.csv")
+  write.csv(hmdb_merge_unique,"HMDB_all_nodes.csv")
   
 }
+
+  
+  
 
 table(hmdb_merge$Status)
 
