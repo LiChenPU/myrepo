@@ -105,17 +105,6 @@ M_ELECTRON=0.00054857990943
 time = Sys.time()
 iteration=0
 
-
-mz_neutral = 307.0838
-#mz_neutral = 506.9958
-mz_neutral = 181.0739
-#mz_neutral = 1115.3088
-mz_neutral = 745.0911
-mz_neutral = 127.9430
-
-
-
-
 ##Core code calculate formula given mz
 mz_formula = function(mz_neutral, ppm)
 {
@@ -186,7 +175,19 @@ formula_df = bind_rows(temp_formula_list)
 return(formula_df)
 }
 
+
+
+
+mz_neutral = 307.0838
+#mz_neutral = 506.9958
+mz_neutral = 181.0739
+#mz_neutral = 1115.3088
+mz_neutral = 745.0911
+mz_neutral = 169.9964
+
 ppm = 10
+mz_formula_df = mz_formula(mz_neutral, ppm)
+
 timer = Sys.time()
 
 for(i in 1:nrow(unknown_nodes)){
