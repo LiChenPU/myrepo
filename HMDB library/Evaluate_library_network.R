@@ -125,12 +125,42 @@ colnames(time)="read_data"
   }
   hmdb_merge_unique=hmdb_merge_unique[-remove,]
   
-  write.csv(hmdb_detected_quantified_unique,"HMDB_detected_nodes.csv")
-  write.csv(hmdb_merge_unique,"HMDB_all_nodes.csv")
-  
+
 }
 
+
+##adapt list into format read by Network_ID code
+{
   
+  network_id_node_format = data.frame(ID = as.numeric(),
+                                      Exact_mass = as.numeric(),
+                                      MF = as.character(),
+                                      compound_name = as.character(),
+                                      category = as.numeric(),
+                                      stringsAsFactors = F)
+  
+  HMDB_detected_nodes = data.frame(ID = 1:nrow(hmdb_detected_quantified_unique),
+                                      Exact_mass = hmdb_detected_quantified_unique$Exact_Mass,
+                                      MF = hmdb_detected_quantified_unique$MF,
+                                      compound_name = hmdb_detected_quantified_unique$MF,
+                                      category = 0,
+                                      stringsAsFactors = F)
+  
+  HMDB_all_nodes = data.frame(ID = 1:nrow(hmdb_merge_unique),
+                                   Exact_mass = hmdb_merge_unique$Exact_Mass,
+                                   MF = hmdb_merge_unique$MF,
+                                   compound_name = hmdb_merge_unique$MF,
+                                   category = 0,
+                                   stringsAsFactors = F)
+  
+  
+  write_csv(HMDB_detected_nodes,"HMDB_detected_nodes.csv")
+  write_csv(HMDB_all_nodes,"HMDB_all_nodes.csv")
+  
+  
+  
+  
+}
   
 
 table(hmdb_merge$Status)
