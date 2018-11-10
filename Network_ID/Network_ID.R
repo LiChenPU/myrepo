@@ -21,10 +21,11 @@ colnames(time)="read_data"
 {
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  getwd()
   output_csv=T
   
   #data1 records select data from raw table.
-  HMDB_node_list = read_csv("HMDB_node_list.csv")
+  HMDB_node_list = read_csv("HMDB_detected_nodes.csv")
   data(isotopes)
   HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
   
