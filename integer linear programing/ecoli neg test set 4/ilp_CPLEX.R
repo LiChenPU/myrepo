@@ -197,7 +197,7 @@ time = Sys.time()
 ##Core codes
 
 #Construct constraint matrix 
-read_from_csv = F
+read_from_csv = T
 if(!read_from_csv)
 {
   #Unknown nodes
@@ -387,7 +387,7 @@ print(Sys.time()-time)
 
 
 
-#CPLEX solver
+#CPLEX solver parameter
 {
 
   
@@ -418,13 +418,13 @@ print(Sys.time()-time)
 ##Permutation to edge score 
 
 solution_ls = list()
-for(i in 1:10){
+for(i in 1:1){
   
 {
   edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
                                                               mean = 0,
                                                               sd = 0.1))
-  obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
+  #obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
 }
   
 {
