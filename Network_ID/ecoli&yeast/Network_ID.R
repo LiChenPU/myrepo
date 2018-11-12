@@ -31,8 +31,7 @@ colnames(time)="read_data"
   #HMDB_edge_list = read_csv("HMDB_edge_list.csv")
   df_raw = read.csv("hmdb_adduct.csv")
   #df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="Adduct",]
-  df_raw = df_raw[df_raw$high_blank,]
-  
+  df_raw = df_raw[(!is.na(df_raw$Formula))|(!df_raw$high_blank),]
   
   #df_raw = sample_n(df_raw, 4000, replace = F)
   #df_raw = df_raw[1:2000,]
@@ -138,9 +137,11 @@ time["edge_list"]=data.frame(Sys.time())
 
 
 #Edge list
-mass_tol = 0.001
+#mass_tol = 0.001
 mass_ppm = 5/10^6
 merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
+
+timer=Sys.time()
 {
   edge_ls = list()
   temp_mz_list=merge_node_list$mz
@@ -158,7 +159,7 @@ merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
         temp_ms = temp_mz_list[j]-temp_mz_list[i]
         
         if(abs(temp_ms-temp_fg)<mass_tol){
-          temp_edge_list[nrow(temp_edge_list)+1,]=c(merge_node_list$ID[i], merge_node_list$ID[j], k, (temp_ms-temp_fg))
+          temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], merge_node_list$ID[j], k, (temp_ms-temp_fg)/temp_mz_list[j]*1E6)
         }
         if((temp_ms-temp_fg)>mass_tol){break}
       }
@@ -173,6 +174,8 @@ merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
     edge_ls[[k]]=temp_edge_list
   }
 }
+
+print(Sys.time()-timer)
 edge_list = bind_rows(edge_ls)
 edge_list$linktype=fun_group_1$fun_group[edge_list$linktype]
 #merge_edge_list = edge_list[edge_list$edge_massdif_score>0.7,]
