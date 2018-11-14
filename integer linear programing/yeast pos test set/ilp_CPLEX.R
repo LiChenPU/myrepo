@@ -18,13 +18,13 @@ time = Sys.time()
 
 #Read data
 {
-  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Network_ID/yeast neg test set")
+  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Network_ID/yeast pos test set")
   getwd()
   raw_node_list=read_csv("merge_node_list.csv")
   raw_edge_list=read_csv("merge_edge_list.csv")
   #raw_pred_formula=read_csv("pred_formula_prune.csv")
   raw_pred_formula=read_csv("All_formula_predict.csv")
-  lin_result = read.csv("yeast neg.csv", stringsAsFactors = F)
+  lin_result = read.csv("yeast pos.csv", stringsAsFactors = F)
   
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -498,6 +498,10 @@ test46=unknown_formula[unknown_formula$ILP_result!=0&unknown_formula$ILP_result!
   merge_Lin_ILP_metabolite = merge_Lin_ILP_metabolite[!is.na(merge_Lin_ILP_metabolite$formula.y),]
   merge_Lin_ILP_metabolite_diff = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
                                                              merge_Lin_ILP_metabolite$formula.y,]
+  
+  merge_Lin_ILP_metabolite_diff2 = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
+                                                             merge_Lin_ILP_metabolite$Predict_formula,]
+  
   withoutILP=withILP=0
   for(i in 1:nrow(merge_Lin_ILP_metabolite)){
     if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$Predict_formula[i])

@@ -505,7 +505,8 @@ test46=unknown_formula[unknown_formula$ILP_result!=0&unknown_formula$ILP_result!
     if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$formula.y[i])
     {withILP=withILP+1}
   }
-  withoutILP = sum(merge_Lin_ILP_metabolite$formula_check==merge_Lin_ILP_metabolite$Predict_formula)
+  withoutILP
+  withILP
   
   unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
   
