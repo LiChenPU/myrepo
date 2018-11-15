@@ -425,10 +425,11 @@ solution_ls = list()
 for(i in 1:1){
   
 {
-  edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
-                                                              mean = 0,
-                                                              sd = 0.1))
-  #obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
+  edge_score_permutated = edge_info_sum$edge_score 
+  # edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
+  #                                                             mean = 0,
+  #                                                             sd = 0.1))
+  obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
 }
   
 {
