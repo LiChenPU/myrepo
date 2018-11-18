@@ -10,6 +10,7 @@
   library(Rglpk)
   library(cplexAPI)
   library(enviPat)
+  library(igraph)
 }
 
 
@@ -28,6 +29,7 @@ time = Sys.time()
   
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  read_from_csv = T
 }
 
 
@@ -201,7 +203,7 @@ time = Sys.time()
 ##Core codes
 
 #Construct constraint matrix 
-read_from_csv = F
+
 if(!read_from_csv)
 {
   #Unknown nodes
@@ -443,16 +445,11 @@ for(node in 1:8){
     
   solution_ls[[n]]=result_solution
   n=n+1
- # result_solution=solution_ls[[5*4+5-5]]
-#table(result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)])
-# table(result_solution$x[1:(nrow(unknown_formula))])
-# test_x = as.data.frame(lapply(solution_ls, function(x){return (x[[3]])}))
-# test_x_rowmean = rowMeans(test_x)
-# 
-# 
-# unknown_formula["ILP_result"] = test_x_rowmean[1:nrow(unknown_formula)]
-# test46=unknown_formula[unknown_formula$ILP_result!=0&unknown_formula$ILP_result!=1,]
 
+
+
+  
+  result_solution=solution_ls[[8*6+2]]
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
@@ -476,14 +473,6 @@ for(node in 1:8){
   lin_result["formula_check"]=check_chemform(isotopes,lin_result$formula)$new_formula
   lin_result["ilp_id"]=1:nrow(lin_result)
   
-  
-  #test_formula = unknown_node_CPLEX[unknown_node_CPLEX$formula%in%lin_result$formula_check,]
-  #merge_Lin_ILP = merge(lin_result, test_formula, by.x="formula_check",by.y="formula",all=T)
-  #merge_Lin_ILP["mz_diff"]=merge_Lin_ILP$mz.x-merge_Lin_ILP$mz.y
-  #merge_Lin_ILP["rt_diff"]=merge_Lin_ILP$RT.x-merge_Lin_ILP$RT.y
-  
-    
-    
   merge_Lin_ILP = merge(lin_result, unknown_node_CPLEX, by.x="ilp_id",by.y="ID",all=T)
   merge_Lin_ILP_metabolite = merge_Lin_ILP[merge_Lin_ILP$feature=="Metabolite",]
   merge_Lin_ILP_metabolite = merge_Lin_ILP_metabolite[!is.na(merge_Lin_ILP_metabolite$formula.y),]
@@ -622,27 +611,165 @@ print(paste(c(node,edge,a)))
 # }
 
 
-# 
-# #Other parameters
-# {
-#   #should have number of columns, i.e. j
-#   obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
-#   types <- c(rep("B",nrow(unknown_formula)+nrow(edge_info_sum)))
-#   
-#   #should have number of rows, i.e. i
-#   dir <- c(rep("==",num_unknown_nodes), rep("<=", nrow(edge_info_sum)))
-#   rhs = c(rep(1,num_unknown_nodes),rep(0,nrow(edge_info_sum)))
-#   max <- TRUE
-# }  
-# 
-# 
-# #R glpk Solver
-# ILP_result = Rglpk_solve_LP(obj, mat, dir, rhs, types = types, max = max,
-#                             control = list(tm_limit=10*60*1000,canonicalize_status=F,verbose=T))
-# para = data.frame(ILP_result$solution)
-# unknown_formula["ILP_result"] = para$ILP_result.solution[1:nrow(unknown_formula)]
-# edge_info_sum["ILP_result"] = para$ILP_result.solution[(nrow(unknown_formula)+1):nrow(para)]
 
-# test=data.frame(ILP_result$solution)
-# test=cbind(test,ILP_result$solution)
-# test2=test[test$ILP_result.solution!=test$`ILP_result$solution`,]
+#
+
+
+
+merge_edge_list = edge_list[edge_info_CPLEX$edge_id,]
+merge_node_list = merge(raw_node_list,unknown_node_CPLEX,all=T)
+
+merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+2
+
+merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$Predict_formula[is.na(merge_node_list$formula)]
+merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$MF[is.na(merge_node_list$formula)]
+
+
+
+g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
+colors <- c("white", "red", "orange", "pink", "cyan")
+V(g)$color = colors[merge_node_list$category+1]
+E(g)$color = colors[merge_edge_list$category+1]
+merge_node_list["degree"]=degree(g, mode = c("all"))
+
+
+g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
+colors <- c("white", "red", "orange", "pink", "cyan")
+V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
+E(g_sub)$color = colors[merge_edge_list$category+1]
+
+
+
+#Basic graph characteristics, distance, degree, betweeness
+{
+  #distance
+  farthest_vertices(g) 
+  #Degree
+  g.degree <- degree(g, mode = c("all"))
+  table(g.degree)
+  hist(g.degree)
+  # which.max(g.degree)
+  merge_node_list_0degree = merge_node_list[g.degree==0,]
+  #Betweenness
+  g.b <- betweenness(g, directed = T)
+  plot(g_sub,
+       vertex.label = NA,
+       #edge.color = 'black',
+       vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+       edge.arrow.size = 0.05,
+       layout = layout_nicely(g_sub))
+}
+
+
+
+
+#Analyze the network/subgraph of specific node
+mainDir = dirname(rstudioapi::getSourceEditorContext()$path)
+subDir = "subgraph of specific node"
+dir.create(file.path(mainDir, subDir),showWarnings=F)
+setwd(file.path(mainDir, subDir))
+
+merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>5,]
+for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
+#  for(i in 1:1){
+#Analyze the network/subgraph of specific node
+{
+  temp = merge_node_list[merge_Lin_ILP_unknown_match_Sig5$ilp_id[i],]
+  #temp = merge_node_list[424,]
+  interested_node = paste(temp$ID)
+  target_mz = round(temp$mz,digits=4)
+  target_rt = round(temp$RT,digits=2)
+  step = temp$steps+1
+  g_intrest <- make_ego_graph(g_sub, 2, nodes = interested_node, mode = c("all"))[[1]]
+  
+  # test=data.frame(vertex.attributes(g_sub))
+  #dists = distances(g_intrest, interested_node)
+  
+  #V(g_intrest)$color <- colors[dists+1]
+
+  plot(g_intrest,
+       vertex.label = vertex.attributes(g_intrest)$formula,
+       #vertex.label = vertex.attributes(g_intrest)$mz,
+       #vertex.label = vertex.attributes(g_intrest)$ID,
+
+       vertex.label.color = "black",
+       vertex.label.cex = 1,
+       #edge.color = 'black',
+       edge.label = edge.attributes(g_intrest)$linktype,
+       vertex.size = 10,
+       edge.arrow.size = .5,
+       main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
+  )
+}
+
+
+
+png(filename=paste("mz=", target_mz," RT=",target_rt,".png",sep=""),
+    width = 2400, height=2400,
+    res=300)
+plot(g_intrest,
+     vertex.label = vertex.attributes(g_intrest)$formula,
+     #vertex.label = vertex.attributes(g_intrest)$mz,
+     #vertex.label = vertex.attributes(g_intrest)$ID,
+     vertex.label.color = "black",
+     vertex.label.cex = 1,
+     #edge.color = 'black',
+     edge.label = edge.attributes(g_intrest)$linktype,
+     vertex.size = 10,
+     edge.arrow.size = .5,
+     main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
+)
+dev.off()
+output_network_csv=data.frame(vertex.attributes(g_intrest))
+#output_network_csv = merge_node_list[vertex.attributes(g_intrest)$compound_name,]
+H_mass = 1.00782503224
+e_mass = 0.00054857990943
+mode = 1
+output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
+write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep=""), row.names=F)
+}
+
+
+#Analysis of Subnetwork 
+{
+  clu=components(g_sub)
+  #subnetwork criteria 
+  subnetwork = igraph::groups(clu)[table(clu$membership)>1&table(clu$membership)<3]
+  g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
+  for (i in 1:length(subnetwork)){
+    plot(g_subnetwork_list[[i]][[1]],
+         #vertex.color = 'white',
+         vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$formula,
+         #vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$mz,
+         vertex.label.color = "red",
+         vertex.label.cex = 1,
+         #edge.color = 'black',
+         edge.label = edge.attributes(g_subnetwork_list[[i]][[1]])$linktype,
+         vertex.size = 10,
+         edge.arrow.size = 2/length(vertex.attributes(g_subnetwork_list[[i]][[1]])$formula),
+         main = paste("Subnetwork",names(subnetwork)[[i]])
+    )
+  }
+  merge_node_list[subnetwork[["4"]],]
+}
+
+
+
+
+
+##For slight perturbation to score function
+#table(result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)])
+# table(result_solution$x[1:(nrow(unknown_formula))])
+# test_x = as.data.frame(lapply(solution_ls, function(x){return (x[[3]])}))
+# test_x_rowmean = rowMeans(test_x)
+# 
+# 
+# unknown_formula["ILP_result"] = test_x_rowmean[1:nrow(unknown_formula)]
+# test46=unknown_formula[unknown_formula$ILP_result!=0&unknown_formula$ILP_result!=1,]
+
+
+## IDEAS ##
+# Solution pool for current answer to look for potential other good results
+# permutation to score function - to test the stability of the results
+
+
