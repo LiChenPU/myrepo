@@ -46,6 +46,7 @@ mode = 1
   raw["ID"]=1:nrow(raw)
   raw["MF"]=NA
   raw["category"]=2
+  raw$category[raw$feature=="Metabolite"]=1
   raw["compound_name"]=NA
   
   # node_list = data.frame(1:nrow(raw),raw$mz, raw$MF, raw$name, raw$category, stringsAsFactors=FALSE)
