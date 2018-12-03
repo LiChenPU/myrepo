@@ -449,7 +449,7 @@ for(node in 1:8){
 
 
   
-  result_solution=solution_ls[[8*6+2]]
+  #result_solution=solution_ls[[8*6+2]]
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
@@ -619,12 +619,12 @@ print(paste(c(node,edge,a)))
 merge_edge_list = edge_list[edge_info_CPLEX$edge_id,]
 merge_node_list = merge(raw_node_list,unknown_node_CPLEX,all=T)
 
-merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+2
-
 merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$Predict_formula[is.na(merge_node_list$formula)]
 merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$MF[is.na(merge_node_list$formula)]
 
-
+merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>5,]
+merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+1
+merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id]+1
 
 g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
 colors <- c("white", "red", "orange", "pink", "cyan")
@@ -646,12 +646,9 @@ E(g_sub)$color = colors[merge_edge_list$category+1]
   farthest_vertices(g) 
   #Degree
   g.degree <- degree(g, mode = c("all"))
-  table(g.degree)
-  hist(g.degree)
   # which.max(g.degree)
-  merge_node_list_0degree = merge_node_list[g.degree==0,]
   #Betweenness
-  g.b <- betweenness(g, directed = T)
+  #g.b <- betweenness(g, directed = T)
   plot(g_sub,
        vertex.label = NA,
        #edge.color = 'black',
@@ -669,7 +666,21 @@ subDir = "subgraph of specific node"
 dir.create(file.path(mainDir, subDir),showWarnings=F)
 setwd(file.path(mainDir, subDir))
 
-merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>5,]
+
+
+clu=components(g_sub)
+#subnetwork criteria 
+subnetwork = igraph::groups(clu)[table(clu$membership)<1000]
+
+g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
+
+
+find_node_in_subgraph=function(node_name, subnetwork){
+for(i in 1:length(subnetwork)){
+  if(node_name%in% subnetwork[[i]]){return(i)}
+}
+}
+
 for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
 #  for(i in 1:1){
 #Analyze the network/subgraph of specific node
@@ -680,7 +691,14 @@ for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
   target_mz = round(temp$mz,digits=4)
   target_rt = round(temp$RT,digits=2)
   step = temp$steps+1
-  g_intrest <- make_ego_graph(g_sub, 2, nodes = interested_node, mode = c("all"))[[1]]
+  
+  target_subgraph = find_node_in_subgraph(as.character(merge_Lin_ILP_unknown_match_Sig5$ilp_id[1]),subnetwork)
+  
+  if(target_subgraph!=1){
+    
+    g_interest = make_ego_graph(g_sub, diameter(g_sub), nodes = subnetwork[[target_subgraph]], mode = c("all"))[[1]]
+  }
+  else{g_intrest <- make_ego_graph(g_sub, 2, nodes = interested_node, mode = c("all"))[[1]]}
   
   # test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
@@ -734,9 +752,11 @@ write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep
 {
   clu=components(g_sub)
   #subnetwork criteria 
-  subnetwork = igraph::groups(clu)[table(clu$membership)>1&table(clu$membership)<3]
+  subnetwork = igraph::groups(clu)[table(clu$membership)<1000]
+  
   g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
   for (i in 1:length(subnetwork)){
+    if(!any(merge_node_list$category[as.numeric(subnetwork[[i]])]>3)){next}
     plot(g_subnetwork_list[[i]][[1]],
          #vertex.color = 'white',
          vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$formula,
@@ -750,7 +770,7 @@ write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep
          main = paste("Subnetwork",names(subnetwork)[[i]])
     )
   }
-  merge_node_list[subnetwork[["4"]],]
+  
 }
 
 
