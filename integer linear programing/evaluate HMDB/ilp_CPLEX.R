@@ -22,6 +22,7 @@ time = Sys.time()
   setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Network_ID/evaluate within HMDB")
   getwd()
   raw_node_list=read_csv("merge_node_list.csv")
+  raw_node_list$category[-1]=1
   raw_edge_list=read_csv("merge_edge_list.csv")
   #raw_pred_formula=read_csv("pred_formula_prune.csv")
   raw_pred_formula=read_csv("All_formula_predict.csv")
@@ -406,8 +407,8 @@ if(!read_from_csv)
 
 solution_ls = list()
 n=1
-for(node in 1:8){
-  for(edge in 1:8){
+for(node in 0:8){
+  for(edge in 0:8){
   
     node_penalty= -0.1*node
     edge_penalty= -0.1*edge
@@ -418,7 +419,7 @@ for(node in 1:8){
   #                                                             sd = 0.1))
   obj <- c(rep(node_penalty, nrow(unknown_formula)), edge_score_permutated+edge_penalty)
 }
-  
+  time=Sys.time()
 {
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
@@ -432,11 +433,23 @@ for(node in 1:8){
   mipoptCPLEX(env, prob)
   
   result_solution=solutionCPLEX(env, prob)
+  getStatCPLEX(env, prob)
   #writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
+  
+  {
+    #param <- getChgParmCPLEX(env)
+    #solnInfoCPLEX(env, prob)
+
+    #getStatCPLEX(env, prob)
+
+  }
+  
+  
 }
   
+  print(Sys.time()-time)
   #print(i)
     
   solution_ls[[n]]=result_solution
@@ -445,61 +458,26 @@ for(node in 1:8){
 
 
   
-  #result_solution=solution_ls[[8*6+2]]
+  #result_solution=solution_ls[[1+8*0+0]]
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
-  edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
+  #edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
 
   #merge_formula$id[merge_formula$ilp_index==584]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
-  edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
-
-  lin_result = lin_result[lin_result$feature=="Metabolite"| lin_result$feature=="[]",]
-  lin_result = lin_result[order(lin_result$mz),]
+  #edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
   
-  data("isotopes")
-  lin_result["formula_check"]=check_chemform(isotopes,lin_result$formula)$new_formula
-  lin_result["ilp_id"]=1:nrow(lin_result)
+  unknown_node_CPLEX = unknown_node_CPLEX[!is.na(unknown_node_CPLEX$formula),]
   
-  merge_Lin_ILP = merge(lin_result, unknown_node_CPLEX, by.x="ilp_id",by.y="ID",all=T)
-  merge_Lin_ILP_metabolite = merge_Lin_ILP[merge_Lin_ILP$feature=="Metabolite",]
-  merge_Lin_ILP_metabolite = merge_Lin_ILP_metabolite[!is.na(merge_Lin_ILP_metabolite$formula.y),]
-  merge_Lin_ILP_metabolite_diff = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
-                                                             merge_Lin_ILP_metabolite$formula.y,]
-  merge_Lin_ILP_metabolite_diff2 = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
-                                                             merge_Lin_ILP_metabolite$Predict_formula,]
+  unknown_pred_MF_diff = unknown_node_CPLEX[unknown_node_CPLEX$Predict_formula!=
+                                               unknown_node_CPLEX$MF,]
+  unknown_MF_ILP_diff = unknown_node_CPLEX[unknown_node_CPLEX$MF!=
+                                               unknown_node_CPLEX$formula,]
   
-  
-  # withoutILP=withILP=0
-  # for(i in 1:nrow(merge_Lin_ILP_metabolite)){
-  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$Predict_formula[i])
-  #   {withoutILP=withoutILP+1}
-  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$formula.y[i])
-  #   {withILP=withILP+1}
-  # }
-  
-  unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
-  
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C7H15O4P1S2"),
-                                               which(edge_info_sum$formula2=="C7H15O4P1S2"))),]
-  unknown_formula[unknown_formula$id==merge_formula$id[which(merge_formula$ilp_index==3584)],]
-  edge_info_sum_debug2 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C6H11O9P1"),
-                                               which(edge_info_sum$formula2=="C6H11O9P1"))),]
-  edge_info_sum_debug3 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C11H14O6"),
-                                                which(edge_info_sum$formula2=="C11H14O6"))),]
-  
-  ## C5H7NOS 10 ppm off
-  
-  
-  
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C19H18O13"),
-                                               which(edge_info_sum$formula2=="C19H18O13"))),]
-  # raw_merge = merge(raw, unknown_formula_CPLEX, by.x = "ID", by.y = "id",all=T)
-  # raw_merge_diff = raw_merge[raw_merge$formula.x!=raw_merge$formula.y,]
 }
 
 
@@ -567,40 +545,15 @@ elem_num_query = function(formula2,elem_query){
 }
 
 
-#unknown analysis
-{
-  merge_Lin_ILP_unknown_pred = merge_Lin_ILP[merge_Lin_ILP$feature=="[]"&!is.na(merge_Lin_ILP$formula.y),c(1:9,17:28)]
-  merge_Lin_ILP_unknown_pred["N_match"]=F
-  merge_Lin_ILP_unknown_pred["C_match"]=F
-  
-  for(i in 1:nrow(merge_Lin_ILP_unknown_pred)){
-    C_pred = elem_num_query(merge_Lin_ILP_unknown_pred$formula.y[i],"C")
-    if(C_pred == merge_Lin_ILP_unknown_pred$C.num[i]) {merge_Lin_ILP_unknown_pred$C_match[i]=T}
-    N_pred = elem_num_query(merge_Lin_ILP_unknown_pred$formula.y[i],"N")
-    if(N_pred == merge_Lin_ILP_unknown_pred$N.num[i]) {merge_Lin_ILP_unknown_pred$N_match[i]=T}
-    
-  }
-  merge_Lin_ILP_unknown_match = merge_Lin_ILP_unknown_pred[merge_Lin_ILP_unknown_pred$N_match&
-                                                             merge_Lin_ILP_unknown_pred$C_match,]
-}
 
-
-a = vector()
-a[1]=nrow(merge_Lin_ILP_metabolite_diff)
-a[2]=nrow(merge_Lin_ILP_metabolite)
-a[3]=nrow(merge_Lin_ILP_unknown_match)
-a[4]=nrow(merge_Lin_ILP_unknown_pred)
-
-print(paste(c(node,edge,a)))
+print(paste(node, edge,
+      nrow(unknown_node_CPLEX),
+      nrow(unknown_pred_MF_diff),
+      nrow(unknown_MF_ILP_diff)
+      ))
 }}
   
-# {
-#   param <- getChgParmCPLEX(env)
-#   solnInfoCPLEX(env, prob)
-#   
-#   getStatCPLEX(env, prob)
-#   
-# }
+
 
 
 
