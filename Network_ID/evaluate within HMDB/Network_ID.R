@@ -24,7 +24,7 @@ colnames(time)="read_data"
   output_csv=T
   
   #data1 records select data from raw table.
-  HMDB_node_list = read_csv("HMDB_detected_nodes.csv")
+  HMDB_node_list = read_csv("HMDB_all_nodes.csv")
   data(isotopes)
   HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
   
@@ -679,6 +679,15 @@ for(i in 1:nrow(merge_node_list)){
   merge_node_list$Predict_formula[[i]]=sf[[i]]$formula[1]
   merge_node_list$Score[[i]]=sf[[i]]$score[1]
 }
+
+merge_node_list["same"]=(merge_node_list$Predict_formula==merge_node_list$MF)
+
+merge_node_list_false = merge_node_list[!merge_node_list$same,]
+merge_node_list_pred = merge_node_list[!is.na(merge_node_list$Predict_formula),]
+merge_node_list_same = merge_node_list_pred[merge_node_list_pred$same,]
+
+test = merge_node_list[merge_node_list$degree==0,]
+
 # test=sample_n(All_formula_predict,1000)
 # for(i in 1:1000){
 #   if(!grepl("-",test$formula[i]))
@@ -729,6 +738,42 @@ colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
 V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
 E(g_sub)$color = colors[edge_list_sub$category+1]
 
+g_correct = graph_from_data_frame(d = edge_list_sub[edge_list_sub$node1%in%merge_node_list_same$ID
+                                                    &edge_list_sub$node2%in%merge_node_list_same$ID,], 
+                                  vertices = merge_node_list_same, directed = FALSE)
+colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
+V(g_correct)$color = colors[vertex.attributes(g_correct)$category+1]
+E(g_correct)$color = colors[edge_list_sub[edge_list_sub$node1%in%merge_node_list_same$ID
+                                          &edge_list_sub$node2%in%merge_node_list_same$ID,"category"]+1]
+
+#Plot TCA related graph
+{
+  merge_node_list_same[grep("C6H6O6", merge_node_list_same$MF),]
+  
+  g_intrest <- make_ego_graph(g_sub,1, nodes = "45", mode = c("all"))[[1]]
+  
+  plot(g_intrest,
+       #vertex.color = 'white',
+       #vertex.label = vertex.attributes(g_intrest)$Predict_formula,
+       #vertex.label = vertex.attributes(g_intrest)$MF,
+       #vertex.label = vertex.attributes(g_intrest)$RT,
+       #vertex.label = vertex.attributes(g_intrest)$mz,
+       vertex.label = vertex.attributes(g_intrest)$ID,
+       #vertex.label = vertex.attributes(g_intrest)$originID,
+       vertex.label.color = "black",
+       vertex.label.cex = 1,
+       #edge.color = 'black',
+       edge.label = edge.attributes(g_intrest)$linktype,
+       vertex.size = 10,
+       edge.arrow.size = 0.05
+       
+  )
+}
+
+
+graph.union()
+
+
 #Basic graph characteristics, distance, degree, betweeness
 {
   #distance
@@ -746,12 +791,12 @@ E(g_sub)$color = colors[edge_list_sub$category+1]
   g.b <- betweenness(g, directed = T)
   colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
   V(g)$color <- colors[merge_node_list$category+1]
-  plot(g_sub,
+  plot(g_correct,
        vertex.label = NA,
        #edge.color = 'black',
        vertex.size = sqrt(degree(g_sub, mode = c("all"))),
        edge.arrow.size = 0.05,
-       layout = layout_nicely(g_sub))
+       layout = layout_nicely(g_correct))
 }
 
 target_mz = 645.09594727
@@ -760,7 +805,7 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
 #Analyze the network/subgraph of specific node
 {
   interested_node = "174"
-  g_intrest <- make_ego_graph(g_sub,1, nodes = interested_node, mode = c("all"))[[1]]
+  g_intrest <- make_ego_graph(g_sub,1, nodes = 1:3, mode = c("all"))[[1]]
   test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
   colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
@@ -818,7 +863,7 @@ merge_node_list[which(merge_node_list$Predict_formula=="C15H4O5"),]
 {
   clu=components(g_sub)
   #subnetwork criteria 
-  subnetwork = igraph::groups(clu)[table(clu$membership)>3&table(clu$membership)<100]
+  subnetwork = igraph::groups(clu)[table(clu$membership)>=2&table(clu$membership)<100]
   g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
   for (i in 1:length(subnetwork)){
     plot(g_subnetwork_list[[i]][[1]],
