@@ -701,6 +701,7 @@ for (i in 2:ncol(time)){
 names(time_used)=colnames(time)[1:(ncol(time)-1)]
 time_used
 
+
 if(output_csv){
   write.csv(merge_node_list, "merge_node_list.csv",row.names = F)
   write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
@@ -754,12 +755,15 @@ E(g_sub)$color = colors[edge_list_sub$category+1]
        layout = layout_nicely(g_sub))
 }
 
+interested_node="1797"
+g_intrest <- make_ego_graph(g,1, nodes = interested_node, mode = c("all"))[[1]]
+
 target_mz = 645.09594727
 ppm = 10/10^6
 merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz*ppm,]
 #Analyze the network/subgraph of specific node
 {
-  interested_node = "174"
+  interested_node = "337"
   g_intrest <- make_ego_graph(g_sub,1, nodes = interested_node, mode = c("all"))[[1]]
   test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
@@ -786,11 +790,11 @@ merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz
   dev.off()
   plot(g_intrest,
        #vertex.color = 'white',
-       #vertex.label = vertex.attributes(g_intrest)$Predict_formula,
+       vertex.label = vertex.attributes(g_intrest)$Predict_formula,
        #vertex.label = vertex.attributes(g_intrest)$MF,
        #vertex.label = vertex.attributes(g_intrest)$RT,
        #vertex.label = vertex.attributes(g_intrest)$mz,
-       vertex.label = vertex.attributes(g_intrest)$ID,
+       #vertex.label = vertex.attributes(g_intrest)$ID,
        #vertex.label = vertex.attributes(g_intrest)$originID,
        vertex.label.color = "black",
        vertex.label.cex = 1,
