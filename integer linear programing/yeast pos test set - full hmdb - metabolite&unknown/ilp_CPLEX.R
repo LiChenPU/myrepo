@@ -410,8 +410,8 @@ print(Sys.time()-time)
 
 solution_ls = list()
 n=1
-for(node in 1:8){
-  for(edge in 1:8){
+for(node in 0:8){
+  for(edge in 0:8){
   
     node_penalty= -0.1*node
     edge_penalty= -0.1*edge
@@ -450,22 +450,19 @@ for(node in 1:8){
 
   
   #result_solution=solution_ls[[8*6+2]]
+  result_solution=solution_ls[[1]]
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
   edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
-  
-  
-  
+
   #merge_formula$id[merge_formula$ilp_index==584]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
-  
-  
-  
+
   lin_result = lin_result[lin_result$feature=="Metabolite"| lin_result$feature=="[]",]
   lin_result = lin_result[order(lin_result$mz),]
   
@@ -622,19 +619,19 @@ merge_node_list = merge(raw_node_list,unknown_node_CPLEX,all=T)
 merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$Predict_formula[is.na(merge_node_list$formula)]
 merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$MF[is.na(merge_node_list$formula)]
 
-merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>5,]
+merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>4.5,]
 merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+1
 merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id]+1
 
 g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
-colors <- c("white", "red", "orange", "pink", "cyan")
+colors <- c("white", "red", "orange", "yellow", "green")
 V(g)$color = colors[merge_node_list$category+1]
 E(g)$color = colors[merge_edge_list$category+1]
 merge_node_list["degree"]=degree(g, mode = c("all"))
 
 
 g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
-colors <- c("white", "red", "orange", "pink", "cyan")
+colors <- c("white", "red", "orange", "yellow", "green")
 V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
 E(g_sub)$color = colors[merge_edge_list$category+1]
 
@@ -681,12 +678,14 @@ for(i in 1:length(subnetwork)){
 }
 }
 
+find_node_in_subgraph(337, subnetwork)
+
 for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
 #  for(i in 1:1){
 #Analyze the network/subgraph of specific node
 {
   temp = merge_node_list[merge_Lin_ILP_unknown_match_Sig5$ilp_id[i],]
-  #temp = merge_node_list[424,]
+  temp = merge_node_list[337,]
   interested_node = paste(temp$ID)
   target_mz = round(temp$mz,digits=4)
   target_rt = round(temp$RT,digits=2)
@@ -695,13 +694,9 @@ for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
   target_subgraph = find_node_in_subgraph(as.character(merge_Lin_ILP_unknown_match_Sig5$ilp_id[1]),subnetwork)
   
   if(target_subgraph!=1){
-    
     g_interest = make_ego_graph(g_sub, diameter(g_sub), nodes = subnetwork[[target_subgraph]], mode = c("all"))[[1]]
-  }
-  else{g_intrest <- make_ego_graph(g_sub, 2, nodes = interested_node, mode = c("all"))[[1]]}
-  
-  # test=data.frame(vertex.attributes(g_sub))
-  #dists = distances(g_intrest, interested_node)
+  }else
+    {g_intrest <- make_ego_graph(g_sub, 1, nodes = interested_node, mode = c("all"))[[1]]}
   
   #V(g_intrest)$color <- colors[dists+1]
 
@@ -719,8 +714,6 @@ for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
        main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
   )
 }
-
-
 
 png(filename=paste("mz=", target_mz," RT=",target_rt,".png",sep=""),
     width = 2400, height=2400,
@@ -744,7 +737,7 @@ H_mass = 1.00782503224
 e_mass = 0.00054857990943
 mode = 1
 output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
-write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep=""), row.names=F)
+write.csv(output_network_csv[,-5], paste("mz=", target_mz," RT=",target_rt,".csv",sep=""), row.names=F)
 }
 
 
@@ -756,7 +749,8 @@ write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep
   
   g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
   for (i in 1:length(subnetwork)){
-    if(!any(merge_node_list$category[as.numeric(subnetwork[[i]])]>3)){next}
+    if(subnetwork[[i]])
+    if(!any(merge_node_list$category[as.numeric(subnetwork[[i]])]>2)){next}
     plot(g_subnetwork_list[[i]][[1]],
          #vertex.color = 'white',
          vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$formula,
@@ -770,7 +764,6 @@ write.csv(output_network_csv, paste("mz=", target_mz," RT=",target_rt,".csv",sep
          main = paste("Subnetwork",names(subnetwork)[[i]])
     )
   }
-  
 }
 
 
