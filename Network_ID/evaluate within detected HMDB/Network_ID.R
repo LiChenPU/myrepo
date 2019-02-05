@@ -24,7 +24,7 @@ colnames(time)="read_data"
   output_csv=T
   
   #data1 records select data from raw table.
-  HMDB_node_list = read_csv("HMDB_all_nodes.csv")
+  HMDB_node_list = read_csv("HMDB_detected_nodes.csv")
   data(isotopes)
   HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
   
@@ -686,7 +686,7 @@ merge_node_list_false = merge_node_list[!merge_node_list$same,]
 merge_node_list_pred = merge_node_list[!is.na(merge_node_list$Predict_formula),]
 merge_node_list_same = merge_node_list_pred[merge_node_list_pred$same,]
 
-test = merge_node_list[merge_node_list$degree==0,]
+
 
 # test=sample_n(All_formula_predict,1000)
 # for(i in 1:1000){
@@ -740,7 +740,7 @@ E(g_sub)$color = colors[edge_list_sub$category+1]
 
 g_correct = graph_from_data_frame(d = edge_list_sub[edge_list_sub$node1%in%merge_node_list_same$ID
                                                     &edge_list_sub$node2%in%merge_node_list_same$ID,], 
-                                  vertices = merge_node_list_same, directed = FALSE)
+                                  vertices = merge_node_list_same, directed = T)
 colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
 V(g_correct)$color = colors[vertex.attributes(g_correct)$category+1]
 E(g_correct)$color = colors[edge_list_sub[edge_list_sub$node1%in%merge_node_list_same$ID
@@ -748,17 +748,52 @@ E(g_correct)$color = colors[edge_list_sub[edge_list_sub$node1%in%merge_node_list
 
 #Plot TCA related graph
 {
+  merge_node_list_same[grep("C6H8O7", merge_node_list_same$MF),]
   merge_node_list_same[grep("C6H6O6", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C5H6O5", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C4H6O4", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C4H4O4", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C4H6O5", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C4H4O5", merge_node_list_same$MF),]
+  merge_node_list_same[grep("C5H8O5", merge_node_list_same$MF),]
   
-  g_intrest <- make_ego_graph(g_sub,1, nodes = "45", mode = c("all"))[[1]]
+  g_intrest1 <- make_ego_graph(g_correct,1, nodes = "56", mode = c("all"))[[1]]
+  g_intrest2 <- make_ego_graph(g_correct,1, nodes = "45", mode = c("all"))[[1]]
+  g_intrest3 <- make_ego_graph(g_correct,1, nodes = "117", mode = c("all"))[[1]]
+  g_intrest4 <- make_ego_graph(g_correct,1, nodes = "113", mode = c("all"))[[1]]
+  g_intrest5 <- make_ego_graph(g_correct,1, nodes = "80", mode = c("all"))[[1]]
+  g_intrest6 <- make_ego_graph(g_correct,1, nodes = "92", mode = c("all"))[[1]]
+  g_intrest7 <- make_ego_graph(g_correct,1, nodes = "128", mode = c("all"))[[1]]
+  
+  g_intrest = make_ego_graph(g_correct,1, nodes = "210", mode = c("all"))[[1]]
+  V(g_intrest)$color[which(V(g_intrest)$name=="210")]="red"
+  png(filename=paste("Subnetwork of ", "C5H8O5",".png",sep=""),
+      width = 2400, height=2400,
+      res=300)
+  plot(g_intrest,
+       #vertex.color = 'white',
+       #vertex.label = vertex.attributes(g_intrest)$Predict_formula,
+       vertex.label = vertex.attributes(g_intrest)$MF,
+       #vertex.label = vertex.attributes(g_intrest)$RT,
+       #vertex.label = vertex.attributes(g_intrest)$mz,
+       #vertex.label = vertex.attributes(g_intrest)$ID,
+       #vertex.label.color = "black",
+       vertex.label.cex = 1,
+       #edge.color = 'black',
+       edge.label = edge.attributes(g_intrest)$linktype,
+       vertex.size = 10,
+       edge.arrow.size = .5
+       
+  )
+  dev.off()
   
   plot(g_intrest,
        #vertex.color = 'white',
        #vertex.label = vertex.attributes(g_intrest)$Predict_formula,
-       #vertex.label = vertex.attributes(g_intrest)$MF,
+       vertex.label = vertex.attributes(g_intrest)$MF,
        #vertex.label = vertex.attributes(g_intrest)$RT,
        #vertex.label = vertex.attributes(g_intrest)$mz,
-       vertex.label = vertex.attributes(g_intrest)$ID,
+       #vertex.label = vertex.attributes(g_intrest)$ID,
        #vertex.label = vertex.attributes(g_intrest)$originID,
        vertex.label.color = "black",
        vertex.label.cex = 1,
@@ -770,8 +805,6 @@ E(g_correct)$color = colors[edge_list_sub[edge_list_sub$node1%in%merge_node_list
   )
 }
 
-
-graph.union()
 
 
 #Basic graph characteristics, distance, degree, betweeness
@@ -804,13 +837,13 @@ ppm = 10/10^6
 merge_node_list[abs(merge_node_list$mz-target_mz+(H_mass-e_mass)*mode)<target_mz*ppm,]
 #Analyze the network/subgraph of specific node
 {
-  interested_node = "174"
-  g_intrest <- make_ego_graph(g_sub,1, nodes = 1:3, mode = c("all"))[[1]]
+  interested_node = "210"
+  g_intrest <- make_ego_graph(g_sub,1, nodes = interested_node, mode = c("all"))[[1]]
   test=data.frame(vertex.attributes(g_sub))
   #dists = distances(g_intrest, interested_node)
   colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
   #V(g_intrest)$color <- colors[dists+1]
-  png(filename=paste("Subnetwork of mz=", target_mz,".png",sep=""),
+  png(filename=paste("Subnetwork of ", interested_node,".png",sep=""),
       width = 2400, height=2400,
       res=300)
   plot(g_intrest,
@@ -850,9 +883,9 @@ merge_node_list[merge_node_list$ID==1862,]
 test=data.frame(vertex.attributes(g_intrest))
 
 
-output_network_csv = merge_node_list[vertex.attributes(g_intrest)$compound_name,]
-output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
-write.csv(output_network_csv, paste("network_",target_mz,".csv",sep=""), row.names=F)
+output_network_csv = merge_node_list[merge_node_list$compound_name %in% vertex.attributes(g_intrest)$compound_name,]
+
+write.csv(output_network_csv, paste("network_",interested_node,".csv",sep=""), row.names=F)
 
 
 
