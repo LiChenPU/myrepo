@@ -444,9 +444,10 @@ for(node in 1:8){
   n=n+1
 
 
-
-  #result_solution=solution_ls[[8*6+2]]
-  result_solution=solution_ls[[1]]
+  node = 6
+  edge = 2
+  result_solution=solution_ls[[8*node+edge]]
+  #result_solution=solution_ls[[1]]
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
@@ -619,16 +620,15 @@ merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unkno
 merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+1
 merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id]+1
 
-g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
 colors <- c("white", "red", "orange", "yellow", "green")
-V(g)$color = colors[merge_node_list$category+1]
+merge_node_list["color"] = colors[merge_node_list$category+1]
+
+g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
 E(g)$color = colors[merge_edge_list$category+1]
 merge_node_list["degree"]=degree(g, mode = c("all"))
 
 
 g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
-colors <- c("white", "red", "orange", "yellow", "green")
-V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
 E(g_sub)$color = colors[merge_edge_list$category+1]
 
 
@@ -677,34 +677,33 @@ for(i in 1:length(subnetwork)){
 find_node_in_subgraph(337, subnetwork)
 
 for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
-  #for(i in 1:1){
 #Analyze the network/subgraph of specific node
 {
   temp = merge_node_list[merge_Lin_ILP_unknown_match_Sig5$ilp_id[i],]
-  #temp = merge_node_list[337,]
+  #temp = merge_node_list[612,]
   interested_node = paste(temp$ID)
   target_mz = round(temp$mz,digits=4)
   target_rt = round(temp$RT,digits=2)
   step = temp$steps+1
   
   target_subgraph = find_node_in_subgraph(as.character(merge_Lin_ILP_unknown_match_Sig5$ilp_id[i]),subnetwork)
-  
+  #target_subgraph = find_node_in_subgraph(as.character(612),subnetwork)
   if(target_subgraph!=1){
-    g_interest = make_ego_graph(g_sub, diameter(g_sub), nodes = subnetwork[[target_subgraph]], mode = c("all"))[[1]]
+    g_interest = make_ego_graph(g_sub, min(3,diameter(g_sub)), nodes = interested_node, mode = c("all"))[[1]]
   }else
-    {g_intrest <- make_ego_graph(g_sub,2, nodes = interested_node, mode = c("all"))[[1]]}
+    {g_interest <- make_ego_graph(g_sub,2, nodes = interested_node, mode = c("all"))[[1]]}
   
-  #V(g_intrest)$color <- colors[dists+1]
+  #V(g_interest)$color <- colors[dists+1]
 
-  plot(g_intrest,
-       vertex.label = vertex.attributes(g_intrest)$formula,
-       #vertex.label = vertex.attributes(g_intrest)$mz,
-       #vertex.label = vertex.attributes(g_intrest)$ID,
+  plot(g_interest,
+       vertex.label = vertex.attributes(g_interest)$formula,
+       #vertex.label = vertex.attributes(g_interest)$mz,
+       #vertex.label = vertex.attributes(g_interest)$ID,
 
        vertex.label.color = "black",
        vertex.label.cex = 1,
        #edge.color = 'black',
-       edge.label = edge.attributes(g_intrest)$linktype,
+       edge.label = edge.attributes(g_interest)$linktype,
        vertex.size = 10,
        edge.arrow.size = .5,
        main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
@@ -714,25 +713,26 @@ for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
 png(filename=paste("mz=", target_mz," RT=",target_rt,".png",sep=""),
     width = 2400, height=2400,
     res=300)
-plot(g_intrest,
-     vertex.label = vertex.attributes(g_intrest)$formula,
-     #vertex.label = vertex.attributes(g_intrest)$mz,
-     #vertex.label = vertex.attributes(g_intrest)$ID,
+plot(g_interest,
+     vertex.label = vertex.attributes(g_interest)$formula,
+     #vertex.label = vertex.attributes(g_interest)$mz,
+     #vertex.label = vertex.attributes(g_interest)$ID,
      vertex.label.color = "black",
      vertex.label.cex = 1,
      #edge.color = 'black',
-     edge.label = edge.attributes(g_intrest)$linktype,
+     edge.label = edge.attributes(g_interest)$linktype,
      vertex.size = 10,
      edge.arrow.size = .5,
      main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
 )
 dev.off()
-output_network_csv=data.frame(vertex.attributes(g_intrest))
-#output_network_csv = merge_node_list[vertex.attributes(g_intrest)$compound_name,]
+output_network_csv=merge_node_list[vertex.attributes(g_interest)$name,]
+output_network_csv=merge(output_network_csv,merge_Lin_ILP[which(merge_Lin_ILP$ilp_id %in% output_network_csv$ID),c("ilp_id","N","C","sig")],by.x = "ID", by.y = "ilp_id", all.x=T)
+
 H_mass = 1.00782503224
 e_mass = 0.00054857990943
-mode = 1
-output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
+mode = -1
+#output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
 write.csv(output_network_csv[,-5], paste("mz=", target_mz," RT=",target_rt,".csv",sep=""), row.names=F)
 }
 
