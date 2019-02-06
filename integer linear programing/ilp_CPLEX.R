@@ -12,6 +12,21 @@
   library(enviPat)
 }
 
+
+
+time = Sys.time()
+
+#Read data
+{
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  getwd()
+  raw_node_list=read_csv("merge_node_list.csv")
+  raw_edge_list=read_csv("merge_edge_list.csv")
+  #raw_pred_formula=read_csv("pred_formula_prune.csv")
+  raw_pred_formula=read_csv("All_formula_predict.csv")
+}
+
+
 #Function handle chemical formula
 {
   My_mergefrom=function (formula1, formula2)
@@ -149,19 +164,6 @@
     return(formulas)
   }
 }
-
-time = Sys.time()
-
-#Read data
-{
-  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  getwd()
-  raw_node_list=read_csv("merge_node_list.csv")
-  raw_edge_list=read_csv("merge_edge_list.csv")
-  raw_pred_formula=read_csv("pred_formula_prune.csv")
-  raw_pred_formula=read_csv("All_formula_predict.csv")
-}
-
 
 #Clean up
 {
@@ -387,9 +389,8 @@ print(Sys.time()-time)
 
 #CPLEX solver
 {
-  env <- openEnvCPLEX()
-  prob <- initProbCPLEX(env)
-  chgProbNameCPLEX(env, prob, "sample")
+
+  
   nc <- max(mat$j)
   obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
   lb <- rep(0, nc)
@@ -411,34 +412,50 @@ print(Sys.time()-time)
   for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
   ind=triplet_df$i-1
   val = triplet_df$v
+}
+
+
+##Permutation to edge score 
+
+solution_ls = list()
+for(i in 1:10){
   
+{
+  edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
+                                                              mean = 0,
+                                                              sd = 0.1))
+  obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
+}
   
-  #xctype=rep(CPX_BINARY,nc)
-  #  checkCopyColTypeCPLEX(env, prob, xctype)
-  
-  
+{
+  env <- openEnvCPLEX()
+  prob <- initProbCPLEX(env)
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
   copyColTypeCPLEX(env, prob, ctype)
-  writeProbCPLEX(env, prob, "prob.lp")
-  #copyColTypeCPLEX(env, prob, xctype)  
   
-}
-{
   #primoptCPLEX(env, prob)
   #lpoptCPLEX(env, prob)
   #dualoptCPLEX(env, prob)
   mipoptCPLEX(env, prob)
   
   result_solution=solutionCPLEX(env, prob)
-  writeProbCPLEX(env, prob, "prob.lp")
-  
-  lp <- initProbCPLEX(env)
-  readCopyProbCPLEX(env, lp, "prob.lp")
-  
+  #writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
 }
+  
+  print(i)
+  solution_ls[[i]]=result_solution
+}
+
+
+test_x = as.data.frame(lapply(solution_ls, function(x){return (x[[3]])}))
+test_x_rowmean = rowMeans(test_x)
+
+
+unknown_formula["ILP_result"] = test_x_rowmean[1:nrow(unknown_formula)]
+test46=unknown_formula[unknown_formula$ILP_result!=0&unknown_formula$ILP_result!=1,]
 
 ##Evaluation
 {
@@ -455,8 +472,9 @@ print(Sys.time()-time)
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
   
   
-  lin_result = read.csv("ecoli neg.csv", stringsAsFactors = F)
-  lin_result = lin_result[lin_result$feature=="Metabolite"|lin_result$feature=="Adduct",]
+  lin_result = read.csv("ecoli pos.csv", stringsAsFactors = F)
+  lin_result = lin_result[lin_result$feature=="Metabolite"|lin_result$feature=="Adduct"|
+                            lin_result$feature=="Fragment"|lin_result$feature=="[]",]
   lin_result = lin_result[order(lin_result$mz),]
   
   data("isotopes")
@@ -471,10 +489,18 @@ print(Sys.time()-time)
   
   unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
   
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C5H2N2O5"),
-                                               which(edge_info_sum$formula2=="C5H2N2O5"))),]
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C6H14O12P2"),
-                                               which(edge_info_sum$formula2=="C6H14O12P2"))),]
+  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C8H16N2O4S1"),
+                                               which(edge_info_sum$formula2=="C8H16N2O4S1"))),]
+  edge_info_sum_debug2 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C9H12N6S1"),
+                                               which(edge_info_sum$formula2=="C9H12N6S1"))),]
+  edge_info_sum_debug3 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C16H12O2"),
+                                                which(edge_info_sum$formula2=="C16H12O2"))),]
+  ##C9H12N6S1 or C8H8N4O2 need solution pool
+  ##C11H17NO7 ~ error too big
+  ##C42H61N1O5 correct result has large mass error..
+  
+  
+  
   edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C19H18O13"),
                                                which(edge_info_sum$formula2=="C19H18O13"))),]
   # raw_merge = merge(raw, unknown_formula_CPLEX, by.x = "ID", by.y = "id",all=T)
@@ -482,7 +508,13 @@ print(Sys.time()-time)
 }
 
 
-
+{
+  param <- getChgParmCPLEX(env)
+  solnInfoCPLEX(env, prob)
+  
+  getStatCPLEX(env, prob)
+  
+}
 
 
 # 

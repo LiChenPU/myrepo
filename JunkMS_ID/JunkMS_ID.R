@@ -18,6 +18,7 @@
   library(tidyr)
   #install.packages("tibble")
   library(tibble)
+  library(stringi)
 }
 
 test_time = Sys.time()
@@ -126,7 +127,11 @@ rm(edge_list)
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
   temp_data = edge_ls[edge_ls$mz_dif<0,]
   
+  temp_data$mz_node2=temp_data$mz_node1
   temp_data$mz_node1=temp_data$mz_node1+temp_data$mz_dif
+  
+  
+  
   temp_node=temp_data$node1
   temp_data$node1=temp_data$node2
   temp_data$node2=temp_node

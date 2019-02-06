@@ -142,14 +142,14 @@ colnames(time)="read_data"
   HMDB_detected_nodes = data.frame(ID = 1:nrow(hmdb_detected_quantified_unique),
                                       Exact_mass = hmdb_detected_quantified_unique$Exact_Mass,
                                       MF = hmdb_detected_quantified_unique$MF,
-                                      compound_name = hmdb_detected_quantified_unique$MF,
+                                      compound_name = hmdb_detected_quantified_unique$Name.x,
                                       category = 0,
                                       stringsAsFactors = F)
   
   HMDB_all_nodes = data.frame(ID = 1:nrow(hmdb_merge_unique),
                                    Exact_mass = hmdb_merge_unique$Exact_Mass,
                                    MF = hmdb_merge_unique$MF,
-                                   compound_name = hmdb_merge_unique$MF,
+                                   compound_name = hmdb_merge_unique$Name.x,
                                    category = 0,
                                    stringsAsFactors = F)
   
