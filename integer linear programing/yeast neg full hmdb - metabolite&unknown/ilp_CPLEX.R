@@ -426,10 +426,6 @@ for(node in 1:8){
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
   copyColTypeCPLEX(env, prob, ctype)
-  
-  #primoptCPLEX(env, prob)
-  #lpoptCPLEX(env, prob)
-  #dualoptCPLEX(env, prob)
   mipoptCPLEX(env, prob)
   
   result_solution=solutionCPLEX(env, prob)
@@ -438,16 +434,14 @@ for(node in 1:8){
   closeEnvCPLEX(env)
 }
   
-  #print(i)
-    
   solution_ls[[n]]=result_solution
   n=n+1
-
 
   node = 6
   edge = 2
   result_solution=solution_ls[[8*node+edge]]
   #result_solution=solution_ls[[1]]
+  
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
@@ -489,19 +483,7 @@ for(node in 1:8){
   edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C7H15O4P1S2"),
                                                which(edge_info_sum$formula2=="C7H15O4P1S2"))),]
   unknown_formula[unknown_formula$id==merge_formula$id[which(merge_formula$ilp_index==3584)],]
-  edge_info_sum_debug2 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C6H11O9P1"),
-                                               which(edge_info_sum$formula2=="C6H11O9P1"))),]
-  edge_info_sum_debug3 = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C11H14O6"),
-                                                which(edge_info_sum$formula2=="C11H14O6"))),]
-  
-  ## C5H7NOS 10 ppm off
-  
-  
-  
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C19H18O13"),
-                                               which(edge_info_sum$formula2=="C19H18O13"))),]
-  # raw_merge = merge(raw, unknown_formula_CPLEX, by.x = "ID", by.y = "id",all=T)
-  # raw_merge_diff = raw_merge[raw_merge$formula.x!=raw_merge$formula.y,]
+
 }
 
 
