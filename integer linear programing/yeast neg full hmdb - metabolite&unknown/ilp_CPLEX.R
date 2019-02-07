@@ -11,8 +11,10 @@
   library(cplexAPI)
   library(enviPat)
   library(igraph)
+  setwd("C:/Users/Li Chen/Desktop/Github local")
+  devtools::install("lc8")
+  library(lc8)
 }
-
 
 
 time = Sys.time()
@@ -34,143 +36,7 @@ time = Sys.time()
 
 ##Run this block to set up CPLEX solver
 {
-#Function handle chemical formula
-{
-  My_mergefrom=function (formula1, formula2)
-  {
-    formula2 <- gsub("D", "[2]H", formula2)
-    ende2 <- nchar(formula2)
-    element2 <- c()
-    number2 <- c()
-    j <- c(1)
-    while (j <= ende2) {
-      #browser()
-      if (substr(formula2, j, j) == c("[")) {
-        b <- j
-        while (any(substr(formula2, j, j) == c("]")) != 
-               TRUE) {
-          j <- c(j + 1)
-        }
-        k <- j
-        while (any(substr(formula2, j, j) == c("0", "1", 
-                                               "2", "3", "4", "5", "6", "7", "8", "9")) != 
-               TRUE) {
-          j <- c(j + 1)
-        }
-        m <- c(j - 1)
-        element2 <- c(element2, substr(formula2, b, m))
-      }
-      if (any(substr(formula2, j, j) == c("0", "1", "2", "3", 
-                                          "4", "5", "6", "7", "8", "9")) != TRUE) {
-        k <- j
-        while (any(substr(formula2, j, j) == c("0", "1", 
-                                               "2", "3", "4", "5", "6", "7", "8", "9")) != 
-               TRUE) {
-          j <- c(j + 1)
-        }
-        m <- c(j - 1)
-        j <- c(j - 1)
-        element2 <- c(element2, substr(formula2, k, m))
-      }
-      if (any(substr(formula2, j, j) == c("0", "1", "2", "3", 
-                                          "4", "5", "6", "7", "8", "9")) == TRUE) {
-        k <- j
-        while (any(substr(formula2, j, j) == c("0", "1", 
-                                               "2", "3", "4", "5", "6", "7", "8", "9")) == 
-               TRUE) {
-          j <- c(j + 1)
-        }
-        m <- c(j - 1)
-        j <- c(j - 1)
-        number2 <- c(number2, as.numeric(substr(formula2, 
-                                                k, m)))
-      }
-      j <- j + 1
-    }
-    formulas <- c()
-    for (i in 1:length(formula1)) {
-      #i=1
-      formula1[i] <- gsub("D", "[2]H", formula1[i])
-      ende1 <- nchar(formula1[i])
-      element1 <- c()
-      number1 <- c()
-      j <- c(1)
-      while (j <= ende1) {
-        if (substr(formula1[i], j, j) == c("[")) {
-          b <- j
-          while (any(substr(formula1[i], j, j) == c("]")) != 
-                 TRUE) {
-            j <- c(j + 1)
-          }
-          k <- j
-          while (any(substr(formula1[i], j, j) == c("0", 
-                                                    "1", "2", "3", "4", "5", "6", "7", "8", "9")) != 
-                 TRUE) {
-            j <- c(j + 1)
-          }
-          m <- c(j - 1)
-          element1 <- c(element1, substr(formula1[i], 
-                                         b, m))
-        }
-        if (any(substr(formula1[i], j, j) == c("0", "1", 
-                                               "2", "3", "4", "5", "6", "7", "8", "9")) != 
-            TRUE) {
-          k <- j
-          while (any(substr(formula1[i], j, j) == c("0", 
-                                                    "1", "2", "3", "4", "5", "6", "7", "8", "9")) != 
-                 TRUE) {
-            j <- c(j + 1)
-          }
-          m <- c(j - 1)
-          j <- c(j - 1)
-          element1 <- c(element1, substr(formula1[i], 
-                                         k, m))
-        }
-        if (any(substr(formula1[i], j, j) == c("0", "1", 
-                                               "2", "3", "4", "5", "6", "7", "8", "9")) == 
-            TRUE) {
-          k <- j
-          while (any(substr(formula1[i], j, j) == c("0", 
-                                                    "1", "2", "3", "4", "5", "6", "7", "8", "9")) == 
-                 TRUE) {
-            j <- c(j + 1)
-          }
-          m <- c(j - 1)
-          j <- c(j - 1)
-          number1 <- c(number1, as.numeric(substr(formula1[i], 
-                                                  k, m)))
-        }
-        j <- j + 1
-      }
-      both <- unique(c(element1, element2))
-      both = both[order(both)]
-      counts <- c()
-      for (i in 1:length(both)) {
-        if (any(element1 == both[i])) {
-          it1 <- c(number1[element1 == both[i]])
-        }
-        else {
-          it1 <- c(0)
-        }
-        if (any(element2 == both[i])) {
-          it2 <- c(number2[element2 == both[i]])
-        }
-        else {
-          it2 <- c(0)
-        }
-        counts <- c(counts, it1 + it2)
-      }
-      formula_all <- ""
-      for (i in 1:length(both)) {
-        if(counts[i]==0){next}
-        formula_all <- paste(formula_all, both[i], counts[i], 
-                             sep = "")
-      }
-      formulas <- c(formulas, formula_all)
-    }
-    return(formulas)
-  }
-}
+
 
 #Clean up
 {
@@ -365,7 +231,6 @@ if(!read_from_csv)
                               v=triplet_df$v)
 }else
 {
-  #triplet_df = read_csv("triplet_df.csv")
   triplet_df = read.csv("triplet_df.csv")
   edge_info_sum = read_csv("edge_info_sum.csv")
   mat = simple_triplet_matrix(i=triplet_df$i,
@@ -387,9 +252,6 @@ print(Sys.time()-time)
   nr <- max(mat$i)
   rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
   sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
-  
-  # cn <- c("x1", "x2", "x3")
-  # rn <- c("q1", "q2", "q3")
   
   triplet_df=triplet_df[with(triplet_df,order(j)),]
   cnt=as.vector(table(triplet_df$j))
@@ -488,67 +350,7 @@ for(node in 1:8){
 
 
 
-elem_num_query = function(formula2,elem_query){
-  formula2 <- gsub("D", "[2]H", formula2)
-  ende2 <- nchar(formula2)
-  element2 <- c()
-  number2 <- c()
-  j <- c(1)
-  while (j <= ende2) {
-    #browser()
-    if (substr(formula2, j, j) == c("[")) {
-      b <- j
-      while (any(substr(formula2, j, j) == c("]")) != 
-             TRUE) {
-        j <- c(j + 1)
-      }
-      k <- j
-      while (any(substr(formula2, j, j) == c("0", "1", 
-                                             "2", "3", "4", "5", "6", "7", "8", "9")) != 
-             TRUE) {
-        j <- c(j + 1)
-      }
-      m <- c(j - 1)
-      element2 <- c(element2, substr(formula2, b, m))
-    }
-    if (any(substr(formula2, j, j) == c("0", "1", "2", "3", 
-                                        "4", "5", "6", "7", "8", "9")) != TRUE) {
-      k <- j
-      while (any(substr(formula2, j, j) == c("0", "1", 
-                                             "2", "3", "4", "5", "6", "7", "8", "9")) != 
-             TRUE) {
-        j <- c(j + 1)
-      }
-      m <- c(j - 1)
-      j <- c(j - 1)
-      element2 <- c(element2, substr(formula2, k, m))
-    }
-    if (any(substr(formula2, j, j) == c("0", "1", "2", "3", 
-                                        "4", "5", "6", "7", "8", "9")) == TRUE) {
-      k <- j
-      while (any(substr(formula2, j, j) == c("0", "1", 
-                                             "2", "3", "4", "5", "6", "7", "8", "9")) == 
-             TRUE) {
-        j <- c(j + 1)
-      }
-      m <- c(j - 1)
-      j <- c(j - 1)
-      number2 <- c(number2, as.numeric(substr(formula2, 
-                                              k, m)))
-    }
-    j <- j + 1
-  }
-  
-  if(any(element2 == elem_query )){
-    num_query = number2[elem_query == element2]
-    
-  }
-  else{
-    num_query=0
-    
-  }
-  return(num_query)
-}
+
 
 
 #unknown analysis
