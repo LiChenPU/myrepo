@@ -11,6 +11,8 @@
   library(cplexAPI)
   library(enviPat)
   library(igraph)
+  setwd("C:/Users/Li Chen/Desktop/Github local")
+  devtools::install("lc8")
   library(lc8)
 }
 
