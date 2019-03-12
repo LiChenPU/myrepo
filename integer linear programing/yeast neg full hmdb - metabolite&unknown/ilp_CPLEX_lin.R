@@ -22,13 +22,13 @@ time = Sys.time()
 
 #Read data
 {
-  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Network_ID/yeast pos - full hmdb - metabolit&unknown")
+  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Network_ID/yeast neg - full hmdb - metabolit&unknown")
   getwd()
   raw_node_list=read_csv("merge_node_list.csv")
   raw_edge_list=read_csv("merge_edge_list.csv")
   #raw_pred_formula=read_csv("pred_formula_prune.csv")
   raw_pred_formula=read_csv("All_formula_predict.csv")
-  lin_result = read.csv("yeast pos.csv", stringsAsFactors = F)
+  lin_result = read.csv("yeast neg.csv", stringsAsFactors = F)
   
   
   
@@ -305,9 +305,9 @@ for(node in 0:8){
   solution_ls[[n]]=result_solution
   n=n+1
 
-  node = 0
-  edge = 0
-  result_solution=solution_ls[[8*node+edge+1]]
+  node = 5
+  edge = 4
+  result_solution=solution_ls[[9*node+edge+1]]
   # result_solution=solution_ls[[1]]
   
 ##Evaluation
@@ -370,7 +370,7 @@ print(paste(c(node,edge,a)))
 }}
   
 
-
+  
 merge_edge_list = edge_list[edge_info_CPLEX$edge_id,]
 merge_node_list = merge(raw_node_list,unknown_node_CPLEX,all=T)
 
@@ -379,8 +379,8 @@ merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$MF[is.
 
 merge_Lin_ILP_unknown = merge_Lin_ILP[merge_Lin_ILP$feature=="[]",]
 
-lin_annontate_pos = read.csv("yeast_pos_annotate.csv")
-merge_Lin_ILP_unknown = merge_Lin_ILP_unknown[merge_Lin_ILP_unknown$X %in% lin_annontate_pos$ID,]
+lin_annontate_pos = read.csv("yeast_neg_annotate.csv")
+merge_Lin_ILP_unknown = merge_Lin_ILP_unknown[merge_Lin_ILP_unknown$ID %in% lin_annontate_pos$ID,]
 write.csv(merge_Lin_ILP_unknown,"merge_Lin_ILP_unknown.csv")
 
 merge_Lin_ILP_unknown_pred_Sig5 = merge_Lin_ILP_unknown_pred[merge_Lin_ILP_unknown_pred$sig>4.5,]
@@ -447,14 +447,14 @@ for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
 #Analyze the network/subgraph of specific node
 {
   temp = merge_node_list[merge_Lin_ILP_unknown_match_Sig5$ilp_id[i],]
-  #temp = merge_node_list[612,]
+  temp = merge_node_list[225,]
   interested_node = paste(temp$ID)
   target_mz = round(temp$mz,digits=4)
   target_rt = round(temp$RT,digits=2)
   step = temp$steps+1
   
   target_subgraph = find_node_in_subgraph(as.character(merge_Lin_ILP_unknown_match_Sig5$ilp_id[i]),subnetwork)
-  #target_subgraph = find_node_in_subgraph(as.character(612),subnetwork)
+  target_subgraph = find_node_in_subgraph(as.character(225),subnetwork)
   if(target_subgraph!=1){
     g_interest = make_ego_graph(g_sub, min(3,diameter(g_sub)), nodes = interested_node, mode = c("all"))[[1]]
   }else
