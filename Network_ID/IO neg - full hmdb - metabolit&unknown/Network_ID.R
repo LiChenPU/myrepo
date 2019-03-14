@@ -29,9 +29,9 @@ colnames(time)="read_data"
   HMDB_node_list$MF=check_chemform(isotopes, HMDB_node_list$MF)$new_formula
   
   #HMDB_edge_list = read_csv("HMDB_edge_list.csv")
-  df_raw = read.csv("yeast neg.csv")
+  df_raw = read.csv("IO neg.csv")
   #df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="Adduct",]
-  df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="[]",]
+  df_raw = df_raw[df_raw$feature=="Metabolite"|df_raw$feature=="",]
   #df_raw = df_raw[(!is.na(df_raw$Formula))|(!df_raw$high_blank),]
   
   #df_raw = sample_n(df_raw, 4000, replace = F)
