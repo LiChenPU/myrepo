@@ -21,9 +21,6 @@
   library(matrixStats)
 }
 
-
-
-
 ############Fucntions###############
 ##Data name and cohorts
 Cohort_Info = function(mset)
@@ -157,21 +154,21 @@ Peak_cleanup = function(mset,
   
   #intermediate files, replace below detection number to random small number
   {
-    s4 = s3[s3$flag, 1:ncol(raw)]
-    out_filename = paste("merge_", filename, sep="")
-    # hist(result$goodPeakCount)
-    # hist(result$maxQuality)
-    s4 = s3[s3$flag, 1:ncol(raw)]
-    s4 = s4[,-c(1:2,4, 7:14)]
-    colnames(s4)[1]="ID"
-    s4[,4:ncol(s4)][s4[,4:ncol(s4)]<detection_limit]=sample(1:detection_limit, 
-                                                            size=sum(s4[,4:ncol(s4)]<detection_limit), 
-                                                            replace=T)
+    
+    s4=s3
+    # s4[,4:ncol(s4)][s4[,4:ncol(s4)]<detection_limit]=sample(1:detection_limit, 
+    #                                                         size=sum(s4[,4:ncol(s4)]<detection_limit), 
+    #                                                         replace=T)
+    
+    s4["mean_inten"]=rowMeans(s4[,mset$Cohort$sample_names])
+    s4$flag[s4$mean_inten<detection_limit]=F
   }
-  s4 = s3[s3$flag, 1:ncol(raw)]
-  s4 = s4[with(s4, order(groupId)),]
-  s4$groupId = 1:nrow(s4)
-  return(s4)
+  
+  
+  s5 = s4[s4$flag, 1:ncol(raw)]
+  s5 = s5[with(s5, order(groupId)),]
+  s5$groupId = 1:nrow(s5)
+  return(s5)
 }
 
 #Identify peaks with high blanks
@@ -237,8 +234,7 @@ Metaboanalyst_Statistic = function(mset)
   
   MA_output = mset$Data[,c("groupId",  mset$Cohort$sample_names)]
   MA_output = rbind(c("cohort",mset$Cohort$sample_cohort),MA_output)
-  df_raw=add_column(df_raw, mean_inten=rowMeans(df_raw[,sample_names_noblank]), .after = 7)
-  df_raw=add_column(df_raw, log10_inten=(log10(df_raw$mean_inten)), .after = 7)
+
   write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
   
   mSet <- InitDataObjects("pktable", "stat", FALSE)
@@ -259,6 +255,114 @@ Metaboanalyst_Statistic = function(mset)
   return(ANOVA_FDR)
   
 }
+
+
+### Function for network ###
+
+##Merge experiment and library nodes
+Form_node_list = function(mset, library_file = "hmdb_unique.csv")
+{
+  NodeSet = list()
+  NodeSet[["Expe"]] = mset$Data[,c("groupId","medMz","medRt","formula")]
+  NodeSet$Expe["origin"]="Experiment"
+  NodeSet$Expe["compound_name"]=NA
+  colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "origin","compound_name")
+  
+  NodeSet[["Library"]] = read.csv(library_file)
+  NodeSet$Library = cbind(NodeSet$Library, RT=NA)
+  colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","origin", "RT")
+  NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
+  NodeSet$Library$origin="Library"
+  
+  merge_node_list = rbind(NodeSet$Expe,NodeSet$Library )
+  
+  return(merge_node_list)
+}
+
+##Define transformation and artifact rules
+
+## Variance between peaks
+Peak_variance = function(mset, 
+                         time_cutoff=0.1,
+                         correlation_cutoff = 0.7)
+{
+  df_raw = mset$Data[,c("groupId","medMz","medRt",mset$Cohort$sample_names)]
+  df_raw["mean_inten"]=rowMeans(df_raw[,mset$Cohort$sample_names])
+  df_raw["log10_inten"]=log10(df_raw$mean_inten)
+  
+  {
+    df_raw = df_raw[with(df_raw, order(medRt)),]
+    i_min = i_max =1
+    
+    edge_list = list()
+    
+    while(i_min!= nrow(df_raw)){
+      temp_t = df_raw$medRt[i_min]
+      temp_t_end = temp_t+time_cutoff
+      
+      while(df_raw$medRt[i_max]<temp_t_end){
+        if(i_max == nrow(df_raw)){break}
+        i_max = i_max+1
+      }
+      i_max = i_max-1
+      
+      temp_df_raw = df_raw[i_min:i_max,]
+      
+      temp_df_raw$time_dif=temp_df_raw$medRt-temp_df_raw$medRt[1]
+      temp_df_raw$mz_dif = round(temp_df_raw$medMz-temp_df_raw$medMz[1], digits=5)
+      
+      temp_x = t(temp_df_raw[1,mset$Cohort$sample_names])
+      temp_y = t(temp_df_raw[,mset$Cohort$sample_names])
+      temp_df_raw$correlation = as.numeric(t(cor((temp_x), (temp_y))))
+
+      temp_df_raw["node1"]=temp_df_raw$groupId[1]
+      temp_df_raw["node2"]=temp_df_raw$groupId
+      temp_df_raw["mz_node1"] = temp_df_raw$medMz[1]
+      temp_df_raw["mz_node2"] = temp_df_raw$medMz
+      temp_df_raw["log10_inten_node1"] = temp_df_raw$log10_inten[1]
+      temp_df_raw["log10_inten_node2"] = temp_df_raw$log10_inten
+      temp_df_raw["log10_inten_ratio"] = temp_df_raw["log10_inten_node2"]-temp_df_raw["log10_inten_node1"]
+      
+      temp_edge_ls=temp_df_raw[,c("node1","node2","time_dif", "mz_dif", "correlation","mz_node1",
+                                  "mz_node2","log10_inten_node1","log10_inten_node2",
+                                  "log10_inten_ratio")]
+      
+      # cor(temp_x, temp_y, method = "kendall")
+      # cor(temp_x, temp_y, method = "spearman")
+      # cosine(tem#p_x, temp_y)
+      temp_edge_ls=temp_edge_ls[temp_edge_ls$correlation>0.8,]
+      edge_list[[i_min]]=temp_edge_ls
+      i_min = i_min+1
+    }
+  }
+  
+  edge_ls = bind_rows(edge_list)
+  edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
+  rm(edge_list)
+  
+  #Switch directionality
+  {
+    edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
+    temp_data = edge_ls[edge_ls$mz_dif<0,]
+    
+    temp_data$mz_node2=temp_data$mz_node1
+    temp_data$mz_node1=temp_data$mz_node1+temp_data$mz_dif
+    
+    temp_node=temp_data$node1
+    temp_data$node1=temp_data$node2
+    temp_data$node2=temp_node
+    temp_data$time_dif=-temp_data$time_dif
+    temp_data$mz_dif=-temp_data$mz_dif
+    temp_data$log10_inten_ratio=-temp_data$log10_inten_ratio
+    
+    edge_ls[edge_ls$mz_dif<0,] = temp_data 
+    rm(temp_data)
+  }
+  
+  edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
+  return(edge_ls)
+}
+
 
 
 ############ Main Codes ###############
@@ -302,99 +406,78 @@ Metaboanalyst_Statistic = function(mset)
   mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
 }
 
-########### Node set ##########
+########### Network ##########
 
 {
   NodeSet = list()
+  EdgeSet = list()
   
-  NodeSet[["Expe"]] = mset$Data
-  NodeSet[["Library"]] = read.csv("hmdb_unique.csv")
+  mset[["NodeSet"]]=Form_node_list(mset, library_file = "hmdb_unique.csv")
   
+  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset, 
+                                                      time_cutoff=0.05,
+                                                      correlation_cutoff = 0.8)
   
-  View(NodeSet$Library)
+  #View(NodeSet$Expe)
 }
 
 
-### Function for network ###
-
-## Variance between peaks
 {
-  df_raw = NodeSet$Expe[,c("medMz","medRt",mset$Cohort$sample_names)]
-  df_raw = 
   
-  time_cutoff=0.1
-  time["edge_list"]=data.frame(Sys.time())
+  
   {
-    {
-      df_raw = df_raw[with(df_raw, order(medRt)),]
-      i_min = i_max =1
-      #edge_ls = data.frame(node1=as.numeric(), node2=as.numeric(), time_dif=as.numeric(), mz_dif=as.numeric(),correlation=as.numeric())
-      edge_list = list()
-      
-      while(i_min!= nrow(df_raw)){
-        temp_t = df_raw$medRt[i_min]
-        temp_t_end = temp_t+time_cutoff
-        
-        while(df_raw$medRt[i_max]<temp_t_end){
-          if(i_max == nrow(df_raw)){break}
-          i_max = i_max+1
-        }
-        i_max = i_max-1
-        
-        temp_df_raw = df_raw[i_min:i_max,]
-        
-        temp_df_raw$time_dif=temp_df_raw$medRt-temp_df_raw$medRt[1]
-        temp_df_raw$mz_dif = round(temp_df_raw$medMz-temp_df_raw$medMz[1], digits=5)
-        
-        temp_x = t(temp_df_raw[1,sample_names_noblank])
-        temp_y = t(temp_df_raw[,sample_names_noblank])
-        temp_df_raw$correlation = as.numeric(t(cor((temp_x), (temp_y))))
-        
-        # test_x = matrix(c(1,1,1,1000,1000,1005,1,1,1,100,100,105), ncol=1) 
-        # test_y = matrix(c(0,0,0,24,23,22,1,1,1,10,10,15), ncol=1) 
-        # cor((test_x), (test_y), method = "pearson")
-        
-        
-        temp_df_raw["node1"]=temp_df_raw$ID[1]
-        temp_df_raw["node2"]=temp_df_raw$ID
-        
-        
-        temp_df_raw["mz_node1"] = temp_df_raw$medMz[1]
-        temp_df_raw["mz_node2"] = temp_df_raw$medMz
-        
-        temp_df_raw["log10_inten_node1"] = temp_df_raw$log10_inten[1]
-        temp_df_raw["log10_inten_node2"] = temp_df_raw$log10_inten
-        temp_df_raw["log10_inten_ratio"] = temp_df_raw["log10_inten_node2"]-temp_df_raw["log10_inten_node1"]
-        
-        temp_edge_ls=temp_df_raw[,c("node1","node2","time_dif", "mz_dif", "correlation","mz_node1",
-                                    "mz_node2","log10_inten_node1","log10_inten_node2",
-                                    "log10_inten_ratio")]
-        
-        # cor(temp_x, temp_y, method = "kendall")
-        # cor(temp_x, temp_y, method = "spearman")
-        # cosine(tem#p_x, temp_y)
-        temp_edge_ls=temp_edge_ls[temp_edge_ls$correlation>0.8,]
-        edge_list[[i_min]]=temp_edge_ls
-        i_min = i_min+1
-      }
-    }
-    edge_ls = bind_rows(edge_list)
-    edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
-    rm(edge_list)
+    transf_df = data.frame(c("H2",
+                               "C2H2O", #ACETYL
+                               "C10H12N5O6P", #AMP
+                               "C16H30O", #Palmityl
+                               "C6H10O5", #Glycosyl
+                               "C11H17NO9", #Sialic acid
+                               "HPO3",
+                               "CO", #FORMYL
+                               "NH3",
+                               "NH3-O" ,#transaminase
+                               "OH-NH2", #amino group
+                               #"C",
+                               "CH2O",
+                               #"C9H13N3O10P2", #CDP
+                               "S",
+                               "SO3",
+                               "C2H4",
+                               "O",
+                               "NH",
+                               "CH2",
+                               "CO2",
+                               "H2O"
+    ),stringsAsFactors=F)
+    
+    data(isotopes)
+    transf_df[,1] = check_chemform(isotopes,transf_df[,1])$new_formula
+    transf_df["mass"] = check_chemform(isotopes,transf_df[,1])$monoisotopic_mass
+    
+    colnames(transf_df) = c("fun_group", "mass")
+    
+    transf_df[transf_df$fun_group=="NH3-O",2]=get.formula("NH3")@mass-get.formula("O")@mass
+    transf_df[transf_df$fun_group=="OH-NH2",2]=get.formula("OH")@mass-get.formula("NH2")@mass
+    transf_df=rbind(list("Same", 0),transf_df)
   }
   
+  library(enviPat)
+  data("isotopes")
+  
+  transf = read.csv("biotransform.csv",stringsAsFactors = F)
+  transf$add = check_chemform(isotopes,transf$add)$new_formula
+  transf$subtract = check_chemform(isotopes,transf$subtract)$new_formula
+  transf$mass = check_chemform(isotopes,transf$add)$monoisotopic_mass * as.numeric(transf$add!="") -
+    check_chemform(isotopes,transf$subtract)$monoisotopic_mass * as.numeric(transf$subtract!="")
+  transf=transf[with(transf, order(mass)),]   
+  
+  
+  
+  junk_df = read.csv("artifacts.csv",stringsAsFactors = F)
+  junk_df$add = check_chemform(isotopes,junk_df$add)$new_formula
+  junk_df$subtract = check_chemform(isotopes,junk_df$subtract)$new_formula
+  junk_df$mass = check_chemform(isotopes,junk_df$add)$monoisotopic_mass * as.numeric(junk_df$add!="") -
+                             check_chemform(isotopes,junk_df$subtract)$monoisotopic_mass * as.numeric(junk_df$subtract!="")
+  junk_df=junk_df[with(junk_df, order(mass)),]   
   
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
