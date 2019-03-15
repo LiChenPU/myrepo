@@ -21,8 +21,9 @@
   library(matrixStats)
 }
 
-############Fucntions###############
-##Data name and cohorts
+#####Fucntions####
+### Function for parsing#### 
+##Data name and cohorts####
 Cohort_Info = function(mset)
 {
   raw = mset$Raw_data
@@ -39,15 +40,18 @@ Cohort_Info = function(mset)
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
 
-#Clean up duplicate peaks from peak picking
+##Clean up duplicate peaks from peak picking####
 Peak_cleanup = function(mset,
                         ms_dif_ppm=5/10^6, 
                         rt_dif_min=0.2,
-                        detection_limit=2500)
+                        detection_limit=2500
+                        )
 {
   raw = mset$Raw_data
   raw = raw[complete.cases(raw[, 14:ncol(raw)]),]
-  
+  H_mass = 1.00782503224
+  e_mass = 0.00054857990943
+  raw$medMz = raw$medMz*abs(mset$Global_parameter$mode) - (H_mass-e_mass)*mset$Global_parameter$mode
   
   #Group MS groups
   {
@@ -171,7 +175,7 @@ Peak_cleanup = function(mset,
   return(s5)
 }
 
-#Identify peaks with high blanks
+##Identify peaks with high blanks####
 High_blank = function(mset, fold_cutoff = 2)
 {
   s7 = mset$Data
@@ -227,7 +231,7 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   return (library_match)
 }
 
-#Statistical analysis with MetaboAnalyst
+##Statistical analysis with MetaboAnalyst####
 Metaboanalyst_Statistic = function(mset)
 {
   library(MetaboAnalystR)
@@ -257,9 +261,10 @@ Metaboanalyst_Statistic = function(mset)
 }
 
 
-### Function for network ###
 
-##Merge experiment and library nodes
+### Function for network ######
+
+##Merge experiment and library nodes####
 Form_node_list = function(mset, library_file = "hmdb_unique.csv")
 {
   NodeSet = list()
@@ -279,9 +284,80 @@ Form_node_list = function(mset, library_file = "hmdb_unique.csv")
   return(merge_node_list)
 }
 
-##Define transformation and artifact rules
+##Define transformation and artifact rules####
+Read_rule_table = function(rule_table_file = "biotransform.csv"){
+  library(enviPat)
+  data("isotopes")
+  biotransform = read.csv(rule_table_file,stringsAsFactors = F)
+  biotransform$add = check_chemform(isotopes,biotransform$add)$new_formula
+  biotransform$subtract = check_chemform(isotopes,biotransform$subtract)$new_formula
+  biotransform$mass = check_chemform(isotopes,biotransform$add)$monoisotopic_mass * as.numeric(biotransform$add!="") -
+    check_chemform(isotopes,biotransform$subtract)$monoisotopic_mass * as.numeric(biotransform$subtract!="")
+  
+  biotransform = biotransform[with(biotransform, order(mass)),]
+  return(biotransform)
+}
+##Edge_list for biotransformation ####
+Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6)
+{
+  
+  
+  
+  merge_node_list = mset$NodeSet[with(mset$NodeSet, order(mz)),]
+  merge_nrow = nrow(merge_node_list)
+  
+  timer=Sys.time()
+  {
+    edge_ls = list()
+    temp_mz_list=merge_node_list$mz
+    k=1
+    for (k in 1:nrow(mset$Biotransform)){
+      temp_fg=mset$Biotransform$mass[k]
+      i=j=1
+      temp_edge_list = data.frame(node1=as.numeric(), node2=as.numeric(), linktype=as.numeric(), mass_dif=as.numeric())
+      while(i<=merge_nrow){
+        temp_ms=0
+        mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
+        while(1){
+          j=j+1
+          if(j>merge_nrow){break}
+          temp_ms = temp_mz_list[j]-temp_mz_list[i]
+          
+          if(abs(temp_ms-temp_fg)<mass_tol){
+            temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], merge_node_list$ID[j], k, (temp_ms-temp_fg)/temp_mz_list[j]*1E6)
+          }
+          if((temp_ms-temp_fg)>mass_tol){break}
+        }
+        i=i+1
+        
+        while(j>i){
+          j=j-1
+          temp_ms = temp_mz_list[j]-temp_mz_list[i]
+          if((temp_ms-temp_fg)<(-mass_tol)){break}
+        }
+      }
+      edge_ls[[k]]=temp_edge_list
+      print(paste("Biotransform", mset$Biotransform$category[k], nrow(temp_edge_list),"found."))
+    }
+  }
+  
+  print(Sys.time()-timer)
+  edge_list = bind_rows(edge_ls)
+  
+  unlist(lapply(mset$library_match,nrow))
+  
+  #edge_list$linktype=fun_group_1$fun_group[edge_list$linktype]
+  
+  edge_list_sub = subset(edge_list, 
+                         (edge_list$node1<=nrow(mset$Data)|
+                            edge_list$node2<=nrow(mset$Data))&
+                           edge_list$node1!=edge_list$node2
+  )
+  edge_list_sub["category"]=1
+  return(edge_list_sub)
+}
 
-## Variance between peaks
+## Variance between peaks####
 Peak_variance = function(mset, 
                          time_cutoff=0.1,
                          correlation_cutoff = 0.7)
@@ -365,7 +441,9 @@ Peak_variance = function(mset,
 
 
 
-############ Main Codes ###############
+
+
+#### Main Codes ###############
 #Read files
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -377,6 +455,7 @@ Peak_variance = function(mset,
 {
   mset = list()
   mset[["Raw_data"]] = raw
+  mset[["Raw_data"]] = raw[base::sample(nrow(raw),5000),]
   mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   mset[["Cohort"]]=Cohort_Info(mset)
@@ -406,13 +485,19 @@ Peak_variance = function(mset,
   mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
 }
 
-########### Network ##########
+
+#### Network ##########
 
 {
-  NodeSet = list()
+  
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset, library_file = "hmdb_unique.csv")
+  mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
+  mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  
+  EdgeSet[["Biotransform"]] = Edge_biotransform(mset)
+  #write.csv(EdgeSet[["Biotransform"]],"edge_biotransform.csv",row.names = F)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset, 
                                                       time_cutoff=0.05,
@@ -422,62 +507,24 @@ Peak_variance = function(mset,
 }
 
 
+
+
+
+
+
+
+
+
+#Scoring edge based on mass accuracy
 {
+  edge_mzdif_FIT <- fitdist(as.numeric(EdgeSet$Biotransform$mass_dif), "norm")    
+  hist(EdgeSet$Biotransform$mass_dif)
   
-  
-  {
-    transf_df = data.frame(c("H2",
-                               "C2H2O", #ACETYL
-                               "C10H12N5O6P", #AMP
-                               "C16H30O", #Palmityl
-                               "C6H10O5", #Glycosyl
-                               "C11H17NO9", #Sialic acid
-                               "HPO3",
-                               "CO", #FORMYL
-                               "NH3",
-                               "NH3-O" ,#transaminase
-                               "OH-NH2", #amino group
-                               #"C",
-                               "CH2O",
-                               #"C9H13N3O10P2", #CDP
-                               "S",
-                               "SO3",
-                               "C2H4",
-                               "O",
-                               "NH",
-                               "CH2",
-                               "CO2",
-                               "H2O"
-    ),stringsAsFactors=F)
-    
-    data(isotopes)
-    transf_df[,1] = check_chemform(isotopes,transf_df[,1])$new_formula
-    transf_df["mass"] = check_chemform(isotopes,transf_df[,1])$monoisotopic_mass
-    
-    colnames(transf_df) = c("fun_group", "mass")
-    
-    transf_df[transf_df$fun_group=="NH3-O",2]=get.formula("NH3")@mass-get.formula("O")@mass
-    transf_df[transf_df$fun_group=="OH-NH2",2]=get.formula("OH")@mass-get.formula("NH2")@mass
-    transf_df=rbind(list("Same", 0),transf_df)
-  }
-  
-  library(enviPat)
-  data("isotopes")
-  
-  transf = read.csv("biotransform.csv",stringsAsFactors = F)
-  transf$add = check_chemform(isotopes,transf$add)$new_formula
-  transf$subtract = check_chemform(isotopes,transf$subtract)$new_formula
-  transf$mass = check_chemform(isotopes,transf$add)$monoisotopic_mass * as.numeric(transf$add!="") -
-    check_chemform(isotopes,transf$subtract)$monoisotopic_mass * as.numeric(transf$subtract!="")
-  transf=transf[with(transf, order(mass)),]   
-  
-  
-  
-  junk_df = read.csv("artifacts.csv",stringsAsFactors = F)
-  junk_df$add = check_chemform(isotopes,junk_df$add)$new_formula
-  junk_df$subtract = check_chemform(isotopes,junk_df$subtract)$new_formula
-  junk_df$mass = check_chemform(isotopes,junk_df$add)$monoisotopic_mass * as.numeric(junk_df$add!="") -
-                             check_chemform(isotopes,junk_df$subtract)$monoisotopic_mass * as.numeric(junk_df$subtract!="")
-  junk_df=junk_df[with(junk_df, order(mass)),]   
-  
+  plot(edge_mzdif_FIT)  
+  EdgeSet$Biotransform["edge_massdif_score"]=dnorm(EdgeSet$Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+  EdgeSet$Biotransform["edge_massdif_score"]=EdgeSet$Biotransform["edge_massdif_score"]/max(EdgeSet$Biotransform["edge_massdif_score"])
 }
+
+
+
+
