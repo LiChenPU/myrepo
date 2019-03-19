@@ -1,10 +1,12 @@
 #显示中文 
 #Sys.setlocale(category = "LC_ALL", locale = "Chinese")
+
+
 #import library
 {
   library(readr)
   #install.packages("rcdk")
-  library(rcdk)
+  #library(rcdk)
   library(igraph)
   #install.packages("fitdistrplus")
   library("fitdistrplus")
@@ -21,9 +23,9 @@
   library(matrixStats)
 }
 
-#####Fucntions####
-### Function for parsing#### 
-##Data name and cohorts####
+# Fucntions ####
+# Function for parsing#### 
+## Data name and cohorts####
 Cohort_Info = function(mset)
 {
   raw = mset$Raw_data
@@ -40,7 +42,7 @@ Cohort_Info = function(mset)
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
 
-##Clean up duplicate peaks from peak picking####
+## Clean up duplicate peaks from peak picking####
 Peak_cleanup = function(mset,
                         ms_dif_ppm=5/10^6, 
                         rt_dif_min=0.2,
@@ -164,6 +166,7 @@ Peak_cleanup = function(mset,
     #                                                         size=sum(s4[,4:ncol(s4)]<detection_limit), 
     #                                                         replace=T)
     
+    s4["mean_inten"]=NA
     s4["mean_inten"]=rowMeans(s4[,mset$Cohort$sample_names])
     s4$flag[s4$mean_inten<detection_limit]=F
   }
@@ -175,7 +178,7 @@ Peak_cleanup = function(mset,
   return(s5)
 }
 
-##Identify peaks with high blanks####
+## Identify peaks with high blanks####
 High_blank = function(mset, fold_cutoff = 2)
 {
   s7 = mset$Data
@@ -231,7 +234,7 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   return (library_match)
 }
 
-##Statistical analysis with MetaboAnalyst####
+## Statistical analysis with MetaboAnalyst####
 Metaboanalyst_Statistic = function(mset)
 {
   library(MetaboAnalystR)
@@ -262,9 +265,9 @@ Metaboanalyst_Statistic = function(mset)
 
 
 
-### Function for network ######
+# Function for network ######
 
-##Merge experiment and library nodes####
+## Merge experiment and library nodes####
 Form_node_list = function(mset, library_file = "hmdb_unique.csv")
 {
   NodeSet = list()
@@ -273,31 +276,29 @@ Form_node_list = function(mset, library_file = "hmdb_unique.csv")
   NodeSet$Expe["compound_name"]=NA
   colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "origin","compound_name")
   
-  NodeSet[["Library"]] = read.csv(library_file)
+  NodeSet[["Library"]] = read.csv(library_file,stringsAsFactors = F)
   NodeSet$Library = cbind(NodeSet$Library, RT=NA)
   colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","origin", "RT")
   NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
+  data("isotopes")
+  NodeSet$Library$MF = check_chemform(isotopes, NodeSet$Library$MF)$new_formula
   NodeSet$Library$origin="Library"
   
   merge_node_list = rbind(NodeSet$Expe,NodeSet$Library )
-  
+
   return(merge_node_list)
 }
 
-##Define transformation and artifact rules####
+## Define transformation and artifact rules####
 Read_rule_table = function(rule_table_file = "biotransform.csv"){
   library(enviPat)
   data("isotopes")
   biotransform = read.csv(rule_table_file,stringsAsFactors = F)
-  biotransform$add = check_chemform(isotopes,biotransform$add)$new_formula
-  biotransform$subtract = check_chemform(isotopes,biotransform$subtract)$new_formula
-  biotransform$mass = check_chemform(isotopes,biotransform$add)$monoisotopic_mass * as.numeric(biotransform$add!="") -
-    check_chemform(isotopes,biotransform$subtract)$monoisotopic_mass * as.numeric(biotransform$subtract!="")
-  
+  biotransform$Formula = check_chemform(isotopes,biotransform$Formula)$new_formula
   biotransform = biotransform[with(biotransform, order(mass)),]
   return(biotransform)
 }
-##Edge_list for biotransformation ####
+## Edge_list for biotransformation ####
 Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6)
 {
   
@@ -310,7 +311,7 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6)
   {
     edge_ls = list()
     temp_mz_list=merge_node_list$mz
-    k=1
+    
     for (k in 1:nrow(mset$Biotransform)){
       temp_fg=mset$Biotransform$mass[k]
       i=j=1
@@ -344,22 +345,197 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6)
   print(Sys.time()-timer)
   edge_list = bind_rows(edge_ls)
   
-  unlist(lapply(mset$library_match,nrow))
-  
-  #edge_list$linktype=fun_group_1$fun_group[edge_list$linktype]
+  edge_list$linktype=mset$Biotransform$Formula[edge_list$linktype]
   
   edge_list_sub = subset(edge_list, 
                          (edge_list$node1<=nrow(mset$Data)|
                             edge_list$node2<=nrow(mset$Data))&
                            edge_list$node1!=edge_list$node2
   )
+  
+  
   edge_list_sub["category"]=1
   return(edge_list_sub)
 }
+### Scoring edge based on mass accuracy####
+Edge_score = function(Biotransform)
+{
+  edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+  hist(Biotransform$mass_dif)
+  
+  plot(edge_mzdif_FIT)  
+  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+  Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
+  return(Biotransform)
+}
+## Network_prediction used to connect nodes to library and predict formula####
+Network_prediction = function(mset, edge_list_sub, 
+                              top_formula_n = 1
+                              )
+{
+  
+  mnl=mset$NodeSet
+  edge_list_sub=test3
+  
+  #Initialize predict_formula from HMDB known formula
+  {
+    data_str = data.frame(id=as.numeric(),
+                          formula=as.character(), 
+                          steps=as.numeric(), 
+                          parent=as.numeric(), 
+                          score=as.numeric(), stringsAsFactors = F)
+    #sf stands for summary_formula
+    
+    
+    
+    sf = lapply(1:nrow(mnl),function(i)(data_str))
+    
+    for(i in (1+nrow(mset$Data)):nrow(mnl)){
+      Initial_formula =sf[[i]]
+      Initial_formula[1,]= list(i,mnl$MF[i],0,1, 1)
+      sf[[i]]=Initial_formula
+      
+    }
+  }
+  
+  #while loop to Predict formula based on known formula and edgelist 
+  
+  
+  step=0
+  timer=Sys.time()
+  New_nodes_in_network = 1
+  while(New_nodes_in_network==1){
+    
+    all_nodes_df = bind_rows(lapply(sf, head,top_formula_n))
+    new_nodes_df = all_nodes_df[all_nodes_df$steps==step 
+                                &all_nodes_df$score>0,]
+    print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
+    print((Sys.time()-timer))
+    
+    if(nrow(new_nodes_df)==0){break}
+    
+    
+    
+    #Handling head
+    {
+      edge_list_node1 = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id,]
+      head_list = edge_list_node1$node1
+      n=1
+      for (n in 1: nrow(new_nodes_df)){
+        
+        head = new_nodes_df$id[n]
+        head_formula = new_nodes_df$formula[n]
+        
+        temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
+        if(nrow(temp_edge_list)==0){next}
+        
+        head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
+        
+        if(head_score==0){next}
+        i=1
+        for(i in 1:nrow(temp_edge_list)){
+          tail=temp_edge_list$node2[i]
+          temp_fg = temp_edge_list$linktype[i]
+          if(temp_fg==""){
+            temp_formula = head_formula
+          }else{
+            temp_formula=my_calculate_formula(head_formula,temp_fg,1,Is_valid = T)
+          }
+          
+          if(is.logical(temp_formula))#function return false if not valid formula
+          { temp_score=0
+          temp_formula=paste(head_formula,temp_fg,sep="+")
+          }else{
+            temp_score = head_score*temp_edge_list$edge_massdif_score[i]
+          }
+          
+          temp_parent = head
+          temp_steps = step+1
+          
+          #Criteria to enter new entry into formula list
+          #1. new formula
+          temp = sf[[tail]]
+          temp_subset=subset(temp, temp$formula==temp_formula)
+          if(nrow(temp_subset)!=0){
+            #2. much higher scores
+            if(temp_score<=(1.2*max(temp_subset$score))){
+              next
+            }
+          }
+          #Enter new entry
+          temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent, temp_score)
+          temp = temp[with(temp, order(-score)),]
+          sf[[tail]]=temp
+        }
+      }
+    }
+    
+    #Handling tail
+    {
+      edge_list_node2 = edge_list_sub[edge_list_sub$node2 %in% new_nodes_df$id,]
+      tail_list = edge_list_node2$node2
+      
+      for (n in 1: nrow(new_nodes_df)){
+        
+        tail = new_nodes_df$id[n]
+        tail_formula = new_nodes_df$formula[n]
+        
+        temp_edge_list=subset(edge_list_node2, edge_list_node2$node2==tail)
+        if(nrow(temp_edge_list)==0){next}
+        
+        tail_score = sf[[tail]]$score[match(tail_formula,sf[[tail]]$formula)]
+        
+        if(tail_score==0){next}
+        i=1
+        for(i in 1:nrow(temp_edge_list)){
+          head=temp_edge_list$node1[i]
+          temp_fg = temp_edge_list$linktype[i]
+          if(temp_fg==""){
+            temp_formula = tail_formula
+          }else{
+            temp_formula=my_calculate_formula(tail_formula,temp_fg,-1,Is_valid = T)
+          }
+          
+          if(is.logical(temp_formula))#function return false if not valid formula
+          { temp_score=0
+          temp_formula=paste(tail_formula,temp_fg,sep="-")
+          }else{
+            temp_score = tail_score*temp_edge_list$edge_massdif_score[i]
+          }
+          
+          temp_parent = tail
+          temp_steps = step+1
+          
+          #Criteria to enter new entry into formula list
+          #1. new formula
+          temp = sf[[head]]
+          temp_subset=subset(temp, temp$formula==temp_formula)
+          if(nrow(temp_subset)!=0){
+            #2. much higher scores
+            if(temp_score<=(1.2*max(temp_subset$score))){
+              next
+            }
+          }
+          #Enter new entry
+          temp[nrow(temp)+1, ] = list(head, temp_formula, temp_steps, temp_parent, temp_score)
+          temp = temp[with(temp, order(-score)),]
+          sf[[head]]=temp
+        }
+      }
+    }
+    
+    step=step+1
+    
+    
+  }
+  return(sf)
+}
+
 
 ## Variance between peaks####
 Peak_variance = function(mset, 
                          time_cutoff=0.1,
+                         mass_cutoff=0,
                          correlation_cutoff = 0.7)
 {
   df_raw = mset$Data[,c("groupId","medMz","medRt",mset$Cohort$sample_names)]
@@ -371,8 +547,21 @@ Peak_variance = function(mset,
     i_min = i_max =1
     
     edge_list = list()
-    
+    timer = Sys.time()
     while(i_min!= nrow(df_raw)){
+      if(i_min %% 1000 ==0 ){
+        print(paste("nrow",i_min,"elapsed="))
+        print((Sys.time()-timer))
+      }
+      
+      if(df_raw$mean_inten[i_min]<mass_cutoff){
+        i_min = i_min+1
+        next
+      }
+
+      
+      
+      
       temp_t = df_raw$medRt[i_min]
       temp_t_end = temp_t+time_cutoff
       
@@ -443,19 +632,120 @@ Peak_variance = function(mset,
 
 
 
-#### Main Codes ###############
-#Read files
+
+
+
+### Edge_list for artifacts####
+Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001){
+  edge_ls_highcor=Peak_inten_correlation
+  edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
+  junk_df = mset$Artifacts
+  
+  
+  i=j=1
+  temp_ls = list()
+  temp_df = edge_ls_highcor[1,]
+  temp_df["category"]=NA
+  temp_df["linktype"]=NA
+  temp_df["mass_dif"]=NA
+  
+  temp_df = temp_df[0,]
+  
+  while (i <= nrow(edge_ls_highcor)){
+    i=i+1
+    if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_ms_cutoff)){
+      next
+    }
+    if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_ms_cutoff)){
+      temp_ls[[j]]=temp_df
+      temp_df = temp_df[0,]
+      j=j+1
+      if(j>nrow(junk_df)){break}
+      #search_ms_cutoff = 10 * initial_FIT$estimate[2]/1000 
+      while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_ms_cutoff)){i=i-1}
+      next
+    }
+    temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
+                                  as.character(junk_df$Symbol[j]), 
+                                  junk_df$Formula[j], 
+                                  (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node1[i]*10^6
+    )
+  }
+  
+  
+  temp_df_isotope = bind_rows(temp_ls)
+  
+  junk_summary=table(temp_df_isotope$category)
+  print(junk_summary)
+  
+  
+  
+  
+  
+  #Oligomers. Note that it is indistinguishable between 2-charge-parent pair and parent-dimer pair
+  
+  test_time = Sys.time()
+  {
+    H_mass = 1.00782503224
+    e_mass = 0.00054857990943
+    mode=-1
+    ppm=5/10^6
+    temp_df_oligo = temp_df[0,]
+    
+    df_raw = mset$Data
+    
+    temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
+    temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
+    temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
+    temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
+                                &(abs(temp_edge_ls$dif)<0.05),]
+    
+    # for(i in 1:nrow(temp_edge_ls)){
+    #   temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
+    #   temp_mz1 = df_raw$medMz[which(df_raw$groupId==temp_data$node1)]
+    #   temp_mz2 = temp_mz1 + temp_data$mz_dif
+    #   for(j in 2:10){
+    #     #if charge data
+    #     #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
+    #     #if neutral data
+    #     if(abs(temp_mz1*j-temp_mz2)<search_ms_cutoff){
+    #       temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), (temp_mz1*j-temp_mz2)/temp_mz1*10^6)
+    #     }
+    #   }
+    # }
+  }
+  rm(temp_edge_ls)
+  temp_df_oligo
+  nrow(temp_df_oligo)
+  
+  oligo_summary=table(temp_df_oligo$linktype)
+  print(oligo_summary)
+  
+  #data$parent[data$groupId==6]
+  test_time = Sys.time()-test_time
+  
+  
+  edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
+  
+  
+  edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category")]
+  
+  
+  
+  return(edge_ls_annotate_network)
+}
+# Main Codes ####
+## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   filename = c("Yeast-Ecoli-neg-peakpicking_blank.csv")
-  raw <- read_csv(filename)
+  mset = list()
+  mset[["Raw_data"]] <- read_csv(filename)
+  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),10000),]
 }
 
-#Initialise
+## Initialise ####
 {
-  mset = list()
-  mset[["Raw_data"]] = raw
-  mset[["Raw_data"]] = raw[base::sample(nrow(raw),5000),]
   mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   mset[["Cohort"]]=Cohort_Info(mset)
@@ -469,7 +759,7 @@ Peak_variance = function(mset,
   mset[["ID"]]=mset$Data$groupId
 }
 
-#Feature generation
+## Feature generation ####
 {
   #Identify peaks with high blanks
   mset[["High_blanks"]]=High_blank(mset, fold_cutoff = 2)
@@ -483,10 +773,13 @@ Peak_variance = function(mset,
   
   #Metaboanalyst_Statistic
   mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
-}
+} 
 
 
-#### Network ##########
+
+
+
+# Network ####
 
 {
   
@@ -494,36 +787,37 @@ Peak_variance = function(mset,
   
   mset[["NodeSet"]]=Form_node_list(mset, library_file = "hmdb_unique.csv")
   mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
-  mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(mset)
-  #write.csv(EdgeSet[["Biotransform"]],"edge_biotransform.csv",row.names = F)
+  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
-  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset, 
-                                                      time_cutoff=0.05,
+  
+  
+  mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset,
+                                                      time_cutoff=0.1,
+                                                      mass_cutoff = 2e4,
                                                       correlation_cutoff = 0.8)
+  EdgeSet[["Artifacts"]] = Artifact_prediction(mset, 
+                                               EdgeSet$Peak_inten_correlation, 
+                                               search_ms_cutoff=0.001)
+  EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
   
-  #View(NodeSet$Expe)
+  
+
+  mset[["NodeSet_network"]] = Network_prediction(mset, 
+                                                 rbind(EdgeSet$Artifacts,EdgeSet$Biotransform), 
+                                                 top_formula_n = 2)
+  
+  
+  sf=mset[["NodeSet_network"]]
+  All_formula_predict=bind_rows(mset[["NodeSet_network"]])
+  test = test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
+  #write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
+  
 }
 
 
-
-
-
-
-
-
-
-
-#Scoring edge based on mass accuracy
-{
-  edge_mzdif_FIT <- fitdist(as.numeric(EdgeSet$Biotransform$mass_dif), "norm")    
-  hist(EdgeSet$Biotransform$mass_dif)
-  
-  plot(edge_mzdif_FIT)  
-  EdgeSet$Biotransform["edge_massdif_score"]=dnorm(EdgeSet$Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
-  EdgeSet$Biotransform["edge_massdif_score"]=EdgeSet$Biotransform["edge_massdif_score"]/max(EdgeSet$Biotransform["edge_massdif_score"])
-}
 
 
 
