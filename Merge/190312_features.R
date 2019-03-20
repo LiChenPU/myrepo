@@ -1018,8 +1018,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
 }
 
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj_function) ####
-{
+Run_CPLEX = function(CPLEXset, obj_function){
   
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
@@ -1046,12 +1045,13 @@ Run_CPLEX = function(CPLEXset, obj_function) ####
   copyColTypeCPLEX(env, prob, ctype)
   mipoptCPLEX(env, prob)
   
+  result_solution=solutionCPLEX(env, prob)
   
   writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
   
-  result_solution=solutionCPLEX(env, prob)
+  
   
   return(result_solution)
 }
@@ -1153,7 +1153,7 @@ Run_CPLEX = function(CPLEXset, obj_function) ####
 
 
 
-  result_solution = 
+  result_solution = Run_CPLEX(CPLEXset, CPLEXset$CPLEX_para$obj)
 
 
 ##Evaluation
