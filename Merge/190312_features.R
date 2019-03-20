@@ -25,12 +25,13 @@
 # Function for parsing#### 
 ## read_library ####
 read_library = function(library_file = "hmdb_unique.csv"){
-hmdb_lib = read_csv(library_file)
-hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
-return(hmdb_lib)
+  data(isotopes)
+  hmdb_lib = read_csv(library_file)
+  hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
+  return(hmdb_lib)
 }
   
-## Data name and cohorts####
+## Data name and cohorts ####
 Cohort_Info = function(mset)
 {
   raw = mset$Raw_data
@@ -47,9 +48,9 @@ Cohort_Info = function(mset)
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
 
-## Clean up duplicate peaks from peak picking####
+## Clean up duplicate peaks from peak picking ####
 Peak_cleanup = function(mset,
-                        ms_dif_ppm=5/10^6, 
+                        ms_dif_ppm=3/10^6, 
                         rt_dif_min=0.2,
                         detection_limit=2500
                         )
@@ -183,7 +184,7 @@ Peak_cleanup = function(mset,
   return(s5)
 }
 
-## Identify peaks with high blanks####
+## Identify peaks with high blanks ####
 High_blank = function(mset, fold_cutoff = 2)
 {
   s7 = mset$Data
@@ -239,7 +240,7 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   return (library_match)
 }
 
-## Statistical analysis with MetaboAnalyst####
+## Statistical analysis with MetaboAnalyst ####
 Metaboanalyst_Statistic = function(mset)
 {
   library(MetaboAnalystR)
@@ -272,8 +273,8 @@ Metaboanalyst_Statistic = function(mset)
 
 # Function for network ######
 
-## Merge experiment and library nodes####
-Form_node_list = function(mset, library_file = "hmdb_unique.csv")
+## Merge experiment and library nodes ####
+Form_node_list = function(mset)
 {
   NodeSet = list()
   NodeSet[["Expe"]] = mset$Data[,c("groupId","medMz","medRt","formula")]
@@ -281,7 +282,7 @@ Form_node_list = function(mset, library_file = "hmdb_unique.csv")
   NodeSet$Expe["compound_name"]=NA
   colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "origin","compound_name")
   
-  NodeSet[["Library"]] = read.csv(library_file,stringsAsFactors = F)
+  NodeSet[["Library"]] = mset$Library
   NodeSet$Library = cbind(NodeSet$Library, RT=NA)
   colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","origin", "RT")
   NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
@@ -293,7 +294,7 @@ Form_node_list = function(mset, library_file = "hmdb_unique.csv")
   return(merge_node_list)
 }
 
-## Define transformation and artifact rules####
+## Define transformation and artifact rules ####
 Read_rule_table = function(rule_table_file = "biotransform.csv"){
   library(enviPat)
   data("isotopes")
@@ -360,7 +361,7 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6)
   edge_list_sub["category"]=1
   return(edge_list_sub)
 }
-### Scoring edge based on mass accuracy####
+### Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform)
 {
   edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
@@ -371,15 +372,15 @@ Edge_score = function(Biotransform)
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
-## Network_prediction used to connect nodes to library and predict formula####
+## Network_prediction used to connect nodes to library and predict formula ####
 Network_prediction = function(mset, edge_list_sub, 
-                              top_formula_n = 1
+                              top_formula_n 
                               )
 {
   
   mnl=mset$NodeSet
-  edge_list_sub=test3
-  
+  # top_formula_n=2
+  # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
   {
     data_str = data.frame(id=as.numeric(),
@@ -425,6 +426,7 @@ Network_prediction = function(mset, edge_list_sub,
       head_list = edge_list_node1$node1
       n=1
       for (n in 1: nrow(new_nodes_df)){
+        if(n%%1000==0){print(paste("Head_n =",n))}
         
         head = new_nodes_df$id[n]
         head_formula = new_nodes_df$formula[n]
@@ -441,7 +443,11 @@ Network_prediction = function(mset, edge_list_sub,
           temp_fg = temp_edge_list$linktype[i]
           if(temp_fg==""){
             temp_formula = head_formula
-          }else{
+          }else if (grepl("x",temp_fg)){
+            fold = as.numeric(gsub("x","",temp_fg))
+            temp_formula=my_calculate_formula(head_formula,head_formula,fold-1,Is_valid = T)
+          }else {
+            
             temp_formula=my_calculate_formula(head_formula,temp_fg,1,Is_valid = T)
           }
           
@@ -479,7 +485,7 @@ Network_prediction = function(mset, edge_list_sub,
       tail_list = edge_list_node2$node2
       
       for (n in 1: nrow(new_nodes_df)){
-        
+        if(n%%1000==0){print(paste("Tail_n =",n))}
         tail = new_nodes_df$id[n]
         tail_formula = new_nodes_df$formula[n]
         
@@ -495,7 +501,11 @@ Network_prediction = function(mset, edge_list_sub,
           temp_fg = temp_edge_list$linktype[i]
           if(temp_fg==""){
             temp_formula = tail_formula
-          }else{
+          }else if (grepl("x",temp_fg)){
+            fold = as.numeric(gsub("x","",temp_fg))
+            temp_formula=my_calculate_formula(head_formula,head_formula,fold-1,Is_valid = T)
+            if(grepl(".", temp_formula)){temp_formula=F}
+          }else {
             temp_formula=my_calculate_formula(tail_formula,temp_fg,-1,Is_valid = T)
           }
           
@@ -535,7 +545,7 @@ Network_prediction = function(mset, edge_list_sub,
 }
 
 
-## Variance between peaks####
+## Variance between peaks ####
 Peak_variance = function(mset, 
                          time_cutoff=0.1,
                          mass_cutoff=0,
@@ -638,7 +648,7 @@ Peak_variance = function(mset,
 
 
 
-### Edge_list for artifacts####
+### Edge_list for artifacts ####
 Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001){
   edge_ls_highcor=Peak_inten_correlation
   edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
@@ -744,7 +754,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   filename = c("Yeast-Ecoli-neg-peakpicking_blank.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),10000),]
+  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),10000),]
   mset[["Library"]] = read_library("hmdb_unique.csv")
 
 }
@@ -792,7 +802,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   
   EdgeSet = list()
   
-  mset[["NodeSet"]]=Form_node_list(mset, library_file = "hmdb_unique.csv")
+  mset[["NodeSet"]]=Form_node_list(mset)
   mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(mset)
@@ -811,15 +821,16 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
   
   
+  EdgeSet[["Merge"]] = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
 
   mset[["NodeSet_network"]] = Network_prediction(mset, 
-                                                 rbind(EdgeSet$Artifacts,EdgeSet$Biotransform), 
+                                                 EdgeSet$Merge, 
                                                  top_formula_n = 2)
   
   
   sf=mset[["NodeSet_network"]]
   
-  test = test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
+  test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
   #write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
   
 }
@@ -830,7 +841,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   All_formula_predict=bind_rows(mset[["NodeSet_network"]])
   raw_pred_formula = All_formula_predict
   raw_node_list = mset$NodeSet
-  
+  raw_edge_list = rbind(EdgeSet$Biotransform,EdgeSet$Artifacts)
   
   
   pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
@@ -838,10 +849,10 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   
   #Select node that has only 1 formula as library nodes, 
   #For future applicatoin, should select nodes where degree==0
-  lib_nodes = raw_node_list[raw_node_list$category==0,]
+  lib_nodes = raw_node_list[raw_node_list$origin=="Library",]
   lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
-  unknown_nodes = raw_node_list[raw_node_list$category!=0,]
-  unknown_nodes = unknown_nodes[!is.na(unknown_nodes$Predict_formula),]
+  unknown_nodes = raw_node_list[raw_node_list$origin!="Library",]
+  unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
   num_unknown_nodes = nrow(unknown_nodes)
   
   lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
@@ -863,7 +874,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
 ##Core codes
 
 #Construct constraint matrix 
-
+read_from_csv = 0
 if(!read_from_csv)
 {
   #Unknown nodes
@@ -889,7 +900,7 @@ if(!read_from_csv)
   triplet_edge_ls_edge=triplet_edge_ls_node=list()
   edge_info = list()
   timer=Sys.time()
-  n=1
+  
   for(n in 1:nrow(edge_list)){
     #for(n in 1:10000){
     if(n%%1000==0){
@@ -903,16 +914,16 @@ if(!read_from_csv)
     formula_1 = pred_formula_ls[[node_1]]
     formula_2 = pred_formula_ls[[node_2]]
     temp_fg = temp_edge$linktype
-    temp_formula = unique(formula_1$formula[2])
+    
     for(temp_formula in unique(formula_1$formula)){
       #Assuming formula in node_1 is always smaller than node_2
-      if(temp_fg=="Same"){
+      if(temp_fg==""){
         temp_formula_2=temp_formula
       }
       else{
-        #temp_formula_2 = formula_manipulate(temp_formula, temp_fg, +1)
         
-        temp_formula_2 = My_mergefrom(temp_formula, temp_fg)
+        
+        temp_formula_2 = my_calculate_formula(temp_formula, temp_fg)
       }
       #Write triplet for edge and corresponding 2 nodes
       if(temp_formula_2 %in% formula_2$formula){
@@ -1022,8 +1033,7 @@ if(!read_from_csv)
   mat = simple_triplet_matrix(i=triplet_df$i,
                               j=triplet_df$j,
                               v=triplet_df$v)
-}else
-{
+}else{
   triplet_df = read.csv("triplet_df.csv")
   edge_info_sum = read_csv("edge_info_sum.csv")
   mat = simple_triplet_matrix(i=triplet_df$i,
@@ -1055,5 +1065,61 @@ print(Sys.time()-time)
   val = triplet_df$v
 }
 
+{
+  env <- openEnvCPLEX()
+  prob <- initProbCPLEX(env)
+  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj, rhs, sense,
+                    beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+  copyColTypeCPLEX(env, prob, ctype)
+  mipoptCPLEX(env, prob)
+  
+  result_solution=solutionCPLEX(env, prob)
+  writeProbCPLEX(env, prob, "prob.lp")
+  delProbCPLEX(env, prob)
+  closeEnvCPLEX(env)
+}
 
-
+print(Sys.time())
+##Evaluation
+{
+  unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
+  edge_info_sum["ILP_result"] = result_solution$x[(nrow(unknown_formula)+1):length(result_solution$x)]
+  
+  #merge_formula$id[merge_formula$ilp_index==584]
+  
+  unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result==1,]
+  unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  
+  edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
+  
+  lin_result = lin_result[lin_result$feature=="Metabolite"| lin_result$feature=="",]
+  lin_result = lin_result[order(lin_result$mz),]
+  
+  data("isotopes")
+  lin_result["formula_check"]=check_chemform(isotopes,lin_result$formula)$new_formula
+  lin_result["ilp_id"]=1:nrow(lin_result)
+  
+  merge_Lin_ILP = merge(lin_result, unknown_node_CPLEX, by.x="ilp_id",by.y="ID",all=T)
+  merge_Lin_ILP_metabolite = merge_Lin_ILP[merge_Lin_ILP$feature=="Metabolite",]
+  merge_Lin_ILP_metabolite = merge_Lin_ILP_metabolite[!is.na(merge_Lin_ILP_metabolite$formula.y),]
+  merge_Lin_ILP_metabolite_diff = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
+                                                             merge_Lin_ILP_metabolite$formula.y,]
+  merge_Lin_ILP_metabolite_diff2 = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
+                                                              merge_Lin_ILP_metabolite$Predict_formula,]
+  
+  
+  # withoutILP=withILP=0
+  # for(i in 1:nrow(merge_Lin_ILP_metabolite)){
+  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$Predict_formula[i])
+  #   {withoutILP=withoutILP+1}
+  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$formula.y[i])
+  #   {withILP=withILP+1}
+  # }
+  
+  unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
+  
+  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C7H15O4P1S2"),
+                                               which(edge_info_sum$formula2=="C7H15O4P1S2"))),]
+  unknown_formula[unknown_formula$id==merge_formula$id[which(merge_formula$ilp_index==3584)],]
+  
+}
