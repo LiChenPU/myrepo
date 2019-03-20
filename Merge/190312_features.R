@@ -388,10 +388,11 @@ Edge_score = function(Biotransform)
 }
 ## Network_prediction used to connect nodes to library and predict formula ####
 Network_prediction = function(mset, edge_list_sub, 
-                              top_formula_n 
+                              top_formula_n,
+                              read_from_csv = F
                               )
 {
-  
+  if(!read_from_csv){
   mnl=mset$NodeSet
   # top_formula_n=2
   # edge_list_sub = EdgeSet$Merge
@@ -555,6 +556,20 @@ Network_prediction = function(mset, edge_list_sub,
     
     
   }
+  
+  All_formula_predict=bind_rows(sf)
+  write.csv(All_formula_predict,"All_formula_predict.csv",row.names = F)
+  
+  } else {
+    
+    merge_formula = read_csv("All_formula_predict.csv")
+    sf = list()
+    for(n in 1: max(merge_formula$id)){
+      sf[[n]]=merge_formula[merge_formula$id==n,]
+    }
+  }
+
+  
   return(sf)
 }
 
@@ -1022,7 +1037,7 @@ Run_CPLEX = function(CPLEXset, obj_function){
   
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
-  
+  obj_function = CPLEXset$CPLEX_para$obj
   obj = obj_function
   
   nc = CPLEXset$CPLEX_para$nc
@@ -1043,11 +1058,15 @@ Run_CPLEX = function(CPLEXset, obj_function){
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
   copyColTypeCPLEX(env, prob, ctype)
-  mipoptCPLEX(env, prob)
+  
+  return_code = mipoptCPLEX(env, prob)
   
   result_solution=solutionCPLEX(env, prob)
   
   writeProbCPLEX(env, prob, "prob.lp")
+  
+  print(paste(return_codeCPLEX(return_code),"-",status_codeCPLEX(env, getStatCPLEX(env, prob))))
+  
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
   
@@ -1119,7 +1138,7 @@ Run_CPLEX = function(CPLEXset, obj_function){
   EdgeSet[["Biotransform"]] = Edge_biotransform(mset, 
                                                 mass_abs = 0.001, 
                                                 mass_ppm = 5/10^6, 
-                                                read_from_csv=F)
+                                                read_from_csv=T)
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
   mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
@@ -1137,9 +1156,10 @@ Run_CPLEX = function(CPLEXset, obj_function){
 
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
-                                                 top_formula_n = 2)
+                                                 top_formula_n = 2,
+                                                 read_from_csv = T)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = T)
   
   #sf=mset[["NodeSet_network"]]
   #test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
@@ -1149,13 +1169,46 @@ Run_CPLEX = function(CPLEXset, obj_function){
 
 
 
+# Test Code ##########
+
 
 
 
 
   result_solution = Run_CPLEX(CPLEXset, CPLEXset$CPLEX_para$obj)
 
-
+  
+  unknown_nodes = CPLEXset$CPLEX_data$unknown_nodes
+  unknown_formula = CPLEXset$CPLEX_data$unknown_formula
+  edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
+  
+  
+  
+  solution_ls = list()
+  
+  for(node in 1:2){
+    for(edge in 1:2){
+      
+      node_penalty= -0.1*node
+      edge_penalty= -0.1*edge
+      {
+        edge_score_permutated = edge_info_sum$edge_score
+        # edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
+        #                                                             mean = 0,
+        #                                                             sd = 0.1))
+        obj <- c(rep(node_penalty, nrow(unknown_formula)), edge_score_permutated+edge_penalty)
+        solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
+      }
+    }
+  }
+  
+  
+   = bind_cols(lapply(solution_ls, `[`, "x"))
+  
+  
+  unknown_formula_CPLEX = cbind(unknown_formula,b[1:nrow(unknown_formula),])
+  
+  
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
@@ -1168,34 +1221,167 @@ Run_CPLEX = function(CPLEXset, obj_function){
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result==1,]
   
-  lin_result = lin_result[lin_result$feature=="Metabolite"| lin_result$feature=="",]
-  lin_result = lin_result[order(lin_result$mz),]
-  
-  data("isotopes")
-  lin_result["formula_check"]=check_chemform(isotopes,lin_result$formula)$new_formula
-  lin_result["ilp_id"]=1:nrow(lin_result)
-  
-  merge_Lin_ILP = merge(lin_result, unknown_node_CPLEX, by.x="ilp_id",by.y="ID",all=T)
-  merge_Lin_ILP_metabolite = merge_Lin_ILP[merge_Lin_ILP$feature=="Metabolite",]
-  merge_Lin_ILP_metabolite = merge_Lin_ILP_metabolite[!is.na(merge_Lin_ILP_metabolite$formula.y),]
-  merge_Lin_ILP_metabolite_diff = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
-                                                             merge_Lin_ILP_metabolite$formula.y,]
-  merge_Lin_ILP_metabolite_diff2 = merge_Lin_ILP_metabolite[merge_Lin_ILP_metabolite$formula_check!=
-                                                              merge_Lin_ILP_metabolite$Predict_formula,]
-  
-  
-  # withoutILP=withILP=0
-  # for(i in 1:nrow(merge_Lin_ILP_metabolite)){
-  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$Predict_formula[i])
-  #   {withoutILP=withoutILP+1}
-  #   if(merge_Lin_ILP_metabolite$formula_check[i]==merge_Lin_ILP_metabolite$formula.y[i])
-  #   {withILP=withILP+1}
-  # }
-  
-  unknown_node_CPLEX_diff = unknown_node_CPLEX[unknown_node_CPLEX$ID %in% merge_Lin_ILP_metabolite_diff$ilp_id,]
-  
-  edge_info_sum_debug = edge_info_sum[unique(c(which(edge_info_sum$formula1=="C7H15O4P1S2"),
-                                               which(edge_info_sum$formula2=="C7H15O4P1S2"))),]
-  unknown_formula[unknown_formula$id==merge_formula$id[which(merge_formula$ilp_index==3584)],]
-  
 }
+
+  
+  
+  
+  merge_edge_list = edge_list[edge_info_CPLEX$edge_id,]
+  merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
+  
+  a = mset$Data
+  
+  merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$Predict_formula[is.na(merge_node_list$formula)]
+  merge_node_list$formula[is.na(merge_node_list$formula)] = merge_node_list$MF[is.na(merge_node_list$formula)]
+  
+  merge_Lin_ILP_unknown_match_Sig5=merge_Lin_ILP_unknown_match[merge_Lin_ILP_unknown_match$sig>5,]
+  merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match$ilp_id]+1
+  merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id] = merge_node_list$category[merge_node_list$ID %in% merge_Lin_ILP_unknown_match_Sig5$ilp_id]+1
+  
+  colors <- c("white", "red", "orange", "yellow", "green")
+  merge_node_list["color"] = colors[merge_node_list$category+1]
+  
+  g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
+  E(g)$color = colors[merge_edge_list$category+1]
+  merge_node_list["degree"]=degree(g, mode = c("all"))
+  
+  
+  g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
+  E(g_sub)$color = colors[merge_edge_list$category+1]
+  
+  
+  
+  #Basic graph characteristics, distance, degree, betweeness
+  {
+    #distance
+    farthest_vertices(g) 
+    #Degree
+    g.degree <- degree(g, mode = c("all"))
+    # which.max(g.degree)
+    #Betweenness
+    #g.b <- betweenness(g, directed = T)
+    plot(g_sub,
+         vertex.label = NA,
+         #edge.color = 'black',
+         vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+         edge.arrow.size = 0.05,
+         layout = layout_nicely(g_sub))
+  }
+  
+  
+  
+  
+  #Analyze the network/subgraph of specific node
+  mainDir = dirname(rstudioapi::getSourceEditorContext()$path)
+  subDir = "subgraph of specific node"
+  dir.create(file.path(mainDir, subDir),showWarnings=F)
+  setwd(file.path(mainDir, subDir))
+  
+  
+  
+  clu=components(g_sub)
+  #subnetwork criteria 
+  subnetwork = igraph::groups(clu)[table(clu$membership)<1000]
+  
+  g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
+  
+  
+  find_node_in_subgraph=function(node_name, subnetwork){
+    for(i in 1:length(subnetwork)){
+      if(node_name%in% subnetwork[[i]]){return(i)}
+    }
+  }
+  
+  find_node_in_subgraph(337, subnetwork)
+  i=1
+  for(i in 1:nrow(merge_Lin_ILP_unknown_match_Sig5)){
+    #Analyze the network/subgraph of specific node
+    {
+      temp = merge_node_list[merge_Lin_ILP_unknown_match_Sig5$ilp_id[i],]
+      #temp = merge_node_list[612,]
+      interested_node = paste(temp$ID)
+      target_mz = round(temp$mz,digits=4)
+      target_rt = round(temp$RT,digits=2)
+      step = temp$steps+1
+      
+      target_subgraph = find_node_in_subgraph(as.character(merge_Lin_ILP_unknown_match_Sig5$ilp_id[i]),subnetwork)
+      #target_subgraph = find_node_in_subgraph(as.character(612),subnetwork)
+      if(target_subgraph!=1){
+        g_interest = make_ego_graph(g_sub, min(3,diameter(g_sub)), nodes = interested_node, mode = c("all"))[[1]]
+      }else
+      {g_interest <- make_ego_graph(g_sub,2, nodes = interested_node, mode = c("all"))[[1]]}
+      
+      #V(g_interest)$color <- colors[dists+1]
+      
+      plot(g_interest,
+           vertex.label = vertex.attributes(g_interest)$formula,
+           #vertex.label = vertex.attributes(g_interest)$mz,
+           #vertex.label = vertex.attributes(g_interest)$ID,
+           
+           vertex.label.color = "black",
+           vertex.label.cex = 1,
+           #edge.color = 'black',
+           edge.label = edge.attributes(g_interest)$linktype,
+           vertex.size = 10,
+           edge.arrow.size = .5,
+           main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
+      )
+    }
+    
+    png(filename=paste("mz=", target_mz," RT=",target_rt,".png",sep=""),
+        width = 2400, height=2400,
+        res=300)
+    plot(g_interest,
+         vertex.label = vertex.attributes(g_interest)$formula,
+         #vertex.label = vertex.attributes(g_interest)$mz,
+         #vertex.label = vertex.attributes(g_interest)$ID,
+         vertex.label.color = "black",
+         vertex.label.cex = 1,
+         #edge.color = 'black',
+         edge.label = edge.attributes(g_interest)$linktype,
+         vertex.size = 10,
+         edge.arrow.size = .5,
+         main = paste("mz=", target_mz," RT=",target_rt," formula=", temp$formula, sep="")
+    )
+    dev.off()
+    output_network_csv=merge_node_list[vertex.attributes(g_interest)$name,]
+    output_network_csv=merge(output_network_csv,merge_Lin_ILP[which(merge_Lin_ILP$ilp_id %in% output_network_csv$ID),c("ilp_id","N.num","C.num","sig")],by.x = "ID", by.y = "ilp_id", all.x=T)
+    
+    H_mass = 1.00782503224
+    e_mass = 0.00054857990943
+    mode = -1
+    #output_network_csv$mz=output_network_csv$mz +(H_mass-e_mass)*mode
+    write.csv(output_network_csv[,-5], paste("mz=", target_mz," RT=",target_rt,".csv",sep=""), row.names=F)
+  }
+  
+  
+  #Analysis of Subnetwork 
+  {
+    clu=components(g_sub)
+    #subnetwork criteria 
+    subnetwork = igraph::groups(clu)[table(clu$membership)<1000]
+    
+    g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g_sub, order=diameter(g_sub), mode="all")
+    for (i in 1:length(subnetwork)){
+      if(subnetwork[[i]])
+        if(!any(merge_node_list$category[as.numeric(subnetwork[[i]])]>2)){next}
+      plot(g_subnetwork_list[[i]][[1]],
+           #vertex.color = 'white',
+           vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$formula,
+           #vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$mz,
+           vertex.label.color = "red",
+           vertex.label.cex = 1,
+           #edge.color = 'black',
+           edge.label = edge.attributes(g_subnetwork_list[[i]][[1]])$linktype,
+           vertex.size = 10,
+           edge.arrow.size = 2/length(vertex.attributes(g_subnetwork_list[[i]][[1]])$formula),
+           main = paste("Subnetwork",names(subnetwork)[[i]])
+      )
+    }
+  }
+  
+  
+  
+  
+  
+  
