@@ -2,7 +2,7 @@
 # Sys.setlocale(category = "LC_ALL", locale = "Chinese")
 # !diagnostics off
 
-#import library
+# Import library ####
 {
   library(readr)
   library(igraph)
@@ -762,7 +762,8 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
   return(edge_ls_annotate_network)
 }
 
-# Function for CPLEX
+
+# Function for CPLEX ####
 ## Prepare_CPLEX parameter ####
 Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
   All_formula_predict=bind_rows(mset[["NodeSet_network"]])
@@ -1016,10 +1017,8 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
   )
 }
 
-
-
-
-## Run_CPLEX = function(CPLEXset, obj_function)
+## Run_CPLEX ####
+Run_CPLEX = function(CPLEXset, obj_function) ####
 {
   
   env <- openEnvCPLEX()
@@ -1141,6 +1140,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
                                                  top_formula_n = 2)
   
   CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  
   #sf=mset[["NodeSet_network"]]
   #test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
   #write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
@@ -1153,9 +1153,9 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
 
 
 
+  result_solution = 
 
 
-print(Sys.time())
 ##Evaluation
 {
   unknown_formula["ILP_result"] = result_solution$x[1:nrow(unknown_formula)]
