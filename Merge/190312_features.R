@@ -376,10 +376,14 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   return(edge_list_sub)
 }
 ### Scoring edge based on mass accuracy ####
-Edge_score = function(Biotransform)
-{
-  edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
-  hist(Biotransform$mass_dif)
+Edge_score = function(Biotransform){
+  if(nrow(Biotransform)>10000){
+    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+  } else {
+    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+  }
+  
+  #hist(Biotransform$mass_dif)
   
   plot(edge_mzdif_FIT)  
   Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
@@ -1238,7 +1242,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
 }
 
-
+·
 # Test Code ##########
 {
 
@@ -1248,6 +1252,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
   
   solution_ls = list()
+  solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
   
   for(i in 1:n_permutation){
     edge_score_permutated = edge_info_sum$edge_score
@@ -1275,6 +1280,9 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
   CPLEX_x[CPLEX_x<1e-5] =0
   CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
+  
+  write.csv(CPLEX_x,"CPLEX_x.csv")
+  write.csv(solution_ls[[1]]$slack,"CPLEX_slack.csv")
 
 
   unknown_formula["ILP_result"] = CPLEX_x$X_mean[1:nrow(unknown_formula)]
