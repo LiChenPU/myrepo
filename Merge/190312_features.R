@@ -364,11 +364,11 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   edge_list_sub["category"]=1
   
-  write.csv(edge_list_sub,"edge_list_sub.csv",row.names = F)
+  write_csv(edge_list_sub,"edge_list_sub.txt")
   
   } else{
     
-    edge_list_sub = read_csv("edge_list_sub.csv", na="NA")
+    edge_list_sub = read_csv("edge_list_sub.txt", na="NA")
     
   }
   
@@ -562,11 +562,11 @@ Network_prediction = function(mset, edge_list_sub,
   }
   
   All_formula_predict=bind_rows(sf)
-  write.csv(All_formula_predict,"All_formula_predict.csv",row.names = F)
+  write_csv(All_formula_predict,"All_formula_predict.txt")
   
   } else {
     
-    merge_formula = read_csv("All_formula_predict.csv")
+    merge_formula = read_csv("All_formula_predict.txt")
     sf = list()
     for(n in 1: max(merge_formula$id)){
       sf[[n]]=merge_formula[merge_formula$id==n,]
@@ -682,100 +682,107 @@ Peak_variance = function(mset,
 
 
 ### Edge_list for artifacts ####
-Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001){
-  edge_ls_highcor=Peak_inten_correlation
-  edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
-  junk_df = mset$Artifacts
+Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F){
   
-  
-  i=j=1
-  temp_ls = list()
-  temp_df = edge_ls_highcor[1,]
-  temp_df["category"]=NA
-  temp_df["linktype"]=NA
-  temp_df["mass_dif"]=NA
-  
-  temp_df = temp_df[0,]
-  
-  while (i <= nrow(edge_ls_highcor)){
-    i=i+1
-    if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_ms_cutoff)){
-      next
+  if(read_from_csv = F){
+    edge_ls_highcor=Peak_inten_correlation
+    edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
+    junk_df = mset$Artifacts
+    
+    
+    i=j=1
+    temp_ls = list()
+    temp_df = edge_ls_highcor[1,]
+    temp_df["category"]=NA
+    temp_df["linktype"]=NA
+    temp_df["mass_dif"]=NA
+    
+    temp_df = temp_df[0,]
+    
+    while (i <= nrow(edge_ls_highcor)){
+      i=i+1
+      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_ms_cutoff)){
+        next
+      }
+      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_ms_cutoff)){
+        temp_ls[[j]]=temp_df
+        temp_df = temp_df[0,]
+        j=j+1
+        if(j>nrow(junk_df)){break}
+        #search_ms_cutoff = 10 * initial_FIT$estimate[2]/1000 
+        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_ms_cutoff)){i=i-1}
+        next
+      }
+      temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
+                                    as.character(junk_df$Symbol[j]), 
+                                    junk_df$Formula[j], 
+                                    (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node1[i]*10^6
+      )
     }
-    if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_ms_cutoff)){
-      temp_ls[[j]]=temp_df
-      temp_df = temp_df[0,]
-      j=j+1
-      if(j>nrow(junk_df)){break}
-      #search_ms_cutoff = 10 * initial_FIT$estimate[2]/1000 
-      while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_ms_cutoff)){i=i-1}
-      next
-    }
-    temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
-                                  as.character(junk_df$Symbol[j]), 
-                                  junk_df$Formula[j], 
-                                  (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node1[i]*10^6
-    )
-  }
-  
-  
-  temp_df_isotope = bind_rows(temp_ls)
-  
-  junk_summary=table(temp_df_isotope$category)
-  print(junk_summary)
-  
-  
-  
-  
-  
-  #Oligomers. Note that it is indistinguishable between 2-charge-parent pair and parent-dimer pair
-  
-  test_time = Sys.time()
-  {
-    H_mass = 1.00782503224
-    e_mass = 0.00054857990943
-    mode=-1
-    ppm=5/10^6
-    temp_df_oligo = temp_df[0,]
     
-    df_raw = mset$Data
     
-    temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
-    temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
-    temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
-    temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
-                                &(abs(temp_edge_ls$dif)<0.05),]
+    temp_df_isotope = bind_rows(temp_ls)
     
-    for(i in 1:nrow(temp_edge_ls)){
-      temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
-      temp_mz1 = df_raw$medMz[which(df_raw$groupId==temp_data$node1)]
-      temp_mz2 = temp_mz1 + temp_data$mz_dif
-      for(j in 2:10){
-        #if charge data
-        #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
-        #if neutral data
-        if(abs(temp_mz1*j-temp_mz2)<search_ms_cutoff){
-          temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), (temp_mz1*j-temp_mz2)/temp_mz1*10^6)
+    junk_summary=table(temp_df_isotope$category)
+    print(junk_summary)
+    
+    
+    
+    
+    
+    #Oligomers. Note that it is indistinguishable between 2-charge-parent pair and parent-dimer pair
+    
+    test_time = Sys.time()
+    {
+      H_mass = 1.00782503224
+      e_mass = 0.00054857990943
+      mode=-1
+      ppm=5/10^6
+      temp_df_oligo = temp_df[0,]
+      
+      df_raw = mset$Data
+      
+      temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
+      temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
+      temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
+      temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
+                                  &(abs(temp_edge_ls$dif)<0.05),]
+      
+      for(i in 1:nrow(temp_edge_ls)){
+        temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
+        temp_mz1 = df_raw$medMz[which(df_raw$groupId==temp_data$node1)]
+        temp_mz2 = temp_mz1 + temp_data$mz_dif
+        for(j in 2:10){
+          #if charge data
+          #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
+          #if neutral data
+          if(abs(temp_mz1*j-temp_mz2)<search_ms_cutoff){
+            temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), (temp_mz1*j-temp_mz2)/temp_mz1*10^6)
+          }
         }
       }
     }
+    rm(temp_edge_ls)
+    temp_df_oligo
+    nrow(temp_df_oligo)
+    
+    oligo_summary=table(temp_df_oligo$linktype)
+    print(oligo_summary)
+    
+    #data$parent[data$groupId==6]
+    test_time = Sys.time()-test_time
+    
+    
+    edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
+    
+    
+    edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category")]
+    
+    write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
+  }  else{
+    
+    edge_ls_annotate_network = read_csv("artifact_edge_list.txt")
   }
-  rm(temp_edge_ls)
-  temp_df_oligo
-  nrow(temp_df_oligo)
-  
-  oligo_summary=table(temp_df_oligo$linktype)
-  print(oligo_summary)
-  
-  #data$parent[data$groupId==6]
-  test_time = Sys.time()-test_time
-  
-  
-  edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
-  
-  
-  edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category")]
-  
   
   
   return(edge_ls_annotate_network)
@@ -975,7 +982,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
       edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=0
     }
     
-    write_csv(triplet_df,"triplet_df.csv")
+    write_csv(triplet_df,"triplet_df.txt")
     write_csv(edge_info_sum,"edge_info_sum.csv")
     mat = simple_triplet_matrix(i=triplet_df$i,
                                 j=triplet_df$j,
@@ -1281,17 +1288,22 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   CPLEX_x[CPLEX_x<1e-5] =0
   CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
   
-  write.csv(CPLEX_x,"CPLEX_x.csv")
-  write.csv(solution_ls[[1]]$slack,"CPLEX_slack.csv")
+  # write_csv(CPLEX_x,"CPLEX_x.txt")
+  # write_csv(solution_ls[[1]]$slack,"CPLEX_slack.txt")
+  CPLEX_x = read_csv("CPLEX_x.csv")
+  table(CPLEX_x)
 
-
-  unknown_formula["ILP_result"] = CPLEX_x$X_mean[1:nrow(unknown_formula)]
-  edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(result_solution$x)]
+  unknown_formula["ILP_result"] = CPLEX_x$x[1:nrow(unknown_formula)]
+  #edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(result_solution$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
+  
+  test = edge_info_sum[,1]
+  write.csv(edge_info_sum,"test.txt",row.names = F)
+  test_read = read_csv("test.txt")
   
 }
 
@@ -1415,4 +1427,6 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 
   
   
+  
+
   
