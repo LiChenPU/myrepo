@@ -13,11 +13,10 @@
   library(stringi)
   library(matrixStats)
   library(Matrix)
-  library(slam)
-  library(Rglpk)
   library(cplexAPI)
-  # setwd("C:/Users/Li Chen/Desktop/Github local")
-  # devtools::install("lc8")
+  library(slam)
+  
+  #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
 }
 
@@ -369,7 +368,7 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   } else{
     
-    edge_list_sub = read_csv("edge_list_sub.txt", na="NA")
+    edge_list_sub = read.csv("edge_list_sub.txt", na="NA",stringsAsFactors = F)
     
   }
   
@@ -471,7 +470,8 @@ Network_prediction = function(mset, edge_list_sub,
             temp_formula=my_calculate_formula(head_formula,temp_fg,1,Is_valid = T)
           }
           
-          if(is.logical(temp_formula))#function return false if not valid formula
+          #function return false if not valid formula
+          if(is.logical(temp_formula))
           { temp_score=0
           temp_formula=paste(head_formula,temp_fg,sep="+")
           }else{
@@ -1151,7 +1151,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
+  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("hmdb_unique.csv")
@@ -1196,7 +1196,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 # Network ####
 
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1288,7 +1288,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   table(CPLEX_x)
 
   unknown_formula["ILP_result"] = CPLEX_x$x[1:nrow(unknown_formula)]
-  #edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(result_solution$x)]
+  edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
@@ -1302,6 +1302,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 }
 
   
+edge_info_sum2 = read_csv("edge_info_sum.txt")
 
 # HMDB ####
 {
