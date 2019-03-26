@@ -976,13 +976,13 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
     }
     
     write_csv(triplet_df,"triplet_df.txt")
-    write_csv(edge_info_sum,"edge_info_sum.csv")
+    write_csv(edge_info_sum,"edge_info_sum.txt")
     mat = simple_triplet_matrix(i=triplet_df$i,
                                 j=triplet_df$j,
                                 v=triplet_df$v)
   }else{
-    triplet_df = read.csv("triplet_df.csv")
-    edge_info_sum = read_csv("edge_info_sum.csv")
+    triplet_df = read.csv("triplet_df.txt")
+    edge_info_sum = read_csv("edge_info_sum.txt")
     mat = simple_triplet_matrix(i=triplet_df$i,
                                 j=triplet_df$j,
                                 v=triplet_df$v)
@@ -1151,7 +1151,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),10000),]
+  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("hmdb_unique.csv")
@@ -1196,7 +1196,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 # Network ####
 
 {
-  
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1205,7 +1205,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   EdgeSet[["Biotransform"]] = Edge_biotransform(mset, 
                                                 mass_abs = 0.001, 
                                                 mass_ppm = 5/10^6, 
-                                                read_from_csv=T)
+                                                read_from_csv = read_from_csv)
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
   mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
@@ -1216,7 +1216,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   EdgeSet[["Artifacts"]] = Artifact_prediction(mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
-                                               read_from_csv = T)
+                                               read_from_csv = read_from_csv)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
   
   
@@ -1225,13 +1225,11 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = T)
+                                                 read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = T)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
   
-  #sf=mset[["NodeSet_network"]]
-  #test = All_formula_predict[grepl("\\[", All_formula_predict$formula) & All_formula_predict$score>0.4,]
-  #write.csv(All_formula_predict, "All_formula_predict.csv",row.names = F)
+  
   
 }
 
