@@ -198,7 +198,7 @@ High_blank = function(mset, fold_cutoff = 2)
   return(result)  
 }
 
-#Annontate base on library mz
+## Annontate base on library mz ####
 library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
 {
   s5 = mset$Data
@@ -209,9 +209,10 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   e_mass = 0.00054857990943
   mode = mset$Global_parameter$mode
   
-  hmdb_df = read_csv("hmdb_unique.csv")
-  hmdb_df["adjustmz"] = hmdb_df$Exact_Mass + (H_mass-e_mass)*mode
-  hmdb_df=hmdb_df[with(hmdb_df, order(adjustmz)),]
+  hmdb_df = read_csv(library_file)
+  data(isotopes)
+  hmdb_df$MF = check_chemform(isotopes, hmdb_df$MF)$new_formula
+  hmdb_df=hmdb_df[with(hmdb_df, order(Exact_Mass)),]
   
   i_min=1
   j=1
@@ -219,13 +220,13 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   library_match = list()
   
   while(j<=nrow(s5)){
-    while(hmdb_df$adjustmz[i_min+1] < (s5$medMz[j]*(1-ppm))){
+    while(hmdb_df$Exact_Mass[i_min+1] < (s5$medMz[j]*(1-ppm))){
       i_min=i_min+1
     }
     temp_metabolite=as.character()
     temp_formula=as.character()
     k=1
-    while(hmdb_df$adjustmz[i_min+k]<(s5$medMz[j]*(1+ppm))){
+    while(hmdb_df$Exact_Mass[i_min+k]<(s5$medMz[j]*(1+ppm))){
       k=k+1
     }
     if(k>1){
@@ -682,13 +683,12 @@ Peak_variance = function(mset,
 
 
 ### Edge_list for artifacts ####
-Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F){
-  
-  if(read_from_csv = F){
+Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
+{
+  if(read_from_csv == F){
     edge_ls_highcor=Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
     junk_df = mset$Artifacts
-    
     
     i=j=1
     temp_ls = list()
@@ -719,16 +719,11 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
                                     (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node1[i]*10^6
       )
     }
-    
-    
+
     temp_df_isotope = bind_rows(temp_ls)
     
     junk_summary=table(temp_df_isotope$category)
     print(junk_summary)
-    
-    
-    
-    
     
     #Oligomers. Note that it is indistinguishable between 2-charge-parent pair and parent-dimer pair
     
@@ -771,15 +766,13 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     #data$parent[data$groupId==6]
     test_time = Sys.time()-test_time
-    
-    
+
     edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
-    
     
     edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category")]
     
     write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
-  }  else{
+  } else{
     
     edge_ls_annotate_network = read_csv("artifact_edge_list.txt")
   }
@@ -1189,10 +1182,12 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   #View(mset$High_blanks)
   
   #library_match
-  mset[["library_match"]] = library_match(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
-  counts=unlist(lapply(mset$library_match,nrow))
+  mset[["library_match"]]=list()
+  mset[["library_match"]][["ls"]] = library_match(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
+  counts=unlist(lapply(mset$library_match$ls,nrow))
   num_of_library_match = cbind(ID=mset$ID,counts)
   mset[["library_match"]][["num_of_library_match"]]=num_of_library_match
+  
   
   #Metaboanalyst_Statistic
   mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
@@ -1220,7 +1215,8 @@ subgraph_specific_node = function(interested_node, g, step = 2)
                                                       correlation_cutoff = 0.8)
   EdgeSet[["Artifacts"]] = Artifact_prediction(mset, 
                                                EdgeSet$Peak_inten_correlation, 
-                                               search_ms_cutoff=0.001)
+                                               search_ms_cutoff=0.001,
+                                               read_from_csv = T)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
   
   
@@ -1308,6 +1304,28 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 }
 
   
+
+# HMDB ####
+{
+  df = as.data.frame(mset$library_match$num_of_library_match)
+  df["Library_match_formula"]=NA
+  a = mset$library_match$ls[[1]]
+  for(i in 1:length(mset$library_match$ls)){
+    if(nrow(mset$library_match$ls[[i]]) == 0){next
+    }else{
+      df$Library_match_formula[i] = paste(mset$library_match$ls[[i]]$MF, collapse = " | ")
+      }
+      
+  }
+
+  unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
+  unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
+                                                          unknown_node_CPLEX_HMDB$Library_match_formula &
+                                                          (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
+}
+
+
+
   Generate_graph = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
   merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
