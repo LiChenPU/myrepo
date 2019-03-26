@@ -16,8 +16,8 @@
   library(slam)
   library(Rglpk)
   library(cplexAPI)
-  # setwd("C:/Users/Li Chen/Desktop/Github local")
-  # devtools::install("lc8")
+  
+  #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
 }
 
@@ -471,7 +471,8 @@ Network_prediction = function(mset, edge_list_sub,
             temp_formula=my_calculate_formula(head_formula,temp_fg,1,Is_valid = T)
           }
           
-          if(is.logical(temp_formula))#function return false if not valid formula
+          #function return false if not valid formula
+          if(is.logical(temp_formula))
           { temp_score=0
           temp_formula=paste(head_formula,temp_fg,sep="+")
           }else{
@@ -1288,7 +1289,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   table(CPLEX_x)
 
   unknown_formula["ILP_result"] = CPLEX_x$x[1:nrow(unknown_formula)]
-  #edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(result_solution$x)]
+  edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
