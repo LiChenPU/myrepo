@@ -369,12 +369,9 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   } else{
     
-<<<<<<< HEAD
+
     edge_list_sub = read.csv("edge_list_sub.txt", na="NA",stringsAsFactors = F)
-=======
-    edge_list_sub = read.csv("edge_list_sub.txt", na="NA", stringsAsFactors = F)
->>>>>>> 755adc0bf12d61701693d5269c5723c21f5e86df
-    
+
   }
   
   
