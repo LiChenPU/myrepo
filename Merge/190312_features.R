@@ -15,6 +15,7 @@
   library(Matrix)
   library(cplexAPI)
   library(slam)
+
   
   #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
@@ -368,7 +369,11 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   } else{
     
+<<<<<<< HEAD
     edge_list_sub = read.csv("edge_list_sub.txt", na="NA",stringsAsFactors = F)
+=======
+    edge_list_sub = read.csv("edge_list_sub.txt", na="NA", stringsAsFactors = F)
+>>>>>>> 755adc0bf12d61701693d5269c5723c21f5e86df
     
   }
   
@@ -392,7 +397,7 @@ Edge_score = function(Biotransform){
 }
 ## Network_prediction used to connect nodes to library and predict formula ####
 Network_prediction = function(mset, edge_list_sub, 
-                              top_formula_n,
+                              top_formula_n=2,
                               read_from_csv = F
                               )
 {
@@ -423,7 +428,7 @@ Network_prediction = function(mset, edge_list_sub,
   
   #while loop to Predict formula based on known formula and edgelist 
   
-  
+  nrow_experiment = nrow(mset$Data)
   step=0
   timer=Sys.time()
   New_nodes_in_network = 1
@@ -443,7 +448,7 @@ Network_prediction = function(mset, edge_list_sub,
     {
       edge_list_node1 = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id,]
       head_list = edge_list_node1$node1
-      n=1
+      n=3
       for (n in 1: nrow(new_nodes_df)){
         #if(n%%1000==0){print(paste("Head_n =",n))}
         
@@ -459,6 +464,9 @@ Network_prediction = function(mset, edge_list_sub,
         i=1
         for(i in 1:nrow(temp_edge_list)){
           tail=temp_edge_list$node2[i]
+          if(tail>nrow_experiment){next}
+          
+          
           temp_fg = temp_edge_list$linktype[i]
           if(temp_fg==""){
             temp_formula = head_formula
@@ -518,6 +526,8 @@ Network_prediction = function(mset, edge_list_sub,
         i=1
         for(i in 1:nrow(temp_edge_list)){
           head=temp_edge_list$node1[i]
+          if(head>nrow_experiment){next}
+          
           temp_fg = temp_edge_list$linktype[i]
           if(temp_fg==""){
             temp_formula = tail_formula
@@ -567,7 +577,7 @@ Network_prediction = function(mset, edge_list_sub,
   
   } else {
     
-    merge_formula = read_csv("All_formula_predict.txt")
+    merge_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
     sf = list()
     for(n in 1: max(merge_formula$id)){
       sf[[n]]=merge_formula[merge_formula$id==n,]
@@ -774,7 +784,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
     write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
   } else{
     
-    edge_ls_annotate_network = read_csv("artifact_edge_list.txt")
+    edge_ls_annotate_network = read.csv("artifact_edge_list.txt",stringsAsFactors = F)
   }
   
   
@@ -982,7 +992,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
                                 v=triplet_df$v)
   }else{
     triplet_df = read.csv("triplet_df.txt")
-    edge_info_sum = read_csv("edge_info_sum.txt")
+    edge_info_sum = read.csv("edge_info_sum.txt",stringsAsFactors = F)
     mat = simple_triplet_matrix(i=triplet_df$i,
                                 j=triplet_df$j,
                                 v=triplet_df$v)
@@ -1248,6 +1258,8 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 {
 
 
+  
+  
   unknown_nodes = CPLEXset$CPLEX_data$unknown_nodes
   unknown_formula = CPLEXset$CPLEX_data$unknown_formula
   edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
@@ -1291,7 +1303,11 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
+  
+  
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  
+
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
@@ -1445,5 +1461,19 @@ edge_info_sum2 = read_csv("edge_info_sum.txt")
   
   
   
-
+# Evaluate if removing large error formula helps reducing formula space
+{
+  all_formula = unknown_formula
+  all_formula_0 = all_formula[all_formula$score!=0,]
+  all_formula_0["mz"]=NA
+  all_formula_0["measured_mz"]=NA
+  all_formula_0["mz"]=formula_mz(all_formula_0$formula)
+  for(i in 1:nrow(all_formula_0)){
+    all_formula_0$measured_mz[i] = mset$NodeSet$mz[mset$NodeSet$ID==all_formula_0$id[i]]
+  }
+  all_formula_0["abs_dif"] = all_formula_0["mz"]-all_formula_0["measured_mz"]
+  all_formula_0["ppm_dif"] = all_formula_0["abs_dif"]/all_formula_0$measured_mz*1E6
+  all_formula_1 = all_formula_0[abs(all_formula_0$abs_dif)<0.001|abs(all_formula_0$ppm_dif)<5,]
+  hist(all_formula_0$abs_dif)
+}
   
