@@ -1249,6 +1249,8 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 {
 
 
+  
+  
   unknown_nodes = CPLEXset$CPLEX_data$unknown_nodes
   unknown_formula = CPLEXset$CPLEX_data$unknown_formula
   edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
@@ -1292,7 +1294,11 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
   
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
+  
+  
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  
+
   
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
@@ -1445,5 +1451,18 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
   
   
-
-  
+#Evaluate if removing large error formula helps reducing formula space
+  # {
+  #   all_formula = unknown_formula
+  #   all_formula_0 = all_formula[all_formula$score!=0,]
+  #   all_formula_0["mz"]=NA
+  #   all_formula_0["measured_mz"]=NA
+  #   all_formula_0["mz"]=formula_mz(all_formula_0$formula)
+  #   for(i in 1:nrow(all_formula_0)){
+  #     all_formula_0$measured_mz[i] = mset$NodeSet$mz[mset$NodeSet$ID==all_formula_0$id[i]]
+  #   }
+  #   all_formula_0["abs_dif"] = all_formula_0["mz"]-all_formula_0["measured_mz"]
+  #   all_formula_0["ppm_dif"] = all_formula_0["abs_dif"]/all_formula_0$measured_mz*1E6
+  #   all_formula_1 = all_formula_0[abs(all_formula_0$abs_dif)<0.001|abs(all_formula_0$ppm_dif)<5,]
+  #   hist(all_formula_0$abs_dif)
+  # }
