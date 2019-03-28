@@ -17,7 +17,7 @@
   library(Rglpk)
   library(cplexAPI)
   
-  #devtools::install_github("LiChenPU/Formula_manipulation")
+  devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
 }
 
@@ -1157,10 +1157,10 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
+  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
-  mset[["Library"]] = read_library("hmdb_unique.csv")
+  mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
 
 }
 
@@ -1202,7 +1202,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 # Network ####
 
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1231,12 +1231,9 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = read_from_csv)
+                                                 read_from_csv = T)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
-  
-  
-  
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = T)
 }
 
 # Graphic analysis
