@@ -183,6 +183,10 @@ Peak_cleanup = function(mset,
   s5 = s4[s4$flag, 1:ncol(raw)]
   s5 = s5[with(s5, order(groupId)),]
   s5$groupId = 1:nrow(s5)
+  
+  s5["mean_inten"]=rowMeans(s5[,mset$Cohort$sample_names])
+  s5["log10_inten"]=log10(s5$mean_inten)
+  
   return(s5)
 }
 
@@ -1266,6 +1270,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
   
   EdgeSet[["Merge"]] = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
+  
 
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
@@ -1277,7 +1282,12 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 
 
 
-
+{
+  
+  edge_merge = EdgeSet$Merge
+  data = mset$Data
+  
+}
 
 
 ·
@@ -1298,8 +1308,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
     if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
   }
 
-  
-  
+    
   unknown_nodes = CPLEXset$CPLEX_data$unknown_nodes
   unknown_formula = CPLEXset$CPLEX_data$unknown_formula
   
@@ -1350,9 +1359,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
                                                               unknown_node_CPLEX_Xi_met$formula.y,]
   
   
-  }
 
-  
 
 # HMDB ####
 {
