@@ -17,7 +17,7 @@
   library(Rglpk)
   library(cplexAPI)
   
-  devtools::install_github("LiChenPU/Formula_manipulation")
+  #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
 }
 
@@ -28,6 +28,8 @@ read_library = function(library_file = "hmdb_unique.csv"){
   data(isotopes)
   hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
+  hmdb_lib$Exact_mass = formula_mz(hmdb_lib$MF)
+
   return(hmdb_lib)
 }
   
@@ -1161,7 +1163,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
-
+  write.csv(mset[["Library"]], "HMDB_detected_nodes_clean.csv")
 }
 
 
@@ -1231,84 +1233,116 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = T)
+                                                 read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = T)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
 }
 
-# Graphic analysis
 
+# Pruning formula  ####
 {
+  raw_pred_formula = bind_rows(mset[["NodeSet_network"]])
+  pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
+  pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+  
+  pred_formula["mz"] = formula_mz(pred_formula$formula)
+  pred_formula["measured_mz"]=NA
+  for(i in 1:nrow(pred_formula)){
+    pred_formula$measured_mz[i] = mset$NodeSet$mz[mset$NodeSet$ID==pred_formula$id[i]]
+  }
+  pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
+  pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
+  pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
   
   
-  subgraph_specific_node(1, g_sub,2)
-  Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
-  
+  pred_formula_1["rdbe"] = NA
+  elem_table = read.csv("C:/Users/Li Chen/Desktop/Github local/lc8/data/elem_table.csv")
+  #for(i in 1:nrow(pred_formula_1)){
+    
+  pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula,elem_table)
+  #}
+  merge_formula = pred_formula_1[,1:5]
+  sf = list()
+  for(n in 1: max(merge_formula$id)){
+    sf[[n]]=merge_formula[merge_formula$id==n,]
+  }
+  mset[["NodeSet_network"]]=sf
+  write_csv(merge_formula,"All_formula_predict.txt")
 }
+
+
 
 ·
 # Test Code ##########
 {
 
+  if(!read_from_csv){
+    solution_ls = list()
+    solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
+    CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
+    CPLEX_x[CPLEX_x<1e-5] =0
+    
+    write_csv(CPLEX_x,"CPLEX_x.txt")
+    write_csv(as.data.frame(solution_ls[[1]]$slack),"CPLEX_slack.txt")
+  } else{
+    
+    CPLEX_x = read.csv("CPLEX_x.txt")
+    if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
+  }
 
   
   
   unknown_nodes = CPLEXset$CPLEX_data$unknown_nodes
   unknown_formula = CPLEXset$CPLEX_data$unknown_formula
-  edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
   
-  solution_ls = list()
-  solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
-  
-  for(i in 1:n_permutation){
-    edge_score_permutated = edge_info_sum$edge_score
-    edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
-                                                                 mean = 0,
-                                                                 sd = 0.1))
-    obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
-    solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
-  }
-  
-  
-  for(node in 4:5){
-    for(edge in 4:5){
-      
-      node_penalty= -0.1*node
-      edge_penalty= -0.1*edge
-      {
-        obj <- c(rep(node_penalty, nrow(unknown_formula)), edge_score_permutated+edge_penalty)
-        solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
-      }
-    }
-  }
-  
-  
-  CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
-  CPLEX_x[CPLEX_x<1e-5] =0
-  CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
-  
-  # write_csv(CPLEX_x,"CPLEX_x.txt")
-  # write_csv(solution_ls[[1]]$slack,"CPLEX_slack.txt")
-  CPLEX_x = read_csv("CPLEX_x.csv")
-  table(CPLEX_x)
 
   unknown_formula["ILP_result"] = CPLEX_x$x[1:nrow(unknown_formula)]
-  edge_info_sum["ILP_result"] = CPLEX_x$X_mean[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
-  
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
-  
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
-
-  
+  edge_info_sum = CPLEXset$CPLEX_data$edge_info_sum
+  edge_info_sum["ILP_result"] = CPLEX_x$x[(nrow(unknown_formula)+1):length(CPLEX_x$x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
-  test = edge_info_sum[,1]
-  write.csv(edge_info_sum,"test.txt",row.names = F)
-  test_read = read_csv("test.txt")
+
   
-}
+  {
+    setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Merge/Xi_full_hmdb_all n=2")
+
+    CPLEX_x2 = read_csv("CPLEX_x.txt")
+    raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
+    raw_node_list = mset$NodeSet
+    pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
+    pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+    lib_nodes = raw_node_list[raw_node_list$category==0,]
+    lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
+    unknown_nodes = raw_node_list[raw_node_list$category!=0,]
+    unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
+    num_unknown_nodes = nrow(unknown_nodes)
+    lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
+    lib_formula = lib_formula[lib_formula$steps==0,]
+    unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
+    unknown_formula["ILP_result"] = CPLEX_x2$x[1:nrow(unknown_formula)]
+    unknown_formula_CPLEX2 = unknown_formula[unknown_formula$ILP_result !=0,]
+    
+    unknown_node_CPLEX2 = merge(unknown_nodes,unknown_formula_CPLEX2,by.x = "ID", by.y = "id",all=T)
+  }
+
+  unknown_node_CPLEX_merge = merge(unknown_node_CPLEX,unknown_node_CPLEX2, by="ID", all=T)
+  
+  unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
+                                                            unknown_node_CPLEX_merge$formula.y,]
+  
+  unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, mset$Data, by.x = "ID", by.y = "groupId", all=T)
+  unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
+  
+  unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
+  unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
+                                                              unknown_node_CPLEX_Xi_met$formula.y,]
+  
+  
+  }
 
   
 
@@ -1331,7 +1365,15 @@ subgraph_specific_node = function(interested_node, g, step = 2)
                                                           (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
 }
 
+# Graphic analysis ####
 
+{
+  
+  
+  subgraph_specific_node(1, g_sub,2)
+  Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
+  
+}
 
   Generate_graph = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
@@ -1453,7 +1495,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
   
   
-# Evaluate if removing large error formula helps reducing formula space
+# Evaluate if removing large error formula helps reducing formula space ####
 {
   all_formula = unknown_formula
   all_formula_0 = all_formula[all_formula$score!=0,]
@@ -1469,3 +1511,27 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   hist(all_formula_0$abs_dif)
 }
   
+# CPLEX #####
+  {
+    for(i in 1:n_permutation){
+      edge_score_permutated = edge_info_sum$edge_score
+      edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
+                                                                   mean = 0,
+                                                                   sd = 0.1))
+      obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
+      solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
+    }
+    
+    
+    for(node in 4:5){
+      for(edge in 4:5){
+        
+        node_penalty= -0.1*node
+        edge_penalty= -0.1*edge
+        {
+          obj <- c(rep(node_penalty, nrow(unknown_formula)), edge_score_permutated+edge_penalty)
+          solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
+        }
+      }
+    }
+  }
