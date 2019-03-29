@@ -452,13 +452,18 @@ Network_prediction = function(mset, edge_list_sub,
         
         head = new_nodes_df$id[n]
         head_formula = new_nodes_df$formula[n]
-        
         temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
+        #If head is an isotopic peak, then only look for isotopic peaks
+        if(grepl("\\[",head_formula)){
+          temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+        }
+        
+        
         if(nrow(temp_edge_list)==0){next}
         
         head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
-        
         if(head_score==0){next}
+        
         i=1
         for(i in 1:nrow(temp_edge_list)){
           tail=temp_edge_list$node2[i]
@@ -514,8 +519,11 @@ Network_prediction = function(mset, edge_list_sub,
         #if(n%%1000==0){print(paste("Tail_n =",n))}
         tail = new_nodes_df$id[n]
         tail_formula = new_nodes_df$formula[n]
+        #If tail is an isotopic peak, then do not propagate
+        if(grepl("\\[",tail_formula)){next}
         
         temp_edge_list=subset(edge_list_node2, edge_list_node2$node2==tail)
+        
         if(nrow(temp_edge_list)==0){next}
         
         tail_score = sf[[tail]]$score[match(tail_formula,sf[[tail]]$formula)]
@@ -570,8 +578,37 @@ Network_prediction = function(mset, edge_list_sub,
     
   }
   
-  All_formula_predict=bind_rows(sf)
-  write_csv(All_formula_predict,"All_formula_predict.txt")
+  # Pruning formula  #
+  {
+    pred_formula = bind_rows(sf)
+    pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
+    pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+    
+    pred_formula["mz"] = formula_mz(pred_formula$formula)
+    pred_formula["measured_mz"]=NA
+    
+    
+    for(i in 1:nrow(pred_formula)){
+      pred_formula$measured_mz[i] = mnl$mz[mnl$ID==pred_formula$id[i]]
+    }
+    pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
+    pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
+    pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
+    
+    
+    pred_formula_1["rdbe"] = NA
+    pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula)
+    
+    merge_formula = pred_formula_1[,1:5]
+    sf = list()
+    for(n in 1: max(merge_formula$id)){
+      sf[[n]]=merge_formula[merge_formula$id==n,]
+    }
+    
+    write_csv(merge_formula,"All_formula_predict.txt")
+  }
+  
+
   
   } else {
     
@@ -1159,11 +1196,11 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),2000),]
+  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),5000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
-  write.csv(mset[["Library"]], "HMDB_detected_nodes_clean.csv")
+  #write.csv(mset[["Library"]], "HMDB_detected_nodes_clean.csv")
 }
 
 
@@ -1204,7 +1241,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 # Network ####
 
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1239,36 +1276,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 }
 
 
-# Pruning formula  ####
-{
-  raw_pred_formula = bind_rows(mset[["NodeSet_network"]])
-  pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
-  pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
-  
-  pred_formula["mz"] = formula_mz(pred_formula$formula)
-  pred_formula["measured_mz"]=NA
-  for(i in 1:nrow(pred_formula)){
-    pred_formula$measured_mz[i] = mset$NodeSet$mz[mset$NodeSet$ID==pred_formula$id[i]]
-  }
-  pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
-  pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
-  pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
-  
-  
-  pred_formula_1["rdbe"] = NA
-  elem_table = read.csv("C:/Users/Li Chen/Desktop/Github local/lc8/data/elem_table.csv")
-  #for(i in 1:nrow(pred_formula_1)){
-    
-  pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula,elem_table)
-  #}
-  merge_formula = pred_formula_1[,1:5]
-  sf = list()
-  for(n in 1: max(merge_formula$id)){
-    sf[[n]]=merge_formula[merge_formula$id==n,]
-  }
-  mset[["NodeSet_network"]]=sf
-  write_csv(merge_formula,"All_formula_predict.txt")
-}
+
 
 
 
@@ -1495,22 +1503,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
   
   
-# Evaluate if removing large error formula helps reducing formula space ####
-{
-  all_formula = unknown_formula
-  all_formula_0 = all_formula[all_formula$score!=0,]
-  all_formula_0["mz"]=NA
-  all_formula_0["measured_mz"]=NA
-  all_formula_0["mz"]=formula_mz(all_formula_0$formula)
-  for(i in 1:nrow(all_formula_0)){
-    all_formula_0$measured_mz[i] = mset$NodeSet$mz[mset$NodeSet$ID==all_formula_0$id[i]]
-  }
-  all_formula_0["abs_dif"] = all_formula_0["mz"]-all_formula_0["measured_mz"]
-  all_formula_0["ppm_dif"] = all_formula_0["abs_dif"]/all_formula_0$measured_mz*1E6
-  all_formula_1 = all_formula_0[abs(all_formula_0$abs_dif)<0.001|abs(all_formula_0$ppm_dif)<5,]
-  hist(all_formula_0$abs_dif)
-}
-  
+
 # CPLEX #####
   {
     for(i in 1:n_permutation){
