@@ -648,7 +648,7 @@ Network_prediction = function(mset, edge_list_sub,
     
     for(i in (1+nrow(mset$Data)):nrow(mnl)){
       Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,1, 1)
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0, 1)
       sf[[i]]=Initial_formula
       
     }
@@ -931,7 +931,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
     triplet_edge_ls_edge=triplet_edge_ls_node=list()
     edge_info = list()
     timer=Sys.time()
-    
+    n=1
     for(n in 1:nrow(edge_list)){
       #for(n in 1:10000){
       if(n%%1000==0){
@@ -946,10 +946,20 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
       formula_2 = pred_formula_ls[[node_2]]
       temp_fg = temp_edge$linktype
       
-      
+
+      temp_formula = formula_1$formula[1]
       for(temp_formula in unique(formula_1$formula)){
+        temp_score = temp_edge$edge_massdif_score
+
         #drop off edge where an isotopic peak reaches out to other
         if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
+        #modify score based on isotopic abundance of formula
+        if(grepl("\\[",temp_fg )){
+          calc_abun = isotopic_abundance(temp_formula, temp_fg)
+          abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
+          score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
+          temp_score = 2 * temp_score * score_modifier
+        }
         
         #Assuming formula in node_1 is always smaller than node_2
         if(temp_fg==""){
@@ -962,8 +972,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
         if(temp_formula_2 %in% formula_2$formula){
           temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
           temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
-          #temp_j1 = which(merge_formula$formula==temp_formula&merge_formula$id==node_1)
-          #temp_j2 = which(merge_formula$formula==temp_formula_2&merge_formula$id==node_2)
+
           
           #if one node is library node,
           if(node_1>lib_nodes_cutoff){
@@ -974,7 +983,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
                                                   j=temp_j2,
                                                   v=-1)
             edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score=temp_edge$edge_massdif_score,
+                                       edge_score= temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
                                        ilp_index1 = temp_j1,
@@ -989,7 +998,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
                                                   j=temp_j1,
                                                   v=-1)
             edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score=temp_edge$edge_massdif_score,
+                                       edge_score=temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
                                        ilp_index1 = temp_j1,
@@ -1006,7 +1015,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
                                                   j=c(temp_j1,temp_j2),
                                                   v=c(-1,-1))
             edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score=temp_edge$edge_massdif_score,
+                                       edge_score=temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
                                        ilp_index1 = temp_j1,
@@ -1295,6 +1304,21 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   )
   # dev.off()
 }
+# Debugging tools ####
+## Trace formula history ####
+Trace_step = function(query_id, unknown_node_CPLEX)
+{
+  
+  df = unknown_node_CPLEX[0,]
+  while(query_id <= max(unknown_node_CPLEX$ID)){
+    df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==query_id,]
+    temp_parent = unknown_node_CPLEX$parent[unknown_node_CPLEX$ID==query_id]
+    query_id = temp_parent
+    
+  }
+  return(df)
+}
+#————————————————————————#####
 # Main Codes ####
 ## Read files ####
 {
@@ -1346,7 +1370,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 
 # Network ####
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1378,7 +1402,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
                                                  top_formula_n = 2,
                                                  read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
 }
 
 # Run CPLEX ####
@@ -1400,6 +1424,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   unknown_formula = CPLEXset$data$unknown_formula
   
 
+
   unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
   
@@ -1418,7 +1443,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   all_formula = bind_rows(mset[["NodeSet_network"]])
   sf = list()
   for(n in 1: max(all_formula$id)){
-    sf[[n]]=head(all_formula[all_formula$id==n,],5)
+    sf[[n]]=head(all_formula[all_formula$id==n,],3)
   }
   
   All_formula_predict = bind_rows(sf)
@@ -1429,10 +1454,14 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   
   write_csv(all_formula,"All_formula_predict.txt")
 }
-  
-}
 {
-  a = EdgeSet$Merge
+  
+  df = Trace_step(58, unknown_node_CPLEX)
+  df["rdbe"]= formula_rdbe(df$formula)
+}
+
+{
+  edge_info_isotope = EdgeSet$Merge
   edge_info_isotope = edge_info_isotope[grepl("\\[",edge_info_isotope$linktype),]
   edge_info_sum_isotope = edge_info_sum[grepl("\\[",edge_info_sum$formula2),]
   
@@ -1440,18 +1469,20 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   edge_info_sum_isotope["calc_iso_abun"] = NA
   i=1
   for(i in 1:nrow(edge_info_sum_isotope)){
-    edge_info_sum_isotope$msr_iso_abun[i] = EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
-    edge_info_sum_isotope$calc_iso_abun[i] = log10(isotopic_abundance(edge_info_sum_isotope$formula1[i], 
+    edge_info_sum_isotope$msr_iso_abun[i] = 10^EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
+    edge_info_sum_isotope$calc_iso_abun[i] = (isotopic_abundance(edge_info_sum_isotope$formula1[i], 
                                                                 EdgeSet$Merge$linktype[edge_info_sum_isotope$edge_id[i]]))
   }
   
-  edge_info_sum_isotope["iso_abun_dif"] = edge_info_sum_isotope$msr_iso_abun - edge_info_sum_isotope$calc_iso_abun
-  edge_mzdif_FIT <- fitdist(test[abs(test)<.2], "norm")    
+  edge_info_sum_isotope["iso_abun_ratio"] = edge_info_sum_isotope$msr_iso_abun / edge_info_sum_isotope$calc_iso_abun
+  edge_mzdif_FIT <- fitdist(edge_info_sum_isotope$iso_abun_ratio[edge_info_sum_isotope$iso_abun_ratio<1.5 &
+                                                           edge_info_sum_isotope$iso_abun_ratio >0.5], "norm")    
   plot(edge_mzdif_FIT)
   
-  edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+  edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_ratio, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
   edge_info_sum_isotope["iso_abun_score2"]=edge_info_sum_isotope["iso_abun_score2"]/max(edge_info_sum_isotope["iso_abun_score2"])
-  mean(edge_info_sum_isotope["iso_abun_dif"][abs(edge_info_sum_isotope["iso_abun_dif"])<.2])
+  
+  
 }
 {
   {
