@@ -1292,7 +1292,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),7000),]
+  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),7000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
@@ -1337,7 +1337,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 # Network ####
 
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1367,14 +1367,14 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = read_from_csv)
+                                                 read_from_csv = T)
   
   CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
 }
 
 # Run CPLEX ####
 {
-  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset,CPLEXset$para$obj, read_from_csv, write_to_csv = T)
+  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset,CPLEXset$para$obj-.5, read_from_csv, write_to_csv = T)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
@@ -1407,7 +1407,19 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 
 {
   all_formula = bind_rows(mset[["NodeSet_network"]])
+  sf = list()
+  for(n in 1: max(all_formula$id)){
+    sf[[n]]=head(all_formula[all_formula$id==n,],5)
+  }
   
+  All_formula_predict = bind_rows(sf)
+  
+  edge_merge = EdgeSet$Merge
+  hist(edge_merge$edge_massdif_score)
+  mset[["NodeSet_network"]] = sf
+  
+  write_csv(all_formula,"All_formula_predict.txt")
+}
   
 }
 {
