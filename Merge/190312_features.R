@@ -684,11 +684,16 @@ Network_prediction = function(mset, edge_list_sub,
         head = new_nodes_df$id[n]
         head_formula = new_nodes_df$formula[n]
         temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
-        #If head is an isotopic peak, then only look for isotopic peaks
-        if(grepl("\\[",head_formula)){
-          temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
-        }
         
+        
+        if(head <= nrow_experiment){
+          #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
+          if(mset$Data$mean_inten[head]< 2e4){next}
+          #If head is an isotopic peak, then only look for isotopic peaks
+          if(grepl("\\[",head_formula)){
+            temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+          }
+        }
         
         if(nrow(temp_edge_list)==0){next}
         
@@ -750,8 +755,14 @@ Network_prediction = function(mset, edge_list_sub,
         #if(n%%1000==0){print(paste("Tail_n =",n))}
         tail = new_nodes_df$id[n]
         tail_formula = new_nodes_df$formula[n]
-        #If tail is an isotopic peak, then do not propagate
-        if(grepl("\\[",tail_formula)){next}
+        
+        if(tail <= nrow_experiment){
+          #If tail signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
+          if(mset$Data$mean_inten[tail]<2e4){next}
+          #If tail is an isotopic peak, then do not propagate
+          if(grepl("\\[",tail_formula)){next}
+        }
+        
         
         temp_edge_list=subset(edge_list_node2, edge_list_node2$node2==tail)
         
@@ -1292,7 +1303,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   filename = c("Xi_data_adapt.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),7000),]
+  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),11000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
@@ -1367,14 +1378,14 @@ subgraph_specific_node = function(interested_node, g, step = 2)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = T)
+                                                 read_from_csv = read_from_csv)
   
   CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
 }
 
 # Run CPLEX ####
 {
-  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset,CPLEXset$para$obj-.5, read_from_csv, write_to_csv = T)
+  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset,CPLEXset$para$obj, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
