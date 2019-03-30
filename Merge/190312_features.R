@@ -14,7 +14,6 @@
   library(matrixStats)
   library(Matrix)
   library(slam)
-  library(Rglpk)
   library(cplexAPI)
   
   #devtools::install_github("LiChenPU/Formula_manipulation")
@@ -1300,10 +1299,10 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("Xi_data_adapt.csv")
+  filename = c("Xi_new_neg.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),11000),]
+  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),8000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
@@ -1346,7 +1345,6 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 } 
 
 # Network ####
-
 {
   read_from_csv = F
   EdgeSet = list()
