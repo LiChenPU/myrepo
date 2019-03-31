@@ -1066,8 +1066,10 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
       test1 = test1[duplicated(test1[,c("formula1","ilp_index1")]) | 
                       duplicated(test1[,c("formula1","ilp_index1")], fromLast=TRUE),]
       test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
-      test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]
+      #test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])
       edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=0
+      
+      
     }
     
     write_csv(triplet_df,"triplet_df.txt")
@@ -1130,14 +1132,39 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
   )
 }
 
+### Score_formula ####
+Score_formula = function(CPLEXset)
+{
+  unknown_formula = CPLEXset$data$unknown_formula
+  
+  #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
+  unknown_formula["msr_mass"] = mset$Data$medMz[unknown_formula$id]
+  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
+  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
+  
+  #when rdbe < -1, penalty to each rdbe less
+  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
+  unknown_formula["rdbe_score"] = sapply((1+0.2*(unknown_formula$rdbe+1)), min, 1)
+  
+  #when step is large, the likelihood of the formula is true decrease from its network score
+  unknown_formula["step_score"] = unknown_formula$score-0.01*unknown_formula$steps
+  
+  #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
+  #the rdbe score penalizes unsaturation below -1
+  #Each cplex edge max score 1, and connect 2 nodes, so each node max score 0.5.
+  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]*unknown_formula["step_score"]+unknown_formula["rdbe_score"])
+  unknown_formula["cplex_score"] = unknown_formula["cplex_score"]/max(unknown_formula["cplex_score"])/2
+  length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
+  
+  return(unknown_formula)
+}
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj_function, read_from_csv, write_to_csv = T){
   if(!read_from_csv){
   
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
-  
-  obj = CPLEXset$para$obj
   
   nc = CPLEXset$para$nc
   nr = CPLEXset$para$nr
@@ -1308,7 +1335,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 ## Trace formula history ####
 Trace_step = function(query_id, unknown_node_CPLEX)
 {
-  
+  query_id=13
   df = unknown_node_CPLEX[0,]
   while(query_id <= max(unknown_node_CPLEX$ID)){
     df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==query_id,]
@@ -1370,7 +1397,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1402,19 +1429,22 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  top_formula_n = 2,
                                                  read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
 }
 
 # Run CPLEX ####
 {
-  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset,CPLEXset$para$obj, read_from_csv = F, write_to_csv = T)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
+  obj_cplex = obj_cplex-0.5
+  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
 
 
 
-·
+
 # Read CPLEX result ####
 {
   CPLEX_x = CPLEXset$Init_solution$CPLEX_x
@@ -1456,7 +1486,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 {
   
-  df = Trace_step(58, unknown_node_CPLEX)
+  df = Trace_step(13, unknown_node_CPLEX)
   df["rdbe"]= formula_rdbe(df$formula)
 }
 
@@ -1546,7 +1576,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   
   
-  subgraph_specific_node(1, g_sub,2)
+  subgraph_specific_node("13", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
   
 }
@@ -1696,3 +1726,15 @@ Trace_step = function(query_id, unknown_node_CPLEX)
       }
     }
   }
+
+  Network_edge_score_manipulation = function( CPLEXset)
+  {
+    
+    edge_info_sum = CPLEXset$data$edge_info_sum
+    unknown_formula = CPLEXset$data$unknown_formula
+    
+    
+    write_csv(edge_info_sum,"edge_info_sum.txt")
+    
+  }
+
