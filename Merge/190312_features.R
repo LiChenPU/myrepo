@@ -692,6 +692,11 @@ Network_prediction = function(mset, edge_list_sub,
           if(grepl("\\[",head_formula)){
             temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
           }
+          #If head is a metal adduct, then only look for adducts or skip
+          if(grepl("Na|Ca|K", head_formula)){
+            next
+            #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
+          }
         }
         
         if(nrow(temp_edge_list)==0){next}
@@ -760,6 +765,10 @@ Network_prediction = function(mset, edge_list_sub,
           if(mset$Data$mean_inten[tail]<2e4){next}
           #If tail is an isotopic peak, then do not propagate
           if(grepl("\\[",tail_formula)){next}
+          if(grepl("Na|Ca|K", tail_formula)){
+            next
+            #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
+          }
         }
         
         
@@ -1396,7 +1405,7 @@ subgraph_specific_node = function(interested_node, g, step = 2)
 ## Trace formula history ####
 Trace_step = function(query_id, unknown_node_CPLEX)
 {
-  query_id=13
+  #query_id=13
   df = unknown_node_CPLEX[0,]
   while(query_id <= max(unknown_node_CPLEX$ID)){
     df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==query_id,]
@@ -1488,7 +1497,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = read_from_csv)
+                                                 read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
@@ -1496,10 +1505,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
+  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, CPLEXset$data$edge_info_sum$edge_score - 0.7)
+  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2, CPLEXset$data$edge_info_sum$edge_score - 0.5)
   #obj_cplex = obj_cplex-0.5
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
-  CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
+  #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
@@ -1509,14 +1520,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Read CPLEX result ####
 {
-  CPLEX_x = CPLEXset$Init_solution$CPLEX_x
   
-    
+  CPLEX_x = CPLEXset$Init_solution$CPLEX_x
+  print(sum(CPLEX_x))
+  
   unknown_nodes = CPLEXset$data$unknown_nodes
   unknown_formula = CPLEXset$data$unknown_formula
   
-
-
   unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
   
@@ -1527,7 +1537,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
 }
 
-
+{
+  
+  df = Trace_step(29, unknown_node_CPLEX)
+  
+}
 
 # Test code ####
 
@@ -1546,11 +1560,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   write_csv(all_formula,"All_formula_predict.txt")
 }
-{
-  
-  df = Trace_step(13, unknown_node_CPLEX)
-  df["rdbe"]= formula_rdbe(df$formula)
-}
+
 
 {
   edge_info_isotope = EdgeSet$Merge
