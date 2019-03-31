@@ -952,13 +952,13 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
         temp_score = temp_edge$edge_massdif_score
 
         #drop off edge where an isotopic peak reaches out to other
-        if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
+        #if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
         #modify score based on isotopic abundance of formula
         if(grepl("\\[",temp_fg )){
           calc_abun = isotopic_abundance(temp_formula, temp_fg)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
           score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
-          temp_score = 2 * temp_score * score_modifier
+          temp_score = temp_score * score_modifier *2
         }
         
         #Assuming formula in node_1 is always smaller than node_2
@@ -1145,22 +1145,24 @@ Score_formula = function(CPLEXset)
   
   #when rdbe < -1, penalty to each rdbe less
   unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
-  unknown_formula["rdbe_score"] = sapply((1+0.2*(unknown_formula$rdbe+1)), min, 1)
+  unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
   
   #when step is large, the likelihood of the formula is true decrease from its network score
-  unknown_formula["step_score"] = unknown_formula$score-0.01*unknown_formula$steps
+  #Penalty happens when step > 5
+  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
   
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
   #Each cplex edge max score 1, and connect 2 nodes, so each node max score 0.5.
-  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]*unknown_formula["step_score"]+unknown_formula["rdbe_score"])
-  unknown_formula["cplex_score"] = unknown_formula["cplex_score"]/max(unknown_formula["cplex_score"])/2
-  length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
+  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])
+  
+  # hist(unknown_formula$cplex_score)
+  # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
   
   return(unknown_formula)
 }
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj_function, read_from_csv, write_to_csv = T){
+Run_CPLEX = function(CPLEXset, obj, read_from_csv, write_to_csv = T){
   if(!read_from_csv){
   
   env <- openEnvCPLEX()
@@ -1188,7 +1190,10 @@ Run_CPLEX = function(CPLEXset, obj_function, read_from_csv, write_to_csv = T){
   return_code = mipoptCPLEX(env, prob)
   result_solution=solutionCPLEX(env, prob)
   
-  print(paste(return_codeCPLEX(return_code),"-",status_codeCPLEX(env, getStatCPLEX(env, prob))))
+  print(paste(return_codeCPLEX(return_code),"-",
+              status_codeCPLEX(env, getStatCPLEX(env, prob)),
+              " - OBJ_value =", result_solution$objval))
+  print(result_solution$objval)
   tictoc::toc()
   
   writeProbCPLEX(env, prob, "prob.lp")
@@ -1265,6 +1270,62 @@ CPLEX_permutation = function(CPLEXset, n_pmt = 5){
   }
   return(solution_ls)
 }
+
+## CPLEX_screen ####
+CPLEX_screen = function(CPLEXset, obj){
+
+  
+  nc = CPLEXset$para$nc
+  nr = CPLEXset$para$nr
+  CPX_MAX = CPLEXset$para$CPX_MAX
+  rhs = CPLEXset$para$rhs
+  sense = CPLEXset$para$sense
+  beg = CPLEXset$para$beg
+  cnt = CPLEXset$para$cnt
+  ind = CPLEXset$para$ind
+  val = CPLEXset$para$val
+  lb = CPLEXset$para$lb
+  ub = CPLEXset$para$ub
+  ctype = CPLEXset$para$ctype
+  
+  i=1
+  j=1
+  solution_ls = list()
+  for(i in 0:5){
+    for(j in 0:5){
+      env <- openEnvCPLEX()
+      prob <- initProbCPLEX(env)
+      
+      temp_obj = c(CPLEXset$data$unknown_formula$cplex_score - i*0.1,
+                            CPLEXset$data$edge_info_sum$edge_score - j*0.1)
+      copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = temp_obj, rhs, sense,
+                        beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+      
+      copyColTypeCPLEX(env, prob, ctype)
+      tictoc::tic()
+      addMIPstartsCPLEX(env, prob, mcnt = 1, nzcnt = nc, beg = 0, varindices = 1:nc,
+                        values = CPLEXset$Init_solution$CPLEX_x, effortlevel = 5, mipstartname = NULL)
+      return_code = mipoptCPLEX(env, prob)
+      result_solution=solutionCPLEX(env, prob)
+      writeProbCPLEX(env, prob, "prob.lp")
+
+      print(paste(return_codeCPLEX(return_code),"-",
+                  status_codeCPLEX(env, getStatCPLEX(env, prob)),
+                  " - OBJ_value =", result_solution$objval))
+      
+      tictoc::toc()
+      result_solution = 0
+      delProbCPLEX(env, prob)
+      closeEnvCPLEX(env)
+      solution_ls[[length(solution_ls)+1]] = result_solution
+      
+      
+    }
+  }
+  return(solution_ls)
+  
+}
+
 
 # Function for graph ####
 ## Analysis of Subnetwork  ####
@@ -1397,7 +1458,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1429,15 +1490,16 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  top_formula_n = 2,
                                                  read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
 }
 
 # Run CPLEX ####
 {
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
-  obj_cplex = obj_cplex-0.5
+  #obj_cplex = obj_cplex-0.5
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
+  CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
