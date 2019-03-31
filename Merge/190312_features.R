@@ -1323,7 +1323,7 @@ CPLEX_screen = function(CPLEXset, obj){
                   " - OBJ_value =", result_solution$objval))
       
       tictoc::toc()
-      result_solution = 0
+      
       delProbCPLEX(env, prob)
       closeEnvCPLEX(env)
       solution_ls[[length(solution_ls)+1]] = result_solution
@@ -1538,6 +1538,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 {
+  CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
+  CPLEX_x[CPLEX_x<1e-5] =0
+  CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
   
   df = Trace_step(29, unknown_node_CPLEX)
   
