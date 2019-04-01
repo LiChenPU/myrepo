@@ -1158,7 +1158,7 @@ Score_formula = function(CPLEXset)
   
   #when step is large, the likelihood of the formula is true decrease from its network score
   #Penalty happens when step > 5 on the existing score
-  unknown_formula["step_score"] = unknown_formula["score"] - sapply(-0.1*(unknown_formula$steps-5), min, 0) 
+  unknown_formula["step_score"] = unknown_formula["score"] + sapply(-0.1*(unknown_formula$steps-5), min, 0) 
   
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
@@ -1546,7 +1546,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score -.5, edge_info_sum$edge_score)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score-1, edge_info_sum$edge_score)
   
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
