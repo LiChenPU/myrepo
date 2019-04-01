@@ -1205,7 +1205,7 @@ Score_edge_cplex = function(edge_info_sum, edge_penalty = -0.5)
   #unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[40372],]
 }
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj, read_from_csv, write_to_csv = T){
+Run_CPLEX = function(CPLEXset, obj, read_from_csv = F, write_to_csv = T){
   if(!read_from_csv){
   
   env <- openEnvCPLEX()
@@ -1542,8 +1542,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, CPLEXset$data$edge_info_sum$edge_score)
   
-  edge_info_sum = Score_edge_cplex(CPLEXset$data$edge_info_sum, edge_penalty = -0.5)
-  obj_cplex = c(rep(0, nrow(CPLEXset$data$unknown_formula)), edge_info_sum$edge_score)
+  edge_info_sum = Score_edge_cplex(CPLEXset$data$edge_info_sum, edge_penalty = -.8)
+  
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, edge_info_sum$edge_score)
   
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2, CPLEXset$data$edge_info_sum$edge_score - 0.5)
   #obj_cplex = obj_cplex-0.5
@@ -1566,7 +1567,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
-  edge_info_sum = CPLEXset$data$edge_info_sum
+  #edge_info_sum = CPLEXset$data$edge_info_sum
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
 }
@@ -1614,8 +1615,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     clu=components(g_sub)
     clu_member = table(clu$membership)
     #subnetwork criteria 
-    subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+    mainnetwork = igraph::groups(clu)[table(clu$membership)>5000]
     
+    g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
     # plot(g_sub,
     #      vertex.label = NA,
     #      #edge.color = 'black',
@@ -1625,106 +1627,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   }
   
   
-}
-
-# Test code ####
-
-{
-  all_formula = bind_rows(mset[["NodeSet_network"]])
-  sf = list()
-  for(n in 1: max(all_formula$id)){
-    sf[[n]]=head(all_formula[all_formula$id==n,],3)
-  }
-  
-  All_formula_predict = bind_rows(sf)
-  
-  edge_merge = EdgeSet$Merge
-  hist(edge_merge$edge_massdif_score)
-  mset[["NodeSet_network"]] = sf
-  
-  write_csv(all_formula,"All_formula_predict.txt")
-}
-
-
-{
-  edge_info_isotope = EdgeSet$Merge
-  edge_info_isotope = edge_info_isotope[grepl("\\[",edge_info_isotope$linktype),]
-  edge_info_sum_isotope = edge_info_sum[grepl("\\[",edge_info_sum$formula2),]
-  
-  edge_info_sum_isotope["msr_iso_abun"] = NA
-  edge_info_sum_isotope["calc_iso_abun"] = NA
-  i=1
-  for(i in 1:nrow(edge_info_sum_isotope)){
-    edge_info_sum_isotope$msr_iso_abun[i] = 10^EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
-    edge_info_sum_isotope$calc_iso_abun[i] = (isotopic_abundance(edge_info_sum_isotope$formula1[i], 
-                                                                EdgeSet$Merge$linktype[edge_info_sum_isotope$edge_id[i]]))
-  }
-  
-  edge_info_sum_isotope["iso_abun_ratio"] = edge_info_sum_isotope$msr_iso_abun / edge_info_sum_isotope$calc_iso_abun
-  edge_mzdif_FIT <- fitdist(edge_info_sum_isotope$iso_abun_ratio[edge_info_sum_isotope$iso_abun_ratio<1.5 &
-                                                           edge_info_sum_isotope$iso_abun_ratio >0.5], "norm")    
-  plot(edge_mzdif_FIT)
-  
-  edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_ratio, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
-  edge_info_sum_isotope["iso_abun_score2"]=edge_info_sum_isotope["iso_abun_score2"]/max(edge_info_sum_isotope["iso_abun_score2"])
-  
-  
-}
-{
-  {
-    setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Merge/Xi_full_hmdb_all n=2")
-
-    CPLEX_x2 = read_csv("CPLEX_x.txt")
-    raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
-    raw_node_list = mset$NodeSet
-    pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
-    pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
-    lib_nodes = raw_node_list[raw_node_list$category==0,]
-    lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
-    unknown_nodes = raw_node_list[raw_node_list$category!=0,]
-    unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
-    num_unknown_nodes = nrow(unknown_nodes)
-    lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
-    lib_formula = lib_formula[lib_formula$steps==0,]
-    unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
-    unknown_formula["ILP_result"] = CPLEX_x2$x[1:nrow(unknown_formula)]
-    unknown_formula_CPLEX2 = unknown_formula[unknown_formula$ILP_result !=0,]
-    
-    unknown_node_CPLEX2 = merge(unknown_nodes,unknown_formula_CPLEX2,by.x = "ID", by.y = "id",all=T)
-  }
-
-  unknown_node_CPLEX_merge = merge(unknown_node_CPLEX,unknown_node_CPLEX2, by="ID", all=T)
-  
-  unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
-                                                            unknown_node_CPLEX_merge$formula.y,]
-  
-  unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, mset$Data, by.x = "ID", by.y = "groupId", all=T)
-  unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
-  
-  unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
-  unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
-                                                              unknown_node_CPLEX_Xi_met$formula.y,]
-  
-}
-
-
-# HMDB ####
-{
-  df = as.data.frame(mset$library_match$num_of_library_match)
-  df["Library_match_formula"]=NA
-  a = mset$library_match$ls[[1]]
-  for(i in 1:length(mset$library_match$ls)){
-    if(nrow(mset$library_match$ls[[i]]) == 0){next
-    }else{
-      df$Library_match_formula[i] = paste(mset$library_match$ls[[i]]$MF, collapse = " | ")
-      }
-      
-  }
-
-  unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
-  unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
-                                                          unknown_node_CPLEX_HMDB$Library_match_formula &
-                                                          (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
 }
 
 # Graphic analysis ####
@@ -1737,9 +1639,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 }
 
- 
-  
-  
   
   #Analyze the network/subgraph of specific node
   mainDir = dirname(rstudioapi::getSourceEditorContext()$path)
@@ -1823,39 +1722,109 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   
 
-# CPLEX ####
+
+
+  
+  
+## legacy code ####
+# select first few formula in the NodeSet_network to simplify 
   {
-    for(i in 1:n_permutation){
-      edge_score_permutated = edge_info_sum$edge_score
-      edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
-                                                                   mean = 0,
-                                                                   sd = 0.1))
-      obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
-      solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
+    all_formula = bind_rows(mset[["NodeSet_network"]])
+    sf = list()
+    for(n in 1: max(all_formula$id)){
+      sf[[n]]=head(all_formula[all_formula$id==n,],3)
     }
     
+    All_formula_predict = bind_rows(sf)
     
-    for(node in 4:5){
-      for(edge in 4:5){
-        
-        node_penalty= -0.1*node
-        edge_penalty= -0.1*edge
-        {
-          obj <- c(rep(node_penalty, nrow(unknown_formula)), edge_score_permutated+edge_penalty)
-          solution_ls[[length(solution_ls)+1]] = Run_CPLEX(CPLEXset,obj)
-        }
+    edge_merge = EdgeSet$Merge
+    hist(edge_merge$edge_massdif_score)
+    mset[["NodeSet_network"]] = sf
+    
+    write_csv(all_formula,"All_formula_predict.txt")
+  }
+
+  # HMDB #
+  {
+    df = as.data.frame(mset$library_match$num_of_library_match)
+    df["Library_match_formula"]=NA
+    a = mset$library_match$ls[[1]]
+    for(i in 1:length(mset$library_match$ls)){
+      if(nrow(mset$library_match$ls[[i]]) == 0){next
+      }else{
+        df$Library_match_formula[i] = paste(mset$library_match$ls[[i]]$MF, collapse = " | ")
       }
+      
     }
+    
+    unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
+    unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
+                                                            unknown_node_CPLEX_HMDB$Library_match_formula &
+                                                            (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
   }
-
-  Network_edge_score_manipulation = function( CPLEXset)
+  #calculate natural abundance expectation
   {
+    edge_info_isotope = EdgeSet$Merge
+    edge_info_isotope = edge_info_isotope[grepl("\\[",edge_info_isotope$linktype),]
+    edge_info_sum_isotope = edge_info_sum[grepl("\\[",edge_info_sum$formula2),]
     
-    edge_info_sum = CPLEXset$data$edge_info_sum
-    unknown_formula = CPLEXset$data$unknown_formula
+    edge_info_sum_isotope["msr_iso_abun"] = NA
+    edge_info_sum_isotope["calc_iso_abun"] = NA
+    i=1
+    for(i in 1:nrow(edge_info_sum_isotope)){
+      edge_info_sum_isotope$msr_iso_abun[i] = 10^EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
+      edge_info_sum_isotope$calc_iso_abun[i] = (isotopic_abundance(edge_info_sum_isotope$formula1[i], 
+                                                                   EdgeSet$Merge$linktype[edge_info_sum_isotope$edge_id[i]]))
+    }
     
+    edge_info_sum_isotope["iso_abun_ratio"] = edge_info_sum_isotope$msr_iso_abun / edge_info_sum_isotope$calc_iso_abun
+    edge_mzdif_FIT <- fitdist(edge_info_sum_isotope$iso_abun_ratio[edge_info_sum_isotope$iso_abun_ratio<1.5 &
+                                                                     edge_info_sum_isotope$iso_abun_ratio >0.5], "norm")    
+    plot(edge_mzdif_FIT)
     
-    write_csv(edge_info_sum,"edge_info_sum.txt")
+    edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_ratio, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+    edge_info_sum_isotope["iso_abun_score2"]=edge_info_sum_isotope["iso_abun_score2"]/max(edge_info_sum_isotope["iso_abun_score2"])
+    
     
   }
-
+  
+  
+  # Evaluate Xi's data from annotation
+  {
+    {
+      setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Merge/Xi_full_hmdb_all n=2")
+      
+      CPLEX_x2 = read_csv("CPLEX_x.txt")
+      raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
+      raw_node_list = mset$NodeSet
+      pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
+      pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+      lib_nodes = raw_node_list[raw_node_list$category==0,]
+      lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
+      unknown_nodes = raw_node_list[raw_node_list$category!=0,]
+      unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
+      num_unknown_nodes = nrow(unknown_nodes)
+      lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
+      lib_formula = lib_formula[lib_formula$steps==0,]
+      unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
+      unknown_formula["ILP_result"] = CPLEX_x2$x[1:nrow(unknown_formula)]
+      unknown_formula_CPLEX2 = unknown_formula[unknown_formula$ILP_result !=0,]
+      
+      unknown_node_CPLEX2 = merge(unknown_nodes,unknown_formula_CPLEX2,by.x = "ID", by.y = "id",all=T)
+    }
+    
+    unknown_node_CPLEX_merge = merge(unknown_node_CPLEX,unknown_node_CPLEX2, by="ID", all=T)
+    
+    unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
+                                                              unknown_node_CPLEX_merge$formula.y,]
+    
+    unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, mset$Data, by.x = "ID", by.y = "groupId", all=T)
+    unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
+    
+    unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
+    unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
+                                                                unknown_node_CPLEX_Xi_met$formula.y,]
+    
+  }
+  
+  
