@@ -1055,7 +1055,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
     
     ##Objective parameter 
     {
-      
+      #edge_info_sum = CPLEXset$data$edge_info_sum
       edge_info_sum = bind_rows(edge_info)
       edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
       test = edge_info_sum
@@ -1169,6 +1169,40 @@ Score_formula = function(CPLEXset)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
   
   return(unknown_formula)
+}
+### Score_edge_cplex ####
+Score_edge_cplex = function(edge_info_sum, edge_penalty = -0.5)
+{
+  edge_info_sum = edge_info_sum
+  edge_info_sum$edge_score = edge_info_sum$edge_score + edge_penalty
+  test3 = edge_info_sum[edge_info_sum$ilp_index2<=nrow(unknown_formula)&
+                          edge_info_sum$ilp_index1<=nrow(unknown_formula),]
+  
+  test3_same12 = test3[test3$formula1==test3$formula2,]
+  df_same12 = table(test3_same12$formula1)
+  
+  
+  sol_mat = data.frame(n=1:100, div = NA)
+  sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
+  
+  test3_same12$edge_score = test3_same12$edge_score / (sol_mat$div[df_same12[test3_same12$formula1]])
+  
+  
+  test3_dif12 = test3[test3$formula1!=test3$formula2,]
+  test3_dif12 = test3_dif12[duplicated(test3_dif12[,c("formula1","formula2")]) | 
+                    duplicated(test3_dif12[,c("formula1","formula2")], fromLast=TRUE),]
+  temp_merge = with(test3_dif12, paste0(formula1, formula2))
+  df_dif12 = table(temp_merge)
+  test3_dif12$edge_score = test3_dif12$edge_score / (sol_mat$div[df_dif12[temp_merge]])
+  
+  temp_edge_info_sum = rbind(test3_same12,test3_dif12,edge_info_sum)
+  temp_edge_info_sum = temp_edge_info_sum[!duplicated(temp_edge_info_sum$edge_ilp_id),]
+    
+  
+  
+  return(temp_edge_info_sum)
+  
+  #unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[40372],]
 }
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj, read_from_csv, write_to_csv = T){
@@ -1506,17 +1540,17 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Run CPLEX ####
 {
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, CPLEXset$data$edge_info_sum$edge_score - 0.7)
+  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, CPLEXset$data$edge_info_sum$edge_score)
+  
+  edge_info_sum = Score_edge_cplex(CPLEXset$data$edge_info_sum, edge_penalty = -0.5)
+  obj_cplex = c(rep(0, nrow(CPLEXset$data$unknown_formula)), edge_info_sum$edge_score)
+  
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2, CPLEXset$data$edge_info_sum$edge_score - 0.5)
   #obj_cplex = obj_cplex-0.5
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
-
-
-
-
 
 # Read CPLEX result ####
 {
@@ -1543,6 +1577,53 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
   
   df = Trace_step(29, unknown_node_CPLEX)
+  
+}
+
+# Basic Graph ####
+{
+  Generate_graph = list()
+  merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
+  merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
+  
+  colors <- c("white", "red", "orange", "yellow", "green")
+  merge_node_list["color"] = colors[merge_node_list$category+1]
+  
+  g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
+  #E(g)$color = colors[merge_edge_list$category+1]
+  merge_node_list["degree"]=degree(g, mode = c("all"))
+  
+  
+  g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
+  #E(g_sub)$color = colors[merge_edge_list$category+1]
+  
+  
+  #Basic graph characteristics, distance, degree, betweeness
+  {
+    #distance
+    farthest_vertices(g_sub) 
+    #degree
+    g.d = degree(g_sub, mode = c("all"))
+    #Closeness
+    #g.c = closeness(g_sub)
+    #Betweenness
+    g.b <- betweenness(g_sub, directed = T)
+    #which.max(g.b)
+    
+    
+    clu=components(g_sub)
+    clu_member = table(clu$membership)
+    #subnetwork criteria 
+    subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+    
+    # plot(g_sub,
+    #      vertex.label = NA,
+    #      #edge.color = 'black',
+    #      vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+    #      edge.arrow.size = 0.05,
+    #      layout = layout_nicely(g_sub))
+  }
+  
   
 }
 
@@ -1656,42 +1737,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 }
 
-  Generate_graph = list()
-  merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
-  merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
-  
-  colors <- c("white", "red", "orange", "yellow", "green")
-  merge_node_list["color"] = colors[merge_node_list$category+1]
-  
-  g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
-  #E(g)$color = colors[merge_edge_list$category+1]
-  merge_node_list["degree"]=degree(g, mode = c("all"))
-  
-  
-  g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
-  #E(g_sub)$color = colors[merge_edge_list$category+1]
-  
-  
-  #Basic graph characteristics, distance, degree, betweeness
-  {
-    #distance
-    farthest_vertices(g_sub) 
-    #degree
-    g.d = degree(g_sub, mode = c("all"))
-    #Closeness
-    #g.c = closeness(g_sub)
-    #Betweenness
-    g.b <- betweenness(g_sub, directed = T)
-    #which.max(g.b)
-    
-    plot(g_sub,
-         vertex.label = NA,
-         #edge.color = 'black',
-         vertex.size = sqrt(degree(g_sub, mode = c("all"))),
-         edge.arrow.size = 0.05,
-         layout = layout_nicely(g_sub))
-  }
-  
+ 
   
   
   
