@@ -1157,13 +1157,13 @@ Score_formula = function(CPLEXset)
   unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
   
   #when step is large, the likelihood of the formula is true decrease from its network score
-  #Penalty happens when step > 5
-  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
+  #Penalty happens when step > 5 on the existing score
+  unknown_formula["step_score"] = unknown_formula["score"] - sapply(-0.1*(unknown_formula$steps-5), min, 0) 
   
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
   #Each cplex edge max score 1, and connect 2 nodes, so each node max score 0.5.
-  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])
+  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])/2
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
@@ -1171,10 +1171,12 @@ Score_formula = function(CPLEXset)
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
-Score_edge_cplex = function(edge_info_sum, edge_penalty = -0.5)
+Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
 {
-  edge_info_sum = edge_info_sum
+  edge_info_sum = CPLEXset$data$edge_info_sum
   edge_info_sum$edge_score = edge_info_sum$edge_score + edge_penalty
+  unknown_formula = CPLEXset$data$unknown_formula
+  
   test3 = edge_info_sum[edge_info_sum$ilp_index2<=nrow(unknown_formula)&
                           edge_info_sum$ilp_index1<=nrow(unknown_formula),]
   
@@ -1535,20 +1537,18 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
+  
+  
 }
 
 # Run CPLEX ####
 {
-  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, CPLEXset$data$edge_info_sum$edge_score)
-  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, CPLEXset$data$edge_info_sum$edge_score)
-  
-  edge_info_sum = Score_edge_cplex(CPLEXset$data$edge_info_sum, edge_penalty = -.8)
-  
+
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, edge_info_sum$edge_score)
   
-  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2, CPLEXset$data$edge_info_sum$edge_score - 0.5)
-  #obj_cplex = obj_cplex-0.5
+
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
@@ -1580,7 +1580,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
   
   df = Trace_step(7506, unknown_node_CPLEX)
-  34429
+  
   unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[16556],]
 }
 
@@ -1590,6 +1590,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
   merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
   
+  merge_node_list["log10_inten"] = NA
+  merge_node_list$log10_inten[mset$Data$groupId] = mset$Data$log10_inten
+  
+  merge_node_list_1e5 = merge_node_list[merge_node_list$log10_inten>5 &
+                                          !is.na(merge_node_list$log10_inten), ]
   colors <- c("white", "red", "orange", "yellow", "green")
   merge_node_list["color"] = colors[merge_node_list$category+1]
   
@@ -1620,6 +1625,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     mainnetwork = igraph::groups(clu)[table(clu$membership)>5000]
     
     g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
+    g_sub_main_node_list = g_sub_node_list[g_sub_node_list$ID %in% mainnetwork[[1]], ]
+    
+    nrow(g_sub_main_node_list[is.na(g_sub_main_node_list$MF),])
+    
+    
+    
+    a = mset$Data
     # plot(g_sub,
     #      vertex.label = NA,
     #      #edge.color = 'black',
