@@ -692,8 +692,8 @@ Network_prediction = function(mset, edge_list_sub,
           if(grepl("\\[",head_formula)){
             temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
           }
-          #If head is a metal adduct, then only look for adducts or skip
-          if(grepl("Na|Ca|K", head_formula)){
+          #If head is a metal or Boron or silicon adduct, then only look for adducts or skip
+          if(grepl("Na|Ca|K|B|Si", head_formula)){
             next
             #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
           }
@@ -765,7 +765,7 @@ Network_prediction = function(mset, edge_list_sub,
           if(mset$Data$mean_inten[tail]<2e4){next}
           #If tail is an isotopic peak, then do not propagate
           if(grepl("\\[",tail_formula)){next}
-          if(grepl("Na|Ca|K", tail_formula)){
+          if(grepl("Na|Ca|K|B|Si", tail_formula)){
             next
             #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
           }
@@ -1546,9 +1546,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score/2-.5, edge_info_sum$edge_score)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score -.5, edge_info_sum$edge_score)
   
-
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
   #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
