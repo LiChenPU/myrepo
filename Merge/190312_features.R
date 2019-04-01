@@ -1504,7 +1504,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1520,7 +1520,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset,
                                                       time_cutoff=0.1,
                                                       mass_cutoff = 2e4,
-                                                      correlation_cutoff = 0.8)
+                                                      correlation_cutoff = 0.5)
   EdgeSet[["Artifacts"]] = Artifact_prediction(mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
@@ -1534,9 +1534,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   mset[["NodeSet_network"]] = Network_prediction(mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = F)
+                                                 read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
   
   
 }
@@ -1572,17 +1572,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
 }
-
-{
-  CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
-  CPLEX_x[CPLEX_x<1e-5] =0
-  CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
-  
-  df = Trace_step(7506, unknown_node_CPLEX)
-  
-  unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[16556],]
-}
-
 # Basic Graph ####
 {
   Generate_graph = list()
@@ -1594,6 +1583,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   merge_node_list_1e5 = merge_node_list[merge_node_list$log10_inten>5 &
                                           !is.na(merge_node_list$log10_inten), ]
+  nrow(merge_node_list_1e5[is.na(merge_node_list_1e5$formula),])
+  
   colors <- c("white", "red", "orange", "yellow", "green")
   merge_node_list["color"] = colors[merge_node_list$category+1]
   
@@ -1626,7 +1617,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
     g_sub_main_node_list = g_sub_node_list[g_sub_node_list$ID %in% mainnetwork[[1]], ]
     
-    nrow(g_sub_main_node_list[is.na(g_sub_main_node_list$MF),])
+    nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
     
     
     
@@ -1641,6 +1632,19 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   
 }
+
+
+# Debug test ####
+{
+  CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
+  CPLEX_x[CPLEX_x<1e-5] =0
+  CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
+  
+  df = Trace_step(7506, unknown_node_CPLEX)
+  
+  unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[16556],]
+}
+
 
 # Graphic analysis ####
 
