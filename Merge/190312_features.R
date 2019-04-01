@@ -1198,11 +1198,11 @@ Score_edge_cplex = function(edge_info_sum, edge_penalty = -0.5)
   temp_edge_info_sum = rbind(test3_same12,test3_dif12,edge_info_sum)
   temp_edge_info_sum = temp_edge_info_sum[!duplicated(temp_edge_info_sum$edge_ilp_id),]
     
-  
+  temp_edge_info_sum = temp_edge_info_sum[with(temp_edge_info_sum, order(edge_ilp_id)),]
   
   return(temp_edge_info_sum)
   
-  #unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[40372],]
+  
 }
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj, read_from_csv = F, write_to_csv = T){
@@ -1398,7 +1398,8 @@ Subnetwork_analysis = function(g_sub, member_lb = 1, member_ub = 10)
 ## Analysis of Specific node ####
 subgraph_specific_node = function(interested_node, g, step = 2)
 {
-  #Glucose
+  # interested_node = "7506"
+  # g=g_sub
   interested_node = interested_node
   g.degree <- degree(g, mode = c("all"))
   g_intrest <- make_ego_graph(g, 
@@ -1568,6 +1569,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
   #edge_info_sum = CPLEXset$data$edge_info_sum
+  
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
 }
@@ -1577,8 +1579,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   CPLEX_x[CPLEX_x<1e-5] =0
   CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
   
-  df = Trace_step(29, unknown_node_CPLEX)
-  
+  df = Trace_step(7506, unknown_node_CPLEX)
+  34429
+  unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[16556],]
 }
 
 # Basic Graph ####
@@ -1593,7 +1596,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
   #E(g)$color = colors[merge_edge_list$category+1]
   merge_node_list["degree"]=degree(g, mode = c("all"))
-  
   
   g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
   #E(g_sub)$color = colors[merge_edge_list$category+1]
@@ -1634,7 +1636,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   
   
-  subgraph_specific_node("13", g_sub,1)
+  subgraph_specific_node("7506", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
   
 }
