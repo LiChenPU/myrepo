@@ -1521,13 +1521,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   
   CPLEX_x = CPLEXset$Init_solution$result_solution$x
-  print(sum(CPLEX_x))
+  
   
   unknown_nodes = CPLEXset$data$unknown_nodes
   unknown_formula = CPLEXset$data$unknown_formula
   
   unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
+  print(paste("pred formula ratio =", nrow(unknown_formula_CPLEX)))
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
@@ -1535,7 +1536,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
+  
 }
+
 {
   Generate_graph = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
