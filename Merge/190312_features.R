@@ -967,7 +967,7 @@ Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
           calc_abun = isotopic_abundance(temp_formula, temp_fg)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
           score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
-          temp_score = temp_score * score_modifier *2
+          temp_score = temp_score * score_modifier 
         }
         
         #Assuming formula in node_1 is always smaller than node_2
@@ -1162,8 +1162,8 @@ Score_formula = function(CPLEXset)
   
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
-  #Each cplex edge max score 1, and connect 2 nodes, so each node max score 0.5.
-  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])/2
+  #Each node should be non-positive, to avoid node formula without edge connection
+  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])/2 -1
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
@@ -1182,19 +1182,20 @@ Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
   
   test3_same12 = test3[test3$formula1==test3$formula2,]
   df_same12 = table(test3_same12$formula1)
-  
-  
-  sol_mat = data.frame(n=1:100, div = NA)
-  sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
-  
-  test3_same12$edge_score = test3_same12$edge_score / (sol_mat$div[df_same12[test3_same12$formula1]])
-  
-  
+
   test3_dif12 = test3[test3$formula1!=test3$formula2,]
   test3_dif12 = test3_dif12[duplicated(test3_dif12[,c("formula1","formula2")]) | 
                     duplicated(test3_dif12[,c("formula1","formula2")], fromLast=TRUE),]
   temp_merge = with(test3_dif12, paste0(formula1, formula2))
   df_dif12 = table(temp_merge)
+  
+  # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
+  # Solution: when n duplicated mz exist, the intra mz edge number are n*(n+1)/2, but effectively they should only get n/2
+  
+  sol_mat = data.frame(n=1:100, div = NA)
+  sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
+  
+  test3_same12$edge_score = test3_same12$edge_score / (sol_mat$div[df_same12[test3_same12$formula1]])
   test3_dif12$edge_score = test3_dif12$edge_score / (sol_mat$div[df_dif12[temp_merge]])
   
   temp_edge_info_sum = rbind(test3_same12,test3_dif12,edge_info_sum)
@@ -1207,9 +1208,8 @@ Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
   
 }
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj, read_from_csv = F, write_to_csv = T){
-  if(!read_from_csv){
-  
+Run_CPLEX = function(CPLEXset, obj){
+
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
   
@@ -1238,30 +1238,30 @@ Run_CPLEX = function(CPLEXset, obj, read_from_csv = F, write_to_csv = T){
   print(paste(return_codeCPLEX(return_code),"-",
               status_codeCPLEX(env, getStatCPLEX(env, prob)),
               " - OBJ_value =", result_solution$objval))
-  print(result_solution$objval)
+  
   tictoc::toc()
   
   writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
+  # 
+  # CPLEX_x = result_solution$x
+  # CPLEX_slack = result_solution$slack
+  # 
+  # 
+  # if(write_to_csv){
+  #   write_csv(as.data.frame(result_solution$x),"CPLEX_x.txt")
+  #   write_csv(as.data.frame(result_solution$slack),"CPLEX_slack.txt")
+  # }
+  # 
+  # } else{
+  #   
+  #   CPLEX_x = read.csv("CPLEX_x.txt")
+  #   CPLEX_slack = read.csv("CPLEX_slack.txt")
+  #   if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
+  # }
   
-  CPLEX_x = result_solution$x
-  CPLEX_slack = result_solution$slack
-  
-  
-  if(write_to_csv){
-    write_csv(as.data.frame(result_solution$x),"CPLEX_x.txt")
-    write_csv(as.data.frame(result_solution$slack),"CPLEX_slack.txt")
-  }
-
-  } else{
-    
-    CPLEX_x = read.csv("CPLEX_x.txt")
-    CPLEX_slack = read.csv("CPLEX_slack.txt")
-    if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
-  }
-  
-  return(list(CPLEX_x = CPLEX_x, CPLEX_slack = CPLEX_slack))
+  return(list(obj = obj, result_solution = result_solution))
 }
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5){
@@ -1316,56 +1316,17 @@ CPLEX_permutation = function(CPLEXset, n_pmt = 5){
   return(solution_ls)
 }
 
-## CPLEX_screen ####
-CPLEX_screen = function(CPLEXset, obj){
+## CPLEX_screen_edge ####
+CPLEX_screen_edge = function(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1)){
 
-  
-  nc = CPLEXset$para$nc
-  nr = CPLEXset$para$nr
-  CPX_MAX = CPLEXset$para$CPX_MAX
-  rhs = CPLEXset$para$rhs
-  sense = CPLEXset$para$sense
-  beg = CPLEXset$para$beg
-  cnt = CPLEXset$para$cnt
-  ind = CPLEXset$para$ind
-  val = CPLEXset$para$val
-  lb = CPLEXset$para$lb
-  ub = CPLEXset$para$ub
-  ctype = CPLEXset$para$ctype
-  
-  i=1
-  j=1
   solution_ls = list()
-  for(i in 0:5){
-    for(j in 0:5){
-      env <- openEnvCPLEX()
-      prob <- initProbCPLEX(env)
-      
-      temp_obj = c(CPLEXset$data$unknown_formula$cplex_score - i*0.1,
-                            CPLEXset$data$edge_info_sum$edge_score - j*0.1)
-      copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = temp_obj, rhs, sense,
-                        beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
-      
-      copyColTypeCPLEX(env, prob, ctype)
-      tictoc::tic()
-      addMIPstartsCPLEX(env, prob, mcnt = 1, nzcnt = nc, beg = 0, varindices = 1:nc,
-                        values = CPLEXset$Init_solution$CPLEX_x, effortlevel = 5, mipstartname = NULL)
-      return_code = mipoptCPLEX(env, prob)
-      result_solution=solutionCPLEX(env, prob)
-      writeProbCPLEX(env, prob, "prob.lp")
-
-      print(paste(return_codeCPLEX(return_code),"-",
-                  status_codeCPLEX(env, getStatCPLEX(env, prob)),
-                  " - OBJ_value =", result_solution$objval))
-      
-      tictoc::toc()
-      
-      delProbCPLEX(env, prob)
-      closeEnvCPLEX(env)
-      solution_ls[[length(solution_ls)+1]] = result_solution
-      
-      
-    }
+  #result_solution =1
+  for(edge_penalty in edge_penalty_range){
+    edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = edge_penalty)
+    temp_obj = c(CPLEXset$data$unknown_formula$cplex_score,
+                            edge_info_sum$edge_score)
+    result_solution = Run_CPLEX(CPLEXset, obj = temp_obj)
+    solution_ls[[length(solution_ls)+1]] = result_solution
   }
   return(solution_ls)
   
@@ -1504,7 +1465,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1536,27 +1497,30 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  top_formula_n = 2,
                                                  read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = read_from_csv)
-  
+  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
   
 }
 
 # Run CPLEX ####
 {
 
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score-1, edge_info_sum$edge_score)
   
-  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex, read_from_csv = F, write_to_csv = T)
-  #CPLEXset[["Screen_solution"]] = CPLEX_screen(CPLEXset)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
+  
+  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
+  
+  
+  CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, 
+                                                    edge_penalty_range = seq(-.6, -0.9, by=-0.1))
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
 # Read CPLEX result ####
 {
   
-  CPLEX_x = CPLEXset$Init_solution$CPLEX_x
+  CPLEX_x = CPLEXset$Init_solution$result_solution$x
   print(sum(CPLEX_x))
   
   unknown_nodes = CPLEXset$data$unknown_nodes
@@ -1572,7 +1536,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
 }
-# Basic Graph ####
 {
   Generate_graph = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
