@@ -51,8 +51,8 @@ Cohort_Info = function(mset)
 
 ## Clean up duplicate peaks from peak picking ####
 Peak_cleanup = function(mset,
-                        ms_dif_ppm=3/10^6, 
-                        rt_dif_min=0.2,
+                        ms_dif_ppm=1/10^6, 
+                        rt_dif_min=0.02,
                         detection_limit=2500
                         )
 {
@@ -1438,9 +1438,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   #Clean-up duplicate peaks 
   mset[["Data"]] = Peak_cleanup(mset,
-                                ms_dif_ppm=5/10^6, 
-                                rt_dif_min=0.2,
-                                detection_limit=2500)
+                                ms_dif_ppm=1/10^6, 
+                                rt_dif_min=0.01,
+                                detection_limit=500)
   #View(mset$Data)
   mset[["ID"]]=mset$Data$groupId
 }
@@ -1465,7 +1465,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   mset[["NodeSet"]]=Form_node_list(mset)
@@ -1506,11 +1506,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
 
   
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
-  
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = 0)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/4)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/5)
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  
+  CPLEXset[["Init_solution2"]] = Run_CPLEX(CPLEXset, obj_cplex)
+  CPLEXset[["Init_solution3"]] = Run_CPLEX(CPLEXset, obj_cplex)
   
   CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, 
                                                     edge_penalty_range = seq(-.6, -0.9, by=-0.1))
@@ -1519,16 +1520,26 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Read CPLEX result ####
 {
+  CPLEX_all_x=list()
+  i=1
+  for(i in 1:length(CPLEXset$Screen_solution)){
+    CPLEX_all_x[[i]] =  CPLEXset$Screen_solution[[i]]$result_solution$x
+    
+  }
   
-  CPLEX_x = CPLEXset$Init_solution$result_solution$x
+  CPLEX_all_x = bind_cols(CPLEX_all_x)
   
+  CPLEX_x = CPLEXset$Screen_solution[[4]]$result_solution$x
+  
+  
+  CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   unknown_nodes = CPLEXset$data$unknown_nodes
   unknown_formula = CPLEXset$data$unknown_formula
   
   unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
   unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
-  print(paste("pred formula ratio =", nrow(unknown_formula_CPLEX)))
+  print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
