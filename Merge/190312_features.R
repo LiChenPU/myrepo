@@ -1553,9 +1553,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 {
   # output assigned formula
-  Mdata = mset$Data
+  Mdata = mset$Data[,3:7]
   formula = unknown_node_CPLEX[,c("ID","formula")]
-  Mdata = merge(Mdata, formula, by.x = "group")
+  Mdata = merge(Mdata, formula, by.x = "groupId", by.y = "ID", all = T)
+  write.csv(Mdata, "Mdata.csv",row.names = F)
 }
 {
   Generate_graph = list()
