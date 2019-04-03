@@ -1526,13 +1526,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     CPLEX_all_x[[i]] =  CPLEXset$Screen_solution[[i]]$result_solution$x
     
   }
-  
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   
   CPLEX_x = CPLEXset$Screen_solution[[4]]$result_solution$x
   
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+  CPLEX_x = CPLEXset$Init_solution$result_solution$x
   
   unknown_nodes = CPLEXset$data$unknown_nodes
   unknown_formula = CPLEXset$data$unknown_formula
@@ -1548,8 +1548,15 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
+  
 }
 
+{
+  # output assigned formula
+  Mdata = mset$Data
+  formula = unknown_node_CPLEX[,c("ID","formula")]
+  Mdata = merge(Mdata, formula, by.x = "group")
+}
 {
   Generate_graph = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
