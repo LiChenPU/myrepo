@@ -44,7 +44,7 @@ Cohort_Info = function(mset)
     sample_names=all_names
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
-  sample_cohort=stri_replace_last_regex(sample_names,'_1|_2|_3|-1|-2|-3|-4|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
+  sample_cohort=stri_replace_last_regex(sample_names,'_1|_2|_3|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
   
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
@@ -242,10 +242,32 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   }
   
   
+  counts=unlist(lapply(library_match,nrow))
+  num_of_library_match = cbind(ID=mset$ID,counts)
   
-  return (library_match)
+  
+  
+  
+  df = as.data.frame(num_of_library_match)
+  
+  df["library_match_formula"]=NA
+  df["library_match_name"]=NA
+  for(i in 1:length(library_match)){
+    
+    if(nrow(library_match[[i]]) == 0){next
+    }else{
+      df$library_match_formula[i] = paste(library_match[[i]]$MF, collapse = " | ")
+      df$library_match_name[i] = paste(library_match[[i]]$Name, collapse = " | ")
+    }
+    
+  }
+  
+  
+  return (list(library_match_list = library_match,
+               library_match_formula = df
+               ))
 }
-
+## 
 ## Statistical analysis with MetaboAnalyst ####
 Metaboanalyst_Statistic = function(mset)
 {
@@ -260,9 +282,14 @@ Metaboanalyst_Statistic = function(mset)
   mSet<-Read.TextData(mSet, "MetaboAnalyst_file.csv", "colu", "disc");
   mSet<-SanityCheckData(mSet)
   mSet<-ReplaceMin(mSet);
-  mSet<-FilterVariable(mSet, "iqr", "F", 25)
-  mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
+  mSet<-PreparePrenormData(mSet)
+  mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", ratio=FALSE, ratioNum=20)
+  # mSet<-FilterVariable(mSet, "iqr", "F", 25)
+  # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
+  
+  # mSet<-PlotHeatMap(mSet, "heatmap_0_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  # mSet<-PlotSubHeatMap(mSet, "heatmap_1_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 250, "overview", T, T, T, F)
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
@@ -270,6 +297,7 @@ Metaboanalyst_Statistic = function(mset)
   ANOVA_FDR = ANOVA_raw[,c("X1","FDR")]
   ANOVA_FDR$FDR=-log10(ANOVA_FDR$FDR)
   colnames(ANOVA_FDR)=c("ID","_log10_FDR")
+  
   
   return(ANOVA_FDR)
   
@@ -1418,7 +1446,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("Xi_new_neg.csv")
+  filename = c("BAT_y_vs_o.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
   #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),8000),]
@@ -1432,9 +1460,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 ## Initialise ####
 {
-  mset[["Global_parameter"]]=  list(mode = -1,
+  mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   mset[["Cohort"]]=Cohort_Info(mset)
+
   
   #Clean-up duplicate peaks 
   mset[["Data"]] = Peak_cleanup(mset,
@@ -1452,15 +1481,26 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #View(mset$High_blanks)
   
   #library_match
-  mset[["library_match"]]=list()
-  mset[["library_match"]][["ls"]] = library_match(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
-  counts=unlist(lapply(mset$library_match$ls,nrow))
-  num_of_library_match = cbind(ID=mset$ID,counts)
-  mset[["library_match"]][["num_of_library_match"]]=num_of_library_match
   
-  
+  mset[["library_match"]] = library_match(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
+
   #Metaboanalyst_Statistic
   mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
+  
+  
+  
+
+  # output assigned formula
+  Mdata = mset$Data[,c(3:7,14:ncol(mset$Data))]
+  HMDB = mset$library_match$library_match_formula[,c("ID","library_match_formula","library_match_name")]
+  ANOVA_FDR = mset$Metaboanalyst_Statistic
+  test = merge(HMDB,ANOVA_FDR, all = T)
+  test2 = merge(test,Mdata, by.x="ID", by.y = "groupId", all=T)
+  
+  # formula = unknown_node_CPLEX[,c("ID","formula")]
+  # Mdata = merge(Mdata, formula, by.x = "groupId", by.y = "ID", all = T)
+  # write.csv(Mdata, "Mdata.csv",row.names = F)
+  
 } 
 
 # Network ####
@@ -1506,15 +1546,15 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
 
   
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = 0)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/4)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/5)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
+  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
+  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/4)
+  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/5)
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  CPLEXset[["Init_solution2"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  CPLEXset[["Init_solution3"]] = Run_CPLEX(CPLEXset, obj_cplex)
+  #CPLEXset[["Init_solution2"]] = Run_CPLEX(CPLEXset, obj_cplex)
+  #CPLEXset[["Init_solution3"]] = Run_CPLEX(CPLEXset, obj_cplex)
   
-  CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, 
-                                                    edge_penalty_range = seq(-.6, -0.9, by=-0.1))
+  #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
@@ -1748,16 +1788,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # HMDB #
   {
-    df = as.data.frame(mset$library_match$num_of_library_match)
-    df["Library_match_formula"]=NA
-    a = mset$library_match$ls[[1]]
-    for(i in 1:length(mset$library_match$ls)){
-      if(nrow(mset$library_match$ls[[i]]) == 0){next
-      }else{
-        df$Library_match_formula[i] = paste(mset$library_match$ls[[i]]$MF, collapse = " | ")
-      }
-      
-    }
+
     
     unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
     unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
