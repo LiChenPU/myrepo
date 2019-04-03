@@ -1449,7 +1449,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   filename = c("BAT_y_vs_o.csv")
   mset = list()
   mset[["Raw_data"]] <- read_csv(filename)
-  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),8000),]
+  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),5000),]
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
   #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
   mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
@@ -1546,7 +1546,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
 
   
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.8)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.7)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/4)
   #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/5)
