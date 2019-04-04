@@ -32,10 +32,10 @@ read_library = function(library_file = "hmdb_unique.csv"){
   return(hmdb_lib)
 }
   
-## Data name and cohorts ####
-Cohort_Info = function(mset)
+## Cohort_Info - Data name and cohorts ####
+Cohort_Info = function(Mset)
 {
-  raw = mset$Raw_data
+  raw = Mset$Raw_data
   all_names=colnames(raw)[15:ncol(raw)]
   
   if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
@@ -49,18 +49,20 @@ Cohort_Info = function(mset)
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
 
-## Clean up duplicate peaks from peak picking ####
-Peak_cleanup = function(mset,
+## Peak_cleanup - Clean up duplicate peaks from peak picking ####
+Peak_cleanup = function(Mset,
                         ms_dif_ppm=1/10^6, 
                         rt_dif_min=0.02,
                         detection_limit=2500
                         )
 {
-  raw = mset$Raw_data
+  
+  raw = Mset$Raw_data
   raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
+  colnames(raw)[colnames(raw)=="groupId"] = "ID"
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  raw$medMz = raw$medMz*abs(mset$Global_parameter$mode) - (H_mass-e_mass)*mset$Global_parameter$mode
+  raw$medMz = raw$medMz*abs(Mset$Global_parameter$mode) - (H_mass-e_mass)*Mset$Global_parameter$mode
   
   #Group MS groups
   {
@@ -158,7 +160,7 @@ Peak_cleanup = function(mset,
       s3$medMz[k_min]=mean(s3$medMz[k_min:(k_max-1)])
       s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)])
       s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)])
-      s3$groupId[k_min]=min(s3$groupId[k_min:(k_max-1)])
+      s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)])
       for (n in 14:ncol(raw)){
         s3[k_min,n]=max(s3[k_min:(k_max-1),n])
       }
@@ -174,45 +176,45 @@ Peak_cleanup = function(mset,
     #                                                         replace=T)
     
     s4["mean_inten"]=NA
-    s4["mean_inten"]=rowMeans(s4[,mset$Cohort$sample_names])
+    s4["mean_inten"]=rowMeans(s4[,Mset$Cohort$sample_names])
     s4$flag[s4$mean_inten<detection_limit]=F
   }
   
   
   s5 = s4[s4$flag, 1:ncol(raw)]
-  s5 = s5[with(s5, order(groupId)),]
-  s5$groupId = 1:nrow(s5)
+  s5 = s5[with(s5, order(ID)),]
+  s5$ID = 1:nrow(s5)
   
-  s5["mean_inten"]=rowMeans(s5[,mset$Cohort$sample_names])
+  s5["mean_inten"]=rowMeans(s5[,Mset$Cohort$sample_names])
   s5["log10_inten"]=log10(s5$mean_inten)
   
   return(s5)
 }
 
-## Identify peaks with high blanks ####
-High_blank = function(mset, fold_cutoff = 2)
+## High_blank - Identify peaks with high blanks ####
+High_blank = function(Mset, fold_cutoff = 2)
 {
-  s7 = mset$Data
+  s7 = Mset$Data
   
   s7["high_blank"]=NA
-  if(length(mset$Cohort$blank_names)>0){
-    s7["high_blank"]= rowMeans(s7[,mset$Cohort$sample_names]) < fold_cutoff*rowMeans(s7[,mset$Cohort$blank_names])
+  if(length(Mset$Cohort$blank_names)>0){
+    s7["high_blank"]= rowMeans(s7[,Mset$Cohort$sample_names]) < fold_cutoff*rowMeans(s7[,Mset$Cohort$blank_names])
   }
   
-  result = s7[,c("groupId","high_blank")]
+  result = s7[,c("ID","high_blank")]
   return(result)  
 }
 
-## Annontate base on library mz ####
-library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
+## library_match - Annontate base on library mz ####
+library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
 {
-  s5 = mset$Data
+  s5 = Mset$Data
   s5 = s5[with(s5,order(medMz)),]
   
   
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  mode = mset$Global_parameter$mode
+  mode = Mset$Global_parameter$mode
   
   hmdb_df = read_csv(library_file)
   data(isotopes)
@@ -235,15 +237,15 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
       k=k+1
     }
     if(k>1){
-      library_match[[s5$groupId[j]]]=hmdb_df[(i_min+1):(i_min+k-1),]
+      library_match[[s5$ID[j]]]=hmdb_df[(i_min+1):(i_min+k-1),]
     }
-    else{library_match[[s5$groupId[j]]]=hmdb_df[0,]}
+    else{library_match[[s5$ID[j]]]=hmdb_df[0,]}
     j=j+1
   }
   
   
   counts=unlist(lapply(library_match,nrow))
-  num_of_library_match = cbind(ID=mset$ID,counts)
+  num_of_library_match = cbind(ID=Mset$ID,counts)
   
   
   
@@ -268,13 +270,13 @@ library_match = function(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
                ))
 }
 ## 
-## Statistical analysis with MetaboAnalyst ####
-Metaboanalyst_Statistic = function(mset)
+## Metaboanalyst_Statistic - Statistical analysis with MetaboAnalyst ####
+Metaboanalyst_Statistic = function(Mset)
 {
   library(MetaboAnalystR)
   
-  MA_output = mset$Data[,c("groupId",  mset$Cohort$sample_names)]
-  MA_output = rbind(c("cohort",mset$Cohort$sample_cohort),MA_output)
+  MA_output = Mset$Data[,c("ID",  Mset$Cohort$sample_names)]
+  MA_output = rbind(c("cohort",Mset$Cohort$sample_cohort),MA_output)
 
   write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
   
@@ -306,18 +308,30 @@ Metaboanalyst_Statistic = function(mset)
 
 
 
+## Summary_Mset ####
+Summary_Mset = function(Mset){
+  Mdata = Mset$Data[,c(3:7,14:ncol(Mset$Data))]
+  High_blanks = Mset$High_blanks
+  Mdata = merge(High_blanks,Mdata, all=T)
+  HMDB = Mset$library_match$library_match_formula[,c("ID","library_match_formula","library_match_name")]
+  Mdata = merge(HMDB,Mdata, all=T)
+  ANOVA_FDR = Mset$Metaboanalyst_Statistic
+  Mdata = merge(ANOVA_FDR,Mdata, all=T)
+  
+  return(Mdata)
+}
 # Function for network ######
 
 ## Merge experiment and library nodes ####
-Form_node_list = function(mset)
+Form_node_list = function(Mset)
 {
   NodeSet = list()
-  NodeSet[["Expe"]] = mset$Data[,c("groupId","medMz","medRt","formula")]
+  NodeSet[["Expe"]] = Mset$Data[,c("ID","medMz","medRt","formula")]
   NodeSet$Expe["category"]=1
   NodeSet$Expe["compound_name"]=NA
   colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "category","compound_name")
   
-  NodeSet[["Library"]] = mset$Library
+  NodeSet[["Library"]] = Mset$Library
   NodeSet$Library = cbind(NodeSet$Library, RT=NA)
   colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","category", "RT")
   NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
@@ -339,7 +353,7 @@ Read_rule_table = function(rule_table_file = "biotransform.csv"){
   return(biotransform)
 }
 ## Edge_list for biotransformation ####
-Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_from_csv=F)
+Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_from_csv=F)
 {
   
   
@@ -347,7 +361,7 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
     
     
   
-  merge_node_list = mset$NodeSet[with(mset$NodeSet, order(mz)),]
+  merge_node_list = Mset$NodeSet[with(Mset$NodeSet, order(mz)),]
   merge_nrow = nrow(merge_node_list)
   
   timer=Sys.time()
@@ -355,8 +369,8 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
     edge_ls = list()
     temp_mz_list=merge_node_list$mz
     
-    for (k in 1:nrow(mset$Biotransform)){
-      temp_fg=mset$Biotransform$mass[k]
+    for (k in 1:nrow(Mset$Biotransform)){
+      temp_fg=Mset$Biotransform$mass[k]
       i=j=1
       temp_edge_list = data.frame(node1=as.numeric(), node2=as.numeric(), linktype=as.numeric(), mass_dif=as.numeric())
       while(i<=merge_nrow){
@@ -381,18 +395,18 @@ Edge_biotransform = function(mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
         }
       }
       edge_ls[[k]]=temp_edge_list
-      print(paste("Biotransform", mset$Biotransform$category[k], nrow(temp_edge_list),"found."))
+      print(paste("Biotransform", Mset$Biotransform$category[k], nrow(temp_edge_list),"found."))
     }
   }
   
   print(Sys.time()-timer)
   edge_list = bind_rows(edge_ls)
   
-  edge_list$linktype=mset$Biotransform$Formula[edge_list$linktype]
+  edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
   
   edge_list_sub = subset(edge_list, 
-                         (edge_list$node1<=nrow(mset$Data)|
-                            edge_list$node2<=nrow(mset$Data))&
+                         (edge_list$node1<=nrow(Mset$Data)|
+                            edge_list$node2<=nrow(Mset$Data))&
                            edge_list$node1!=edge_list$node2
   )
   
@@ -425,13 +439,13 @@ Edge_score = function(Biotransform){
   return(Biotransform)
 }
 ## Variance between peaks ####
-Peak_variance = function(mset, 
+Peak_variance = function(Mset, 
                          time_cutoff=0.1,
                          mass_cutoff=0,
                          correlation_cutoff = 0.7)
 {
-  df_raw = mset$Data[,c("groupId","medMz","medRt",mset$Cohort$sample_names)]
-  df_raw["mean_inten"]=rowMeans(df_raw[,mset$Cohort$sample_names])
+  df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
+  df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names])
   df_raw["log10_inten"]=log10(df_raw$mean_inten)
   
   {
@@ -468,12 +482,12 @@ Peak_variance = function(mset,
       temp_df_raw$time_dif=temp_df_raw$medRt-temp_df_raw$medRt[1]
       temp_df_raw$mz_dif = round(temp_df_raw$medMz-temp_df_raw$medMz[1], digits=5)
       
-      temp_x = t(temp_df_raw[1,mset$Cohort$sample_names])
-      temp_y = t(temp_df_raw[,mset$Cohort$sample_names])
+      temp_x = t(temp_df_raw[1,Mset$Cohort$sample_names])
+      temp_y = t(temp_df_raw[,Mset$Cohort$sample_names])
       temp_df_raw$correlation = as.numeric(t(cor((temp_x), (temp_y))))
       
-      temp_df_raw["node1"]=temp_df_raw$groupId[1]
-      temp_df_raw["node2"]=temp_df_raw$groupId
+      temp_df_raw["node1"]=temp_df_raw$ID[1]
+      temp_df_raw["node2"]=temp_df_raw$ID
       temp_df_raw["mz_node1"] = temp_df_raw$medMz[1]
       temp_df_raw["mz_node2"] = temp_df_raw$medMz
       temp_df_raw["log10_inten_node1"] = temp_df_raw$log10_inten[1]
@@ -528,12 +542,12 @@ Peak_variance = function(mset,
 
 
 ### Edge_list for artifacts ####
-Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
+Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
 {
   if(read_from_csv == F){
     edge_ls_highcor=Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
-    junk_df = mset$Artifacts
+    junk_df = Mset$Artifacts
     
     i=j=1
     temp_ls = list()
@@ -580,7 +594,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
       ppm=5/10^6
       temp_df_oligo = temp_df[0,]
       
-      df_raw = mset$Data
+      df_raw = Mset$Data
       
       temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
       temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
@@ -590,7 +604,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
       
       for(i in 1:nrow(temp_edge_ls)){
         temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
-        temp_mz1 = df_raw$medMz[which(df_raw$groupId==temp_data$node1)]
+        temp_mz1 = df_raw$medMz[which(df_raw$ID==temp_data$node1)]
         temp_mz2 = temp_mz1 + temp_data$mz_dif
         for(j in 2:10){
           #if charge data
@@ -609,7 +623,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
     oligo_summary=table(temp_df_oligo$linktype)
     print(oligo_summary)
     
-    #data$parent[data$groupId==6]
+    #data$parent[data$ID==6]
     test_time = Sys.time()-test_time
     
     edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
@@ -630,7 +644,7 @@ Artifact_prediction = function(mset, Peak_inten_correlation, search_ms_cutoff=0.
 Merge_edgeset = function(EdgeSet){
   
   edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
-  Mdata = mset$Data$log10_inten
+  Mdata = Mset$Data$log10_inten
   node1 = edge_merge$node1
   node2 = edge_merge$node2
   
@@ -652,13 +666,13 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Network_prediction used to connect nodes to library and predict formula ####
-Network_prediction = function(mset, edge_list_sub, 
+Network_prediction = function(Mset, edge_list_sub, 
                               top_formula_n=2,
                               read_from_csv = F
                               )
 {
   if(!read_from_csv){
-  mnl=mset$NodeSet
+  mnl=Mset$NodeSet
   # top_formula_n=2
   # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
@@ -674,7 +688,7 @@ Network_prediction = function(mset, edge_list_sub,
     
     sf = lapply(1:nrow(mnl),function(i)(data_str))
     
-    for(i in (1+nrow(mset$Data)):nrow(mnl)){
+    for(i in (1+nrow(Mset$Data)):nrow(mnl)){
       Initial_formula =sf[[i]]
       Initial_formula[1,]= list(i,mnl$MF[i],0,0, 1)
       sf[[i]]=Initial_formula
@@ -684,7 +698,7 @@ Network_prediction = function(mset, edge_list_sub,
   
   #while loop to Predict formula based on known formula and edgelist 
   
-  nrow_experiment = nrow(mset$Data)
+  nrow_experiment = nrow(Mset$Data)
   step=0
   timer=Sys.time()
   New_nodes_in_network = 1
@@ -715,7 +729,7 @@ Network_prediction = function(mset, edge_list_sub,
         
         if(head <= nrow_experiment){
           #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
-          if(mset$Data$mean_inten[head]< 2e4){next}
+          if(Mset$Data$mean_inten[head]< 2e4){next}
           #If head is an isotopic peak, then only look for isotopic peaks
           if(grepl("\\[",head_formula)){
             temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
@@ -790,7 +804,7 @@ Network_prediction = function(mset, edge_list_sub,
         
         if(tail <= nrow_experiment){
           #If tail signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
-          if(mset$Data$mean_inten[tail]<2e4){next}
+          if(Mset$Data$mean_inten[tail]<2e4){next}
           #If tail is an isotopic peak, then do not propagate
           if(grepl("\\[",tail_formula)){next}
           if(grepl("Na|Ca|K|B|Si", tail_formula)){
@@ -905,10 +919,10 @@ Network_prediction = function(mset, edge_list_sub,
 
 # Function for CPLEX ####
 ## Prepare_CPLEX parameter ####
-Prepare_CPLEX = function(mset, EdgeSet, read_from_csv = F){
-  All_formula_predict=bind_rows(mset[["NodeSet_network"]])
+Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
+  All_formula_predict=bind_rows(Mset[["NodeSet_network"]])
   raw_pred_formula = All_formula_predict
-  raw_node_list = mset$NodeSet
+  raw_node_list = Mset$NodeSet
   raw_edge_list = EdgeSet$Merge
   
   #Clean up
@@ -1175,7 +1189,7 @@ Score_formula = function(CPLEXset)
   unknown_formula = CPLEXset$data$unknown_formula
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
-  unknown_formula["msr_mass"] = mset$Data$medMz[unknown_formula$id]
+  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
   unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
   unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
   unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
@@ -1220,7 +1234,7 @@ Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
   # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
   # Solution: when n duplicated mz exist, the intra mz edge number are n*(n+1)/2, but effectively they should only get n/2
   
-  sol_mat = data.frame(n=1:100, div = NA)
+  sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
   sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
   
   test3_same12$edge_score = test3_same12$edge_score / (sol_mat$div[df_same12[test3_same12$formula1]])
@@ -1447,60 +1461,51 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   filename = c("BAT_y_vs_o.csv")
-  mset = list()
-  mset[["Raw_data"]] <- read_csv(filename)
-  #mset[["Raw_data"]] = mset$Raw_data[base::sample(nrow(mset$Raw_data),5000),]
-  #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_small.csv")
-  #mset[["Raw_data"]] <- read_csv("Yeast-Ecoli-neg-peakpicking_blank_tiny.csv")
-  mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
-  #write.csv(mset[["Library"]], "HMDB_detected_nodes_clean.csv")
+  Mset = list()
+  Mset[["Raw_data"]] <- read_csv(filename)
+  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),5000),]
+  
+  Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
+  #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
 }
-
-
 
 ## Initialise ####
 {
-  mset[["Global_parameter"]]=  list(mode = 1,
+  Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
-  mset[["Cohort"]]=Cohort_Info(mset)
+  Mset[["Cohort"]]=Cohort_Info(Mset)
 
   
   #Clean-up duplicate peaks 
-  mset[["Data"]] = Peak_cleanup(mset,
+  Mset[["Data"]] = Peak_cleanup(Mset,
                                 ms_dif_ppm=1/10^6, 
                                 rt_dif_min=0.01,
                                 detection_limit=500)
-  #View(mset$Data)
-  mset[["ID"]]=mset$Data$groupId
+  #View(Mset$Data)
+  Mset[["ID"]]=Mset$Data$ID
 }
 
 ## Feature generation ####
 {
   #Identify peaks with high blanks
-  mset[["High_blanks"]]=High_blank(mset, fold_cutoff = 2)
-  #View(mset$High_blanks)
+  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
+  #View(Mset$High_blanks)
   
   #library_match
   
-  mset[["library_match"]] = library_match(mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
+  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
 
   #Metaboanalyst_Statistic
-  mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(mset)
-  
-  
+  Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
   
 
   # output assigned formula
-  Mdata = mset$Data[,c(3:7,14:ncol(mset$Data))]
-  HMDB = mset$library_match$library_match_formula[,c("ID","library_match_formula","library_match_name")]
-  ANOVA_FDR = mset$Metaboanalyst_Statistic
-  test = merge(HMDB,ANOVA_FDR, all = T)
-  test2 = merge(test,Mdata, by.x="ID", by.y = "groupId", all=T)
+  Mset[["Summary"]] = Summary_Mset(Mset)
+  write_csv(Mset$Summary, "Mdata.csv")
   
-  # formula = unknown_node_CPLEX[,c("ID","formula")]
-  # Mdata = merge(Mdata, formula, by.x = "groupId", by.y = "ID", all = T)
-  # write.csv(Mdata, "Mdata.csv",row.names = F)
+
   
+
 } 
 
 # Network ####
@@ -1508,21 +1513,21 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   read_from_csv = F
   EdgeSet = list()
   
-  mset[["NodeSet"]]=Form_node_list(mset)
-  mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
+  Mset[["NodeSet"]]=Form_node_list(Mset)
+  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   
-  EdgeSet[["Biotransform"]] = Edge_biotransform(mset, 
+  EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
                                                 mass_abs = 0.001, 
                                                 mass_ppm = 5/10^6, 
                                                 read_from_csv = read_from_csv)
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
-  mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
-  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(mset,
+  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
                                                       mass_cutoff = 2e4,
                                                       correlation_cutoff = 0.5)
-  EdgeSet[["Artifacts"]] = Artifact_prediction(mset, 
+  EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
                                                read_from_csv = read_from_csv)
@@ -1532,12 +1537,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
 
-  mset[["NodeSet_network"]] = Network_prediction(mset, 
+  Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
                                                  read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(mset, EdgeSet, read_from_csv = F)
+  CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
   
 }
@@ -1546,32 +1551,28 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
 
   
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.7)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.9)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
-  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/4)
-  #obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score/5)
+
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  #CPLEXset[["Init_solution2"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  #CPLEXset[["Init_solution3"]] = Run_CPLEX(CPLEXset, obj_cplex)
-  
+
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
 }
 
 # Read CPLEX result ####
 {
-  CPLEX_all_x=list()
-  i=1
-  for(i in 1:length(CPLEXset$Screen_solution)){
-    CPLEX_all_x[[i]] =  CPLEXset$Screen_solution[[i]]$result_solution$x
-    
-  }
-  CPLEX_all_x = bind_cols(CPLEX_all_x)
+  # CPLEX_all_x=list()
+  # i=1
+  # for(i in 1:length(CPLEXset$Screen_solution)){
+  #   CPLEX_all_x[[i]] =  CPLEXset$Screen_solution[[i]]$result_solution$x
+  #   
+  # }
+  # CPLEX_all_x = bind_cols(CPLEX_all_x)
+  # 
+  # CPLEX_x = CPLEXset$Screen_solution[[4]]$result_solution$x
+  # CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
-  CPLEX_x = CPLEXset$Screen_solution[[4]]$result_solution$x
-  
-  
-  CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   CPLEX_x = CPLEXset$Init_solution$result_solution$x
   
   unknown_nodes = CPLEXset$data$unknown_nodes
@@ -1593,18 +1594,20 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 {
   # output assigned formula
-  Mdata = mset$Data[,3:7]
+  Mdata = Mset$Data[,3:7] 
   formula = unknown_node_CPLEX[,c("ID","formula")]
-  Mdata = merge(Mdata, formula, by.x = "groupId", by.y = "ID", all = T)
-  write.csv(Mdata, "Mdata.csv",row.names = F)
+  Mdata = merge(formula, Mdata, all = T)
+  write.csv(Mdata, "Mdata2.csv",row.names = F)
+  
+ 
 }
 {
-  Generate_graph = list()
+  Graphset = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
-  merge_node_list = merge(mset$NodeSet,unknown_node_CPLEX,all=T)
+  merge_node_list = merge(Mset$NodeSet,unknown_node_CPLEX,all=T)
   
   merge_node_list["log10_inten"] = NA
-  merge_node_list$log10_inten[mset$Data$groupId] = mset$Data$log10_inten
+  merge_node_list$log10_inten[Mset$Data$ID] = Mset$Data$log10_inten
   
   merge_node_list_1e5 = merge_node_list[merge_node_list$log10_inten>5 &
                                           !is.na(merge_node_list$log10_inten), ]
@@ -1644,9 +1647,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     
     nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
     
-    
-    
-    a = mset$Data
+    a = Mset$Data
     # plot(g_sub,
     #      vertex.label = NA,
     #      #edge.color = 'black',
@@ -1654,8 +1655,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     #      edge.arrow.size = 0.05,
     #      layout = layout_nicely(g_sub))
   }
-  
-  
 }
 
 
@@ -1771,7 +1770,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## legacy code ####
 # select first few formula in the NodeSet_network to simplify 
   {
-    all_formula = bind_rows(mset[["NodeSet_network"]])
+    all_formula = bind_rows(Mset[["NodeSet_network"]])
     sf = list()
     for(n in 1: max(all_formula$id)){
       sf[[n]]=head(all_formula[all_formula$id==n,],3)
@@ -1781,7 +1780,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     
     edge_merge = EdgeSet$Merge
     hist(edge_merge$edge_massdif_score)
-    mset[["NodeSet_network"]] = sf
+    Mset[["NodeSet_network"]] = sf
     
     write_csv(all_formula,"All_formula_predict.txt")
   }
@@ -1829,7 +1828,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
       
       CPLEX_x2 = read_csv("CPLEX_x.txt")
       raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
-      raw_node_list = mset$NodeSet
+      raw_node_list = Mset$NodeSet
       pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
       pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
       lib_nodes = raw_node_list[raw_node_list$category==0,]
@@ -1851,7 +1850,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
                                                               unknown_node_CPLEX_merge$formula.y,]
     
-    unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, mset$Data, by.x = "ID", by.y = "groupId", all=T)
+    unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, Mset$Data, by.x = "ID", by.y = "ID", all=T)
     unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
     
     unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
