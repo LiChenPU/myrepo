@@ -534,13 +534,6 @@ Peak_variance = function(Mset,
   return(edge_ls)
 }
 
-
-
-
-
-
-
-
 ### Edge_list for artifacts ####
 Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
 {
@@ -1437,10 +1430,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("BAT_y_vs_o.csv")
+  filename = c("Xi_new_neg.csv")
   Mset = list()
   Mset[["Raw_data"]] <- read_csv(filename)
-  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
+  #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
   
   Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
   #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
@@ -1448,7 +1441,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = 1,
+  Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
 
@@ -1524,7 +1517,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Run CPLEX ####
 {
 
-  
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.9)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
