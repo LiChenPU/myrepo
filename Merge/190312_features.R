@@ -1439,8 +1439,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   filename = c("BAT_y_vs_o.csv")
   Mset = list()
-  Mset[["Raw_data"]] <- read.csv(filename, stringsAsFactors = F)
-  #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
+  Mset[["Raw_data"]] <- read_csv(filename)
+  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
   
   Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
   #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
