@@ -322,7 +322,7 @@ Summary_Mset = function(Mset){
 }
 # Function for network ######
 
-## Merge experiment and library nodes ####
+## Form_node_list - Merge experiment and library nodes ####
 Form_node_list = function(Mset)
 {
   NodeSet = list()
@@ -343,7 +343,7 @@ Form_node_list = function(Mset)
   return(merge_node_list)
 }
 
-## Read_rule_table for biotransformation rule and artifacts ####
+## Read_rule_table - for biotransformation rule and artifacts ####
 Read_rule_table = function(rule_table_file = "biotransform.csv"){
   library(enviPat)
   data("isotopes")
@@ -1441,8 +1441,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   filename = c("BAT_y_vs_o.csv")
   Mset = list()
-  Mset[["Raw_data"]] <- read_csv(filename)
-  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
+  Mset[["Raw_data"]] <- read.csv(filename, stringsAsFactors = F)
+  #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
   
   Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
   #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
@@ -1480,7 +1480,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
-  write_csv(Mset$Summary, "Mdata.csv")
+  write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
 
 } 
 
@@ -1530,16 +1530,16 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.9)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
-  CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
+  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
 
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.3)
+  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.3)
 }
 
 # Read CPLEX result ####
 {
 
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
