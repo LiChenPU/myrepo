@@ -545,6 +545,7 @@ Peak_variance = function(Mset,
 Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
 {
   if(read_from_csv == F){
+    #edge_ls_highcor = EdgeSet$Peak_inten_correlation
     edge_ls_highcor=Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
     junk_df = Mset$Artifacts
@@ -588,9 +589,6 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     test_time = Sys.time()
     {
-      H_mass = 1.00782503224
-      e_mass = 0.00054857990943
-      mode=-1
       ppm=5/10^6
       temp_df_oligo = temp_df[0,]
       
