@@ -1306,52 +1306,20 @@ Run_CPLEX = function(CPLEXset, obj){
   return(list(obj = obj, result_solution = result_solution))
 }
 ## CPLEX_permutation ####
-CPLEX_permutation = function(CPLEXset, n_pmt = 5){
+CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
   
   edge_info_sum = CPLEXset$data$edge_info_sum
   unknown_formula = CPLEXset$data$unknown_formula
+  obj = CPLEXset$Init_solution$obj
+  obj_node = obj[1:nrow(unknown_formula)]
+  obj_edge = obj[(nrow(unknown_formula)+1):length(obj)]
   solution_ls = list()
-  
-  
   for(i in 1:n_pmt){
-    edge_score_permutated = edge_info_sum$edge_score
-    edge_score_permutated = edge_info_sum$edge_score * (1+ rnorm(length(edge_info_sum$edge_score),
-                                                                 mean = 0,
-                                                                 sd = 0.2))
-    obj <- c(rep(0, nrow(unknown_formula)), edge_score_permutated)
     
-    env <- openEnvCPLEX()
-    prob <- initProbCPLEX(env)
+    temp_obj_edge = obj_edge + rnorm(length(obj_edge), mean = 0, sd = max(obj_edge) * sd_rel_max)
+    temp_obj <- c(obj_node, temp_obj_edge)
     
-    nc = CPLEXset$para$nc
-    nr = CPLEXset$para$nr
-    CPX_MAX = CPLEXset$para$CPX_MAX
-    rhs = CPLEXset$para$rhs
-    sense = CPLEXset$para$sense
-    beg = CPLEXset$para$beg
-    cnt = CPLEXset$para$cnt
-    ind = CPLEXset$para$ind
-    val = CPLEXset$para$val
-    lb = CPLEXset$para$lb
-    ub = CPLEXset$para$ub
-    ctype = CPLEXset$para$ctype
-    
-    copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj, rhs, sense,
-                      beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
-    
-    copyColTypeCPLEX(env, prob, ctype)
-    tictoc::tic()
-    addMIPstartsCPLEX(env, prob, mcnt = 1, nzcnt = nc, beg = 0, varindices = 1:nc,
-                      values = CPLEXset$Init_solution$CPLEX_x, effortlevel = 5, mipstartname = NULL)
-    return_code = mipoptCPLEX(env, prob)
-    result_solution=solutionCPLEX(env, prob)
-    writeProbCPLEX(env, prob, "prob.lp")
-    
-    print(paste("No",i, return_codeCPLEX(return_code),"-",status_codeCPLEX(env, getStatCPLEX(env, prob))))
-    tictoc::toc()
-    
-    delProbCPLEX(env, prob)
-    closeEnvCPLEX(env)
+    result_solution = Run_CPLEX(CPLEXset, temp_obj)
     solution_ls[[length(solution_ls)+1]] = result_solution
   
   }
@@ -1375,6 +1343,17 @@ CPLEX_screen_edge = function(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0
 }
 
 
+## Read CPLEX result ####
+Read_CPLEX_result = function(solution){
+  CPLEX_all_x=list()
+  
+  for(i in 1:length(solution)){
+    CPLEX_all_x[[i]] =  solution[[i]]$result_solution$x
+    
+  }
+  CPLEX_all_x = bind_cols(CPLEX_all_x)
+  return(CPLEX_all_x)
+}
 # Function for graph ####
 ## Analysis of Subnetwork  ####
 Subnetwork_analysis = function(g_sub, member_lb = 1, member_ub = 10)
@@ -1463,7 +1442,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   filename = c("BAT_y_vs_o.csv")
   Mset = list()
   Mset[["Raw_data"]] <- read_csv(filename)
-  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),5000),]
+  Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
   
   Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
   #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
@@ -1502,9 +1481,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
   write_csv(Mset$Summary, "Mdata.csv")
-  
-
-  
 
 } 
 
@@ -1557,23 +1533,15 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   CPLEXset[["Init_solution"]] = Run_CPLEX(CPLEXset, obj_cplex)
 
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
-  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 2)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.3)
 }
 
 # Read CPLEX result ####
 {
-  # CPLEX_all_x=list()
-  # i=1
-  # for(i in 1:length(CPLEXset$Screen_solution)){
-  #   CPLEX_all_x[[i]] =  CPLEXset$Screen_solution[[i]]$result_solution$x
-  #   
-  # }
-  # CPLEX_all_x = bind_cols(CPLEX_all_x)
-  # 
-  # CPLEX_x = CPLEXset$Screen_solution[[4]]$result_solution$x
-  # CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   
-  CPLEX_x = CPLEXset$Init_solution$result_solution$x
+  CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   unknown_nodes = CPLEXset$data$unknown_nodes
   unknown_formula = CPLEXset$data$unknown_formula
@@ -1589,10 +1557,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
-  
-}
 
-{
   # output assigned formula
   Mdata = Mset$Data[,3:7] 
   formula = unknown_node_CPLEX[,c("ID","formula")]
@@ -1601,6 +1566,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
  
 }
+
+
 {
   Graphset = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
