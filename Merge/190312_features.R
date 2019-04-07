@@ -727,8 +727,8 @@ Network_prediction = function(Mset, edge_list_sub,
           }
           #If head is a metal or Boron or silicon adduct, then only look for adducts or skip
           if(grepl("Na|Ca|K|B|Si", head_formula)){
-            next
-            #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
+            #next
+            temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
           }
         }
         
@@ -1000,7 +1000,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
           calc_abun = isotopic_abundance(temp_formula, temp_fg)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
           score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
-          temp_score = temp_score * score_modifier 
+          temp_score = temp_score * score_modifier + temp_score * score_modifier * (1-temp_score * score_modifier)
         }
         
         #Assuming formula in node_1 is always smaller than node_2
@@ -1477,7 +1477,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = F
+  read_from_csv = T
   EdgeSet = list()
   
   Mset[["NodeSet"]]=Form_node_list(Mset)
@@ -1507,7 +1507,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 2,
-                                                 read_from_csv = read_from_csv)
+                                                 read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
@@ -1517,7 +1517,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Run CPLEX ####
 {
 
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.9)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.85)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1549,7 +1549,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 
   # output assigned formula
-  Mdata = Mset$Data[,3:7] 
+  Mdata = Mset$Data[,c(3:7,ncol(Mset$Data))] 
   formula = unknown_node_CPLEX[,c("ID","formula")]
   Mdata = merge(formula, Mdata, all = T)
   write.csv(Mdata, "Mdata2.csv",row.names = F)
@@ -1557,6 +1557,49 @@ Trace_step = function(query_id, unknown_node_CPLEX)
  
 }
 
+{
+  wl_result = read_csv("WL_data_190405.csv")
+  merge_result = merge(unknown_node_CPLEX[,c("ID","formula")],wl_result, by.x="ID", by.y = "id", all =T)
+  merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
+}  
+
+# signal > e5
+{
+  Mdata = Mset$Data
+  e5_id = Mdata$ID[Mdata$log10_inten>=5]
+  merge_result_e5 = merge_result[merge_result$ID %in% e5_id, ]
+  e6_id = Mdata$ID[Mdata$log10_inten>=6]
+  merge_result_e6 = merge_result[merge_result$ID %in% e6_id, ]
+  e7_id = Mdata$ID[Mdata$log10_inten>=7]
+  merge_result_e7 = merge_result[merge_result$ID %in% e7_id, ]
+}
+
+# Compare formula #
+{
+  
+  merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
+  merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
+                                                                  (!is.na(merge_result_with_formula$formula.x)),]
+  nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
+}
+
+# Helper function
+{
+  id = 130
+  unknown_formula_id = unknown_formula[unknown_formula$id==id,]
+  edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
+  edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
+  
+  Mset$NodeSet_network[[id]]
+  #Mset$NodeSet_network[[5453]]
+  # df = unknown_node_CPLEX[0,]
+  # while(id <= max(unknown_node_CPLEX$ID)){
+  #   df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==id,]
+  #   temp_parent = unknown_node_CPLEX$parent[unknown_node_CPLEX$ID==id]
+  #   id = temp_parent
+    
+  }
+}
 
 {
   Graphset = list()
