@@ -442,7 +442,7 @@ Edge_score = function(Biotransform){
 Peak_variance = function(Mset, 
                          time_cutoff=0.1,
                          mass_cutoff=0,
-                         correlation_cutoff = 0.7)
+                         correlation_cutoff = 0.2)
 {
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
   df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names])
@@ -531,6 +531,7 @@ Peak_variance = function(Mset,
   }
   
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
+  print("High correlation peaks identified.")
   return(edge_ls)
 }
 
@@ -672,6 +673,7 @@ Network_prediction = function(Mset, edge_list_sub,
                           formula=as.character(), 
                           steps=as.numeric(), 
                           parent=as.numeric(), 
+                          is_metabolite = as.logical(),
                           score=as.numeric(), stringsAsFactors = F)
     #sf stands for summary_formula
     
@@ -681,7 +683,7 @@ Network_prediction = function(Mset, edge_list_sub,
     
     for(i in (1+nrow(Mset$Data)):nrow(mnl)){
       Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,0, 1)
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1)
       sf[[i]]=Initial_formula
       
     }
@@ -715,6 +717,9 @@ Network_prediction = function(Mset, edge_list_sub,
         
         head = new_nodes_df$id[n]
         head_formula = new_nodes_df$formula[n]
+        head_is_metabolite = new_nodes_df$is_metabolite[n]
+        
+        
         temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
         
         
@@ -726,7 +731,7 @@ Network_prediction = function(Mset, edge_list_sub,
             temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
           }
           #If head is a metal or Boron or silicon adduct, then only look for adducts or skip
-          if(grepl("Na|Ca|K|B|Si", head_formula)){
+          if(!head_is_metabolite){
             #next
             temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
           }
@@ -764,19 +769,23 @@ Network_prediction = function(Mset, edge_list_sub,
           
           temp_parent = head
           temp_steps = step+1
-          
+          temp_is_metabolite = all(head_is_metabolite, temp_edge_list$category==1)
           #Criteria to enter new entry into formula list
           #1. new formula
           temp = sf[[tail]]
           temp_subset=subset(temp, temp$formula==temp_formula)
           if(nrow(temp_subset)!=0){
-            #2. much higher scores
+            #2. A metabolite?
+            if(temp_is_metabolite == any(temp_subset$is_metabolite)){
+              break
+            }
+            #3. much higher scores
             if(temp_score<=(1.2*max(temp_subset$score))){
               next
             }
           }
           #Enter new entry
-          temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent, temp_score)
+          temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent,temp_is_metabolite, temp_score)
           temp = temp[with(temp, order(-score)),]
           sf[[tail]]=temp
         }
@@ -792,13 +801,14 @@ Network_prediction = function(Mset, edge_list_sub,
         #if(n%%1000==0){print(paste("Tail_n =",n))}
         tail = new_nodes_df$id[n]
         tail_formula = new_nodes_df$formula[n]
+        tail_is_metabolite = new_nodes_df$is_metabolite[n]
         
         if(tail <= nrow_experiment){
           #If tail signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
           if(Mset$Data$mean_inten[tail]<2e4){next}
           #If tail is an isotopic peak, then do not propagate
           if(grepl("\\[",tail_formula)){next}
-          if(grepl("Na|Ca|K|B|Si", tail_formula)){
+          if(!tail_is_metabolite){
             next
             #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
           }
@@ -837,19 +847,23 @@ Network_prediction = function(Mset, edge_list_sub,
           
           temp_parent = tail
           temp_steps = step+1
-          
+          temp_is_metabolite = all(tail_is_metabolite, temp_edge_list$category==1)
           #Criteria to enter new entry into formula list
           #1. new formula
           temp = sf[[head]]
           temp_subset=subset(temp, temp$formula==temp_formula)
           if(nrow(temp_subset)!=0){
-            #2. much higher scores
+            #2. A metabolite?
+            if(temp_is_metabolite == any(temp_subset$is_metabolite)){
+              break
+            }
+            #3. much higher scores
             if(temp_score<=(1.2*max(temp_subset$score))){
               next
             }
           }
           #Enter new entry
-          temp[nrow(temp)+1, ] = list(head, temp_formula, temp_steps, temp_parent, temp_score)
+          temp[nrow(temp)+1, ] = list(head, temp_formula, temp_steps, temp_parent, temp_is_metabolite, temp_score)
           temp = temp[with(temp, order(-score)),]
           sf[[head]]=temp
         }
@@ -882,7 +896,7 @@ Network_prediction = function(Mset, edge_list_sub,
     pred_formula_1["rdbe"] = NA
     pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula)
     
-    merge_formula = pred_formula_1[,1:5]
+    merge_formula = pred_formula_1[,1:6]
     sf = list()
     for(n in 1: max(merge_formula$id)){
       sf[[n]]=merge_formula[merge_formula$id==n,]
@@ -1477,7 +1491,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Network ####
 {
-  read_from_csv = T
+  read_from_csv = F
   EdgeSet = list()
   
   Mset[["NodeSet"]]=Form_node_list(Mset)
@@ -1493,7 +1507,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
                                                       mass_cutoff = 2e4,
-                                                      correlation_cutoff = 0.5)
+                                                      correlation_cutoff = 0.2)
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
@@ -1585,7 +1599,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Helper function
 {
-  id = 130
+  id = 14
+
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1597,8 +1612,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #   df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==id,]
   #   temp_parent = unknown_node_CPLEX$parent[unknown_node_CPLEX$ID==id]
   #   id = temp_parent
-    
-  }
+  # }
 }
 
 {
