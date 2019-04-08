@@ -18,6 +18,8 @@
   
   #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
+  
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
 # Fucntions ####
@@ -989,8 +991,9 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     timer=Sys.time()
     n=1
     for(n in 1:nrow(edge_list)){
+      
       #for(n in 1:10000){
-      if(n%%1000==0){
+      if(n%%10000==0){
         print(paste("n=",n,"elapsed="))
         print(Sys.time()-timer)
       }
@@ -1003,9 +1006,9 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       temp_fg = temp_edge$linktype
       
 
-      temp_formula = formula_1$formula[1]
+      temp_formula = formula_1$formula[2]
       for(temp_formula in unique(formula_1$formula)){
-        temp_score = temp_edge$edge_massdif_score
+        temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
 
         #drop off edge where an isotopic peak reaches out to other
         #if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
@@ -1014,14 +1017,17 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
           calc_abun = isotopic_abundance(temp_formula, temp_fg)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
           score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
-          temp_score = temp_score * score_modifier + temp_score * score_modifier * (1-temp_score * score_modifier)
+          #log score
+          temp_score = temp_score + log10(score_modifier+1e-10)+1
+          
+          #linear score
+          #temp_score = temp_score * score_modifier + temp_score * score_modifier * (1-temp_score * score_modifier)
         }
         
         #Assuming formula in node_1 is always smaller than node_2
         if(temp_fg==""){
           temp_formula_2=temp_formula
-        }
-        else{
+        }else{
           temp_formula_2 = my_calculate_formula(temp_formula, temp_fg)
         }
         #Write triplet for edge and corresponding 2 nodes
@@ -1205,12 +1211,12 @@ Score_formula = function(CPLEXset)
   
   #when step is large, the likelihood of the formula is true decrease from its network score
   #Penalty happens when step > 5 on the existing score
-  unknown_formula["step_score"] = unknown_formula["score"] + sapply(-0.1*(unknown_formula$steps-5), min, 0) 
+  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
   
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
   #Each node should be non-positive, to avoid node formula without edge connection
-  unknown_formula["cplex_score"] = (unknown_formula["Mass_score"]+unknown_formula["step_score"]+unknown_formula["rdbe_score"])/2 -1
+  unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"])+log10(unknown_formula["score"])+unknown_formula["step_score"]+unknown_formula["rdbe_score"]
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
@@ -1507,7 +1513,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
                                                       mass_cutoff = 2e4,
-                                                      correlation_cutoff = 0.2)
+                                                      correlation_cutoff = 0)
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
@@ -1520,7 +1526,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
-                                                 top_formula_n = 2,
+                                                 top_formula_n = 3,
                                                  read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
@@ -1530,8 +1536,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -.85)
+  edge_info_sum = CPLEXset$data$edge_info_sum
+  
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(0.5)-1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1564,7 +1571,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # output assigned formula
   Mdata = Mset$Data[,c(3:7,ncol(Mset$Data))] 
-  formula = unknown_node_CPLEX[,c("ID","formula")]
+  formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata = merge(formula, Mdata, all = T)
   write.csv(Mdata, "Mdata2.csv",row.names = F)
   
@@ -1573,7 +1580,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 {
   wl_result = read_csv("WL_data_190405.csv")
-  merge_result = merge(unknown_node_CPLEX[,c("ID","formula")],wl_result, by.x="ID", by.y = "id", all =T)
+  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
 }  
 
@@ -1594,13 +1601,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
   merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
                                                                   (!is.na(merge_result_with_formula$formula.x)),]
+  merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
+                                                                  (is.na(merge_result_with_formula$formula.x)),]
   nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
 }
 
 # Helper function
 {
-  id = 14
-
+  id = 233
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
