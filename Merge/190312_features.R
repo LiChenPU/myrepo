@@ -283,7 +283,7 @@ Metaboanalyst_Statistic = function(Mset)
   write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
   
   mSet <- InitDataObjects("pktable", "stat", FALSE)
-  mSet<-Read.TextData(mSet, "MetaboAnalyst_file.csv", "colu", "disc");
+  mSet<-Read.TextData(mSet, "MetaboAnalyst_file.csv", "colu", "disc")
   mSet<-SanityCheckData(mSet)
   mSet<-ReplaceMin(mSet);
   mSet<-PreparePrenormData(mSet)
@@ -292,8 +292,8 @@ Metaboanalyst_Statistic = function(Mset)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
   
-  # mSet<-PlotHeatMap(mSet, "heatmap_0_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-  # mSet<-PlotSubHeatMap(mSet, "heatmap_1_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 250, "overview", T, T, T, F)
+  mSet<-PlotHeatMap(mSet, "heatmap_0_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  mSet<-my_PlotSubHeatMap(mSet, "heatmap_1_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
@@ -302,10 +302,72 @@ Metaboanalyst_Statistic = function(Mset)
   ANOVA_FDR$FDR=-log10(ANOVA_FDR$FDR)
   colnames(ANOVA_FDR)=c("ID","_log10_FDR")
   
-  
+  fn <-ANOVA_file
+  if (file.exists(fn)) file.remove(fn)
+  fn <-"MetaboAnalyst_file.csv"
+  if (file.exists(fn)) file.remove(fn)
   return(ANOVA_FDR)
   
 }
+### get PlotSubHeatMap function work ####
+my_PlotSubHeatMap = function (mSetObj = NA, imgName, format = "png", dpi = 72, width = NA, 
+                              dataOpt, scaleOpt, smplDist, clstDist, palette, method.nm, 
+                              top.num, viewOpt, rowV = T, colV = T, border = T, grp.ave = F) 
+{
+  var.nms = colnames(mSetObj$dataSet$norm)
+  if (top.num < length(var.nms)) {
+    if (method.nm == "tanova") {
+      if (mSetObj$dataSet$cls.num == 2) {
+        if (is.null(mSetObj$analSet$tt)) {
+          Ttests.Anal(mSetObj)
+          #mSetObj <- .get.mSet(mSetObj)
+        }
+        #var.nms <- names(sort(mSetObj$analSet$tt$p.value))[1:top.num]
+        var.nms <- names(sort(mSetObj$analSet$aov$p.value))[1:top.num]
+      }
+      else {
+        if (is.null(mSetObj$analSet$aov)) {
+          ANOVA.Anal(mSetObj)
+          #mSetObj <- .get.mSet(mSetObj)
+        }
+        var.nms <- names(sort(mSetObj$analSet$aov$p.value))[1:top.num]
+      }
+    }
+    else if (method.nm == "cor") {
+      if (is.null(mSetObj$analSet$cor.res)) {
+        Match.Pattern(mSetObj)
+        #mSetObj <- .get.mSet(mSetObj)
+      }
+      cor.res <- mSetObj$analSet$cor.res
+      ord.inx <- order(cor.res[, 3])
+      cor.res <- cor.res[ord.inx, ]
+      ord.inx <- order(cor.res[, 1])
+      cor.res <- cor.res[ord.inx, ]
+      var.nms <- rownames(cor.res)[1:top.num]
+    }
+    else if (method.nm == "vip") {
+      if (is.null(mSetObj$analSet$plsda)) {
+        PLSR.Anal(mSetObj)
+        PLSDA.CV(mSetObj)
+        #mSetObj <- .get.mSet(mSetObj)
+      }
+      vip.vars <- mSetObj$analSet$plsda$vip.mat[, 1]
+      var.nms <- names(rev(sort(vip.vars)))[1:top.num]
+    }
+    else if (method.nm == "rf") {
+      if (is.null(analSet$rf)) {
+        RF.Anal(mSetObj)
+        #mSetObj <- .get.mSet(mSetObj)
+      }
+      var.nms <- GetRFSigRowNames()[1:top.num]
+    }
+  }
+  var.inx <- match(var.nms, colnames(mSetObj$dataSet$norm))
+  PlotHeatMap(mSetObj, imgName, format, dpi, width, dataOpt, 
+              scaleOpt, smplDist, clstDist, palette, viewOpt, rowV, 
+              colV, var.inx, border, grp.ave)
+}
+
 
 
 
@@ -1393,7 +1455,7 @@ Subnetwork_analysis = function(g_sub, member_lb = 1, member_ub = 10)
 ## Analysis of Specific node ####
 subgraph_specific_node = function(interested_node, g, step = 2)
 {
-  # interested_node = "7506"
+  # interested_node = "2115"
   # g=g_sub
   interested_node = interested_node
   g.degree <- degree(g, mode = c("all"))
@@ -1401,26 +1463,26 @@ subgraph_specific_node = function(interested_node, g, step = 2)
                               step, 
                               #1,
                               nodes = interested_node, 
-                              mode = c("out"))[[1]]
+                              mode = c("all"))[[1]]
   dists = distances(g_intrest, interested_node)
   colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
-  #V(g_intrest)$color <- colors[dists+1]
+  # V(g_intrest)$color <- colors[dists+1]
   # png(filename=paste("Subnetwork of node ", interested_node,".png",sep=""),
   #     width = 2400, height=2400,
   #     res=300)
-  # 
+
   plot(g_intrest,
        #vertex.color = 'white',
-       vertex.label = vertex.attributes(g_intrest)$mz,
+       vertex.label = vertex.attributes(g_intrest)$formula,
        #vertex.label = vertex.attributes(g_intrest)$medRt,
        vertex.label.color = "blue",
        vertex.label.cex = 1,
        #vertex.label.dist = 2,
-       #vertex.size = log(vertex.attributes(g_intrest)$mean_inten)*2-12,
+       #vertex.size = vertex.attributes(g_intrest)$log10_inten,
        #edge.width = edge.attributes(g_intrest)$Confidence*2-2,
-       #edge.color = color_palette[edge.attributes(g_intrest)$color],
+       # edge.color = color_palette[edge.attributes(g_intrest)$color],
        #edge.label = edge.attributes(g_intrest)$mz_dif,
-       edge.label = edge.attributes(g_intrest)$type,
+       edge.label = edge.attributes(g_intrest)$linktype,
        edge.label.color = "red",
        edge.label.cex = 1,
        edge.arrow.size = 0.5,
@@ -1450,7 +1512,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("Xi_new_neg.csv")
+  filename = c("BAT_y_vs_o.csv")
   Mset = list()
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
@@ -1461,7 +1523,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = -1,
+  Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
 
@@ -1536,9 +1598,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  edge_info_sum = CPLEXset$data$edge_info_sum
-  
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(0.5)-1)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(0.8)-1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1570,41 +1630,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 
   # output assigned formula
-  Mdata = Mset$Data[,c(3:7,ncol(Mset$Data))] 
+  Mdata = Mset$Summary
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
-  Mdata = merge(formula, Mdata, all = T)
-  write.csv(Mdata, "Mdata2.csv",row.names = F)
+  Mdata2 = merge(formula, Mdata, all = T)
+  write.csv(Mdata2, "Mdata2.csv",row.names = F)
   
  
 }
 
-{
-  wl_result = read_csv("WL_data_190405.csv")
-  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
-  merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
-}  
-
-# signal > e5
-{
-  Mdata = Mset$Data
-  e5_id = Mdata$ID[Mdata$log10_inten>=5]
-  merge_result_e5 = merge_result[merge_result$ID %in% e5_id, ]
-  e6_id = Mdata$ID[Mdata$log10_inten>=6]
-  merge_result_e6 = merge_result[merge_result$ID %in% e6_id, ]
-  e7_id = Mdata$ID[Mdata$log10_inten>=7]
-  merge_result_e7 = merge_result[merge_result$ID %in% e7_id, ]
-}
-
-# Compare formula #
-{
-  
-  merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
-  merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
-                                                                  (!is.na(merge_result_with_formula$formula.x)),]
-  merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
-                                                                  (is.na(merge_result_with_formula$formula.x)),]
-  nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
-}
 
 # Helper function
 {
@@ -1614,19 +1647,19 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
   
   Mset$NodeSet_network[[id]]
-  #Mset$NodeSet_network[[5453]]
-  # df = unknown_node_CPLEX[0,]
-  # while(id <= max(unknown_node_CPLEX$ID)){
-  #   df[nrow(df)+1,] = unknown_node_CPLEX[unknown_node_CPLEX$ID==id,]
-  #   temp_parent = unknown_node_CPLEX$parent[unknown_node_CPLEX$ID==id]
-  #   id = temp_parent
-  # }
+
 }
 
+# Graphic analysis ####
 {
   Graphset = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
   merge_node_list = merge(Mset$NodeSet,unknown_node_CPLEX,all=T)
+  for(i in 1:nrow(merge_node_list)){
+    if(is.na(merge_node_list$formula[i]) & !is.na(merge_node_list$MF[i])){
+      merge_node_list$formula[i] = merge_node_list$MF[i]
+    }
+  }
   
   merge_node_list["log10_inten"] = NA
   merge_node_list$log10_inten[Mset$Data$ID] = Mset$Data$log10_inten
@@ -1662,14 +1695,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     clu=components(g_sub)
     clu_member = table(clu$membership)
     #subnetwork criteria 
-    mainnetwork = igraph::groups(clu)[table(clu$membership)>5000]
+    mainnetwork = igraph::groups(clu)[table(clu$membership)>3000]
     
     g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
     g_sub_main_node_list = g_sub_node_list[g_sub_node_list$ID %in% mainnetwork[[1]], ]
     
     nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
     
-    a = Mset$Data
+    
     # plot(g_sub,
     #      vertex.label = NA,
     #      #edge.color = 'black',
@@ -1678,26 +1711,26 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     #      layout = layout_nicely(g_sub))
   }
 }
+# 
+# png(filename=paste("full dataset plot",".png",sep=""),
+#     width = 2400, height=2400,
+#     res=600)
+# plot(g_sub,
+#      vertex.label = NA,
+#      edge.color = 'red',
+#      vertex.color = 'white',
+#      vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+#      edge.arrow.size = 0.01,
+#      
+#      layout = layout_nicely(g_sub))
+# dev.off()
 
 
-# Debug test ####
+
 {
-  CPLEX_x = bind_cols(lapply(solution_ls, `[`, "x"))
-  CPLEX_x[CPLEX_x<1e-5] =0
-  CPLEX_x["X_mean"]=rowMeans(CPLEX_x,na.rm=T)
-  
-  df = Trace_step(7506, unknown_node_CPLEX)
-  
-  unknown_node_CPLEX[unknown_node_CPLEX$ID==unknown_formula$id[16556],]
-}
-
-
-# Graphic analysis ####
-
-{
   
   
-  subgraph_specific_node("7506", g_sub,1)
+  subgraph_specific_node("7374", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
   
 }
@@ -1879,6 +1912,33 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
                                                                 unknown_node_CPLEX_Xi_met$formula.y,]
     
+  }
+  {
+    wl_result = read_csv("WL_data_190405.csv")
+    merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
+    merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
+  }  
+  
+  # signal > e5
+  {
+    Mdata = Mset$Data
+    e5_id = Mdata$ID[Mdata$log10_inten>=5]
+    merge_result_e5 = merge_result[merge_result$ID %in% e5_id, ]
+    e6_id = Mdata$ID[Mdata$log10_inten>=6]
+    merge_result_e6 = merge_result[merge_result$ID %in% e6_id, ]
+    e7_id = Mdata$ID[Mdata$log10_inten>=7]
+    merge_result_e7 = merge_result[merge_result$ID %in% e7_id, ]
+  }
+  
+  # Compare formula #
+  {
+    
+    merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
+    merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
+                                                                    (!is.na(merge_result_with_formula$formula.x)),]
+    merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
+                                                                (is.na(merge_result_with_formula$formula.x)),]
+    nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
   }
   
   
