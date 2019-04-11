@@ -729,7 +729,7 @@ Network_prediction = function(Mset, edge_list_sub,
 {
   if(!read_from_csv){
   mnl=Mset$NodeSet
-  # top_formula_n=2
+  # top_formula_n=3
   # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
   {
@@ -833,21 +833,23 @@ Network_prediction = function(Mset, edge_list_sub,
           
           temp_parent = head
           temp_steps = step+1
-          temp_is_metabolite = all(head_is_metabolite, temp_edge_list$category==1)
+          temp_is_metabolite = all(head_is_metabolite, temp_edge_list$category[i]==1)
           #Criteria to enter new entry into formula list
           #1. new formula
           temp = sf[[tail]]
           temp_subset=subset(temp, temp$formula==temp_formula)
           if(nrow(temp_subset)!=0){
-            #2. A metabolite?
-            if(temp_is_metabolite == any(temp_subset$is_metabolite)){
-              break
+            #2. If not a new metabolite status entry, then next
+            if(any(temp_is_metabolite == temp_subset$is_metabolite)){
+              next
             }
-            #3. much higher scores
+            #3. if not much higher scores, then next
             if(temp_score<=(1.2*max(temp_subset$score))){
               next
             }
           }
+          
+
           #Enter new entry
           temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent,temp_is_metabolite, temp_score)
           temp = temp[with(temp, order(-score)),]
@@ -856,6 +858,7 @@ Network_prediction = function(Mset, edge_list_sub,
       }
     }
     
+
     #Handling tail
     {
       edge_list_node2 = edge_list_sub[edge_list_sub$node2 %in% new_nodes_df$id,]
@@ -911,17 +914,17 @@ Network_prediction = function(Mset, edge_list_sub,
           
           temp_parent = tail
           temp_steps = step+1
-          temp_is_metabolite = all(tail_is_metabolite, temp_edge_list$category==1)
+          temp_is_metabolite = all(tail_is_metabolite, temp_edge_list$category[i]==1)
           #Criteria to enter new entry into formula list
           #1. new formula
           temp = sf[[head]]
           temp_subset=subset(temp, temp$formula==temp_formula)
           if(nrow(temp_subset)!=0){
-            #2. A metabolite?
-            if(temp_is_metabolite == any(temp_subset$is_metabolite)){
-              break
+            #2. If not a new metabolite status entry, then next
+            if(any(temp_is_metabolite == temp_subset$is_metabolite)){
+              next
             }
-            #3. much higher scores
+            #3. if not much higher scores, then next
             if(temp_score<=(1.2*max(temp_subset$score))){
               next
             }
@@ -1512,7 +1515,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("Kidney_y_vs_o.csv")
+  filename = c("BAT_y_vs_o.csv")
   Mset = list()
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
@@ -1598,7 +1601,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(0.8)-1)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(.8)-1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1639,7 +1642,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 
-# Helper function
+  # Helper function
 {
   id = 233
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
@@ -1730,7 +1733,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   
   
-  subgraph_specific_node("7374", g_sub,1)
+  subgraph_specific_node("2115", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
   
 }
