@@ -46,7 +46,7 @@ Cohort_Info = function(Mset)
     sample_names=all_names
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
-  sample_cohort=stri_replace_last_regex(sample_names,'_1|_2|_3|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
+  sample_cohort=stri_replace_last_regex(sample_names,'_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
   
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
@@ -1512,7 +1512,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("BAT_y_vs_o.csv")
+  filename = c("Kidney_y_vs_o.csv")
   Mset = list()
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
@@ -1633,7 +1633,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mdata = Mset$Summary
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata2 = merge(formula, Mdata, all = T)
-  write.csv(Mdata2, "Mdata2.csv",row.names = F)
+  write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
   
  
 }
