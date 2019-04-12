@@ -292,8 +292,8 @@ Metaboanalyst_Statistic = function(Mset)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
   
-  mSet<-PlotHeatMap(mSet, "heatmap_0_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-  mSet<-my_PlotSubHeatMap(mSet, "heatmap_1_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
+  mSet<-PlotHeatMap(mSet, paste("full_", , "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  mSet<-my_PlotSubHeatMap(mSet, "sub50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
