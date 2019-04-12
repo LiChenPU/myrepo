@@ -1601,10 +1601,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(.8)-1)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(.5)-1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
 
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
   #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.3)
@@ -1638,7 +1639,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mdata2 = merge(formula, Mdata, all = T)
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
   
- 
 }
 
 
@@ -1650,7 +1650,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
   
   Mset$NodeSet_network[[id]]
-
+  
+  sf = bind_rows(Mset$NodeSet_network)
+  test = sf[duplicated(sf[,c("id","formula")],]
 }
 
 # Graphic analysis ####
@@ -1826,122 +1828,122 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   
 ## legacy code ####
-# select first few formula in the NodeSet_network to simplify 
-  {
-    all_formula = bind_rows(Mset[["NodeSet_network"]])
-    sf = list()
-    for(n in 1: max(all_formula$id)){
-      sf[[n]]=head(all_formula[all_formula$id==n,],3)
-    }
-    
-    All_formula_predict = bind_rows(sf)
-    
-    edge_merge = EdgeSet$Merge
-    hist(edge_merge$edge_massdif_score)
-    Mset[["NodeSet_network"]] = sf
-    
-    write_csv(all_formula,"All_formula_predict.txt")
-  }
-
-  # HMDB #
-  {
-
-    
-    unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
-    unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
-                                                            unknown_node_CPLEX_HMDB$Library_match_formula &
-                                                            (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
-  }
-  #calculate natural abundance expectation
-  {
-    edge_info_isotope = EdgeSet$Merge
-    edge_info_isotope = edge_info_isotope[grepl("\\[",edge_info_isotope$linktype),]
-    edge_info_sum_isotope = edge_info_sum[grepl("\\[",edge_info_sum$formula2),]
-    
-    edge_info_sum_isotope["msr_iso_abun"] = NA
-    edge_info_sum_isotope["calc_iso_abun"] = NA
-    i=1
-    for(i in 1:nrow(edge_info_sum_isotope)){
-      edge_info_sum_isotope$msr_iso_abun[i] = 10^EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
-      edge_info_sum_isotope$calc_iso_abun[i] = (isotopic_abundance(edge_info_sum_isotope$formula1[i], 
-                                                                   EdgeSet$Merge$linktype[edge_info_sum_isotope$edge_id[i]]))
-    }
-    
-    edge_info_sum_isotope["iso_abun_ratio"] = edge_info_sum_isotope$msr_iso_abun / edge_info_sum_isotope$calc_iso_abun
-    edge_mzdif_FIT <- fitdist(edge_info_sum_isotope$iso_abun_ratio[edge_info_sum_isotope$iso_abun_ratio<1.5 &
-                                                                     edge_info_sum_isotope$iso_abun_ratio >0.5], "norm")    
-    plot(edge_mzdif_FIT)
-    
-    edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_ratio, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
-    edge_info_sum_isotope["iso_abun_score2"]=edge_info_sum_isotope["iso_abun_score2"]/max(edge_info_sum_isotope["iso_abun_score2"])
-    
-    
-  }
-  
-  
-  # Evaluate Xi's data from annotation
-  {
-    {
-      setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Merge/Xi_full_hmdb_all n=2")
-      
-      CPLEX_x2 = read_csv("CPLEX_x.txt")
-      raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
-      raw_node_list = Mset$NodeSet
-      pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
-      pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
-      lib_nodes = raw_node_list[raw_node_list$category==0,]
-      lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
-      unknown_nodes = raw_node_list[raw_node_list$category!=0,]
-      unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
-      num_unknown_nodes = nrow(unknown_nodes)
-      lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
-      lib_formula = lib_formula[lib_formula$steps==0,]
-      unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
-      unknown_formula["ILP_result"] = CPLEX_x2$x[1:nrow(unknown_formula)]
-      unknown_formula_CPLEX2 = unknown_formula[unknown_formula$ILP_result !=0,]
-      
-      unknown_node_CPLEX2 = merge(unknown_nodes,unknown_formula_CPLEX2,by.x = "ID", by.y = "id",all=T)
-    }
-    
-    unknown_node_CPLEX_merge = merge(unknown_node_CPLEX,unknown_node_CPLEX2, by="ID", all=T)
-    
-    unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
-                                                              unknown_node_CPLEX_merge$formula.y,]
-    
-    unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, Mset$Data, by.x = "ID", by.y = "ID", all=T)
-    unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
-    
-    unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
-    unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
-                                                                unknown_node_CPLEX_Xi_met$formula.y,]
-    
-  }
-  {
-    wl_result = read_csv("WL_data_190405.csv")
-    merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
-    merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
-  }  
-  
-  # signal > e5
-  {
-    Mdata = Mset$Data
-    e5_id = Mdata$ID[Mdata$log10_inten>=5]
-    merge_result_e5 = merge_result[merge_result$ID %in% e5_id, ]
-    e6_id = Mdata$ID[Mdata$log10_inten>=6]
-    merge_result_e6 = merge_result[merge_result$ID %in% e6_id, ]
-    e7_id = Mdata$ID[Mdata$log10_inten>=7]
-    merge_result_e7 = merge_result[merge_result$ID %in% e7_id, ]
-  }
-  
-  # Compare formula #
-  {
-    
-    merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
-    merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
-                                                                    (!is.na(merge_result_with_formula$formula.x)),]
-    merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
-                                                                (is.na(merge_result_with_formula$formula.x)),]
-    nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
-  }
-  
-  
+# # select first few formula in the NodeSet_network to simplify 
+#   {
+#     all_formula = bind_rows(Mset[["NodeSet_network"]])
+#     sf = list()
+#     for(n in 1: max(all_formula$id)){
+#       sf[[n]]=head(all_formula[all_formula$id==n,],3)
+#     }
+#     
+#     All_formula_predict = bind_rows(sf)
+#     
+#     edge_merge = EdgeSet$Merge
+#     hist(edge_merge$edge_massdif_score)
+#     Mset[["NodeSet_network"]] = sf
+#     
+#     write_csv(all_formula,"All_formula_predict.txt")
+#   }
+# 
+#   # HMDB #
+#   {
+# 
+#     
+#     unknown_node_CPLEX_HMDB = merge(unknown_node_CPLEX, df, all=T)
+#     unknown_node_CPLEX_HMDB_dif = unknown_node_CPLEX_HMDB[unknown_node_CPLEX_HMDB$formula!=
+#                                                             unknown_node_CPLEX_HMDB$Library_match_formula &
+#                                                             (!is.na(unknown_node_CPLEX_HMDB$Library_match_formula)),]
+#   }
+#   #calculate natural abundance expectation
+#   {
+#     edge_info_isotope = EdgeSet$Merge
+#     edge_info_isotope = edge_info_isotope[grepl("\\[",edge_info_isotope$linktype),]
+#     edge_info_sum_isotope = edge_info_sum[grepl("\\[",edge_info_sum$formula2),]
+#     
+#     edge_info_sum_isotope["msr_iso_abun"] = NA
+#     edge_info_sum_isotope["calc_iso_abun"] = NA
+#     i=1
+#     for(i in 1:nrow(edge_info_sum_isotope)){
+#       edge_info_sum_isotope$msr_iso_abun[i] = 10^EdgeSet$Merge$msr_inten_dif[edge_info_sum_isotope$edge_id[i]]
+#       edge_info_sum_isotope$calc_iso_abun[i] = (isotopic_abundance(edge_info_sum_isotope$formula1[i], 
+#                                                                    EdgeSet$Merge$linktype[edge_info_sum_isotope$edge_id[i]]))
+#     }
+#     
+#     edge_info_sum_isotope["iso_abun_ratio"] = edge_info_sum_isotope$msr_iso_abun / edge_info_sum_isotope$calc_iso_abun
+#     edge_mzdif_FIT <- fitdist(edge_info_sum_isotope$iso_abun_ratio[edge_info_sum_isotope$iso_abun_ratio<1.5 &
+#                                                                      edge_info_sum_isotope$iso_abun_ratio >0.5], "norm")    
+#     plot(edge_mzdif_FIT)
+#     
+#     edge_info_sum_isotope["iso_abun_score2"]=dnorm(edge_info_sum_isotope$iso_abun_ratio, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+#     edge_info_sum_isotope["iso_abun_score2"]=edge_info_sum_isotope["iso_abun_score2"]/max(edge_info_sum_isotope["iso_abun_score2"])
+#     
+#     
+#   }
+#   
+#   
+#   # Evaluate Xi's data from annotation
+#   {
+#     {
+#       setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/Merge/Xi_full_hmdb_all n=2")
+#       
+#       CPLEX_x2 = read_csv("CPLEX_x.txt")
+#       raw_pred_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
+#       raw_node_list = Mset$NodeSet
+#       pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
+#       pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+#       lib_nodes = raw_node_list[raw_node_list$category==0,]
+#       lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
+#       unknown_nodes = raw_node_list[raw_node_list$category!=0,]
+#       unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
+#       num_unknown_nodes = nrow(unknown_nodes)
+#       lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
+#       lib_formula = lib_formula[lib_formula$steps==0,]
+#       unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
+#       unknown_formula["ILP_result"] = CPLEX_x2$x[1:nrow(unknown_formula)]
+#       unknown_formula_CPLEX2 = unknown_formula[unknown_formula$ILP_result !=0,]
+#       
+#       unknown_node_CPLEX2 = merge(unknown_nodes,unknown_formula_CPLEX2,by.x = "ID", by.y = "id",all=T)
+#     }
+#     
+#     unknown_node_CPLEX_merge = merge(unknown_node_CPLEX,unknown_node_CPLEX2, by="ID", all=T)
+#     
+#     unknown_node_CPLEX_merge_dif = unknown_node_CPLEX_merge[unknown_node_CPLEX_merge$formula.x!=
+#                                                               unknown_node_CPLEX_merge$formula.y,]
+#     
+#     unknown_node_CPLEX_Xi = merge(unknown_node_CPLEX_merge, Mset$Data, by.x = "ID", by.y = "ID", all=T)
+#     unknown_node_CPLEX_Xi = unknown_node_CPLEX_Xi[,c(1:ncol(unknown_node_CPLEX_merge), 28,29)]
+#     
+#     unknown_node_CPLEX_Xi_met = unknown_node_CPLEX_Xi[unknown_node_CPLEX_Xi$isotopeLabel=="'Metabolite'",]
+#     unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
+#                                                                 unknown_node_CPLEX_Xi_met$formula.y,]
+#     
+#   }
+#   {
+#     wl_result = read_csv("WL_data_190405.csv")
+#     merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
+#     merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
+#   }  
+#   
+#   # signal > e5
+#   {
+#     Mdata = Mset$Data
+#     e5_id = Mdata$ID[Mdata$log10_inten>=5]
+#     merge_result_e5 = merge_result[merge_result$ID %in% e5_id, ]
+#     e6_id = Mdata$ID[Mdata$log10_inten>=6]
+#     merge_result_e6 = merge_result[merge_result$ID %in% e6_id, ]
+#     e7_id = Mdata$ID[Mdata$log10_inten>=7]
+#     merge_result_e7 = merge_result[merge_result$ID %in% e7_id, ]
+#   }
+#   
+#   # Compare formula #
+#   {
+#     
+#     merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
+#     merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
+#                                                                     (!is.na(merge_result_with_formula$formula.x)),]
+#     merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
+#                                                                 (is.na(merge_result_with_formula$formula.x)),]
+#     nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
+#   }
+#   
+#   
