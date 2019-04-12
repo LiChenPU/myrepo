@@ -218,7 +218,7 @@ library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   e_mass = 0.00054857990943
   mode = Mset$Global_parameter$mode
   
-  hmdb_df = read_csv(library_file)
+  hmdb_df = Mset$Library
   data(isotopes)
   hmdb_df$MF = check_chemform(isotopes, hmdb_df$MF)$new_formula
   hmdb_df=hmdb_df[with(hmdb_df, order(Exact_Mass)),]
@@ -273,8 +273,7 @@ library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
 }
 ## 
 ## Metaboanalyst_Statistic - Statistical analysis with MetaboAnalyst ####
-Metaboanalyst_Statistic = function(Mset)
-{
+Metaboanalyst_Statistic = function(Mset){
   library(MetaboAnalystR)
   
   MA_output = Mset$Data[,c("ID",  Mset$Cohort$sample_names)]
@@ -292,8 +291,8 @@ Metaboanalyst_Statistic = function(Mset)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
   
-  mSet<-PlotHeatMap(mSet, paste("full_", , "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-  mSet<-my_PlotSubHeatMap(mSet, "sub50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
+  mSet<-PlotHeatMap(mSet, "full_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  mSet<-my_PlotSubHeatMap(mSet, "top50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
@@ -302,13 +301,17 @@ Metaboanalyst_Statistic = function(Mset)
   ANOVA_FDR$FDR=-log10(ANOVA_FDR$FDR)
   colnames(ANOVA_FDR)=c("ID","_log10_FDR")
   
-  fn <-ANOVA_file
+  fn <- "t_test.csv"
   if (file.exists(fn)) file.remove(fn)
   fn <-"MetaboAnalyst_file.csv"
   if (file.exists(fn)) file.remove(fn)
-  return(ANOVA_FDR)
+  fn <-ANOVA_file
+  if (file.exists(fn)) file.remove(fn)
   
+  return(ANOVA_FDR)
 }
+
+
 ### get PlotSubHeatMap function work ####
 my_PlotSubHeatMap = function (mSetObj = NA, imgName, format = "png", dpi = 72, width = NA, 
                               dataOpt, scaleOpt, smplDist, clstDist, palette, method.nm, 
@@ -1515,12 +1518,20 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  filename = c("BAT_y_vs_o.csv")
   Mset = list()
+  Mset[["Library"]] = read_library("hmdb_unique.csv")
+  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
+  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  
+  datapath = ("C:/Users/Li Chen/Dropbox/temp/Melanie data/Brain")
+  setwd(datapath)
+  
+  filename = c("brain.csv")
+  
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
   
-  Mset[["Library"]] = read_library("HMDB_detected_nodes.csv")
+
   #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
 }
 
@@ -1548,7 +1559,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   #library_match
   
-  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
+  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
 
   #Metaboanalyst_Statistic
   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
@@ -1566,7 +1577,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet = list()
   
   Mset[["NodeSet"]]=Form_node_list(Mset)
-  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
+
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
                                                 mass_abs = 0.001, 
@@ -1574,7 +1585,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                 read_from_csv = read_from_csv)
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
-  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
                                                       mass_cutoff = 2e4,
