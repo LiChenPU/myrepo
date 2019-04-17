@@ -313,7 +313,7 @@ Metaboanalyst_Statistic = function(Mset){
   if (file.exists(fn)) file.remove(fn)
   fn <-ANOVA_file
   if (file.exists(fn)) file.remove(fn)
-  
+
   gc()
   return(ANOVA_FDR)
 }
@@ -412,7 +412,7 @@ Form_node_list = function(Mset)
 
   NodeSet$Library$category=0
   
-  merge_node_list = rbind(NodeSet$Expe,NodeSet$Library )
+  merge_node_list = rbind(NodeSet$Expe,NodeSet$Library)
 
   return(merge_node_list)
 }
@@ -1271,7 +1271,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
 
 ### Score_formula ####
 Score_formula = function(CPLEXset)
-{
+{`
+  `
   unknown_formula = CPLEXset$data$unknown_formula
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
@@ -1530,10 +1531,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("C:/Users/lc8/Dropbox/temp/Melanie data/Spleen")
+
+  datapath = ("./Xi_new_neg")
   setwd(datapath)
   
-  filename = c("Spleen.csv")
+  filename = c("Xi_new_neg.csv")
+
   
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
@@ -1544,7 +1547,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = 1,
+  Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   print(Mset$Cohort)
