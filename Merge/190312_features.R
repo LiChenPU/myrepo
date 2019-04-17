@@ -290,10 +290,16 @@ Metaboanalyst_Statistic = function(Mset){
   # mSet<-FilterVariable(mSet, "iqr", "F", 25)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
-  
-  mSet<-PlotHeatMap(mSet, "full_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  gc()
+  if(ncol(mSet$dataSet$norm) > 15000){
+    mSet<-my_PlotSubHeatMap(mSet, "top15000_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
+  } 
+  else{
+    mSet<-PlotHeatMap(mSet, "full_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  }
+  gc()
   mSet<-my_PlotSubHeatMap(mSet, "top50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
-  
+  gc()
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
   
@@ -308,6 +314,7 @@ Metaboanalyst_Statistic = function(Mset){
   fn <-ANOVA_file
   if (file.exists(fn)) file.remove(fn)
   
+  gc()
   return(ANOVA_FDR)
 }
 
@@ -1523,10 +1530,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("C:/Users/Li Chen/Dropbox/temp/Melanie data/Brain")
+  datapath = ("C:/Users/lc8/Dropbox/temp/Melanie data/Spleen")
   setwd(datapath)
   
-  filename = c("brain.csv")
+  filename = c("Spleen.csv")
   
   Mset[["Raw_data"]] <- read_csv(filename)
   #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
@@ -1540,7 +1547,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
-
+  print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
@@ -1549,6 +1556,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 detection_limit=500)
   #View(Mset$Data)
   Mset[["ID"]]=Mset$Data$ID
+  
 }
 
 ## Feature generation ####
@@ -1568,7 +1576,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
   write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
-
+  save.image()
 } 
 
 # Network ####
