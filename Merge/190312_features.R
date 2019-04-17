@@ -780,177 +780,121 @@ Network_prediction = function(Mset, edge_list_sub,
     
     if(nrow(new_nodes_df)==0){break}
     
-    
-    
-    #Handling head
+    #Core algorithm
     {
-      edge_list_node1 = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id,]
-      head_list = edge_list_node1$node1
-      n=3
+      edge_list_node = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id | 
+                                       edge_list_sub$node2 %in% new_nodes_df$id,]
+      
+      n=1
       for (n in 1: nrow(new_nodes_df)){
         #if(n%%1000==0){print(paste("Head_n =",n))}
         
-        head = new_nodes_df$id[n]
-        head_formula = new_nodes_df$formula[n]
-        head_is_metabolite = new_nodes_df$is_metabolite[n]
+        flag_id = new_nodes_df$id[n]
+        flag_formula = new_nodes_df$formula[n]
+        flag_is_metabolite = new_nodes_df$is_metabolite[n]
+        
+        temp_edge_list=subset(edge_list_node, edge_list_node$node1==flag_id |
+                                                  edge_list_node$node2==flag_id)
         
         
-        temp_edge_list=subset(edge_list_node1, edge_list_node1$node1==head)
-        
-        
+        #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(head <= nrow_experiment){
-          #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
           if(Mset$Data$mean_inten[head]< 2e4){next}
-          #If head is an isotopic peak, then only look for isotopic peaks
-          if(grepl("\\[",head_formula)){
-            temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
-          }
-          #If head is a metal or Boron or silicon adduct, then only look for adducts or skip
-          if(!head_is_metabolite){
-            #next
-            temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
-          }
+        }
+        
+        #If flag is not metabolite, then only look for artifacts
+        if(!flag_is_metabolite){
+          temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
+        }
+        
+        #If flag is an isotopic peak, then only look for isotopic peaks
+        if(grepl("\\[",flag_formula)){
+          temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
         }
         
         if(nrow(temp_edge_list)==0){next}
+
+        #Filter 
+        temp_edge_list = temp_edge_list[(temp_edge_list$node1 == flag_id & temp_edge_list$direction != -1) 
+                                  |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
+
+        if(nrow(temp_edge_list)==0){next}
         
-        head_score = sf[[head]]$score[match(head_formula,sf[[head]]$formula)]
-        if(head_score==0){next}
+        flag_score = new_nodes_df$score[n]
+        if(flag_score==0){next}
         
-        i=1
+        i=2
         for(i in 1:nrow(temp_edge_list)){
-          tail=temp_edge_list$node2[i]
-          if(tail>nrow_experiment){next}
-          
-          
-          temp_fg = temp_edge_list$linktype[i]
-          if(temp_fg==""){
-            temp_formula = head_formula
-          }else if (grepl("x",temp_fg)){
-            fold = as.numeric(gsub("x","",temp_fg))
-            temp_formula=my_calculate_formula(head_formula,head_formula,fold-1,Is_valid = T)
-          }else {
+          #If flag is head
+          if(temp_edge_list$node1[i] == flag_id){
+            partner_id = temp_edge_list$node2[i]
+            if(partner_id>nrow_experiment){next}
             
-            temp_formula=my_calculate_formula(head_formula,temp_fg,1,Is_valid = T)
+            temp_fg = temp_edge_list$linktype[i]
+            if(temp_fg==""){
+              partner_formula = flag_formula
+            }else if (grepl("x",temp_fg)){
+              fold = as.numeric(gsub("x","",temp_fg))
+              partner_formula=my_calculate_formula(flag_formula,flag_formula,fold-1,Is_valid = T)
+            }else {
+              partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
+            }
           }
+          
+          #If flag is tail
+          if(temp_edge_list$node2[i] == flag_id){
+            partner_id = temp_edge_list$node1[i]
+            if(partner_id>nrow_experiment){next}
+            
+            temp_fg = temp_edge_list$linktype[i]
+            if(temp_fg==""){
+              partner_formula = flag_formula
+            }else if (grepl("x",temp_fg)){
+              fold = as.numeric(gsub("x","",temp_fg))
+              partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = T)
+              if(grepl(".", temp_formula)){temp_formula=F}
+            }else {
+              partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
+            }
+          }
+          
+          tictoc::tic()
+          for(i in 1:100000){
+            grepl("x",temp_fg)
+          }
+          tictoc::toc()
           
           #function return false if not valid formula
-          if(is.logical(temp_formula))
-          { temp_score=0
-          temp_formula=paste(head_formula,temp_fg,sep="+")
-          }else{
-            temp_score = head_score*temp_edge_list$edge_massdif_score[i]
-          }
+          if(is.logical(partner_formula)){next}
           
-          temp_parent = head
-          temp_steps = step+1
-          temp_is_metabolite = all(head_is_metabolite, temp_edge_list$category[i]==1)
+          partner_score = flag_score*temp_edge_list$edge_massdif_score[i]
+          partner_parent = flag_id
+          partner_steps = step+1
+          partner_is_metabolite = all(flag_is_metabolite, temp_edge_list$category[i]==1)
+          
           #Criteria to enter new entry into formula list
           #1. new formula
-          temp = sf[[tail]]
-          temp_subset=subset(temp, temp$formula==temp_formula)
+          temp = sf[[partner_id]]
+          temp_subset=subset(temp, temp$formula==partner_formula)
           if(nrow(temp_subset)!=0){
             #2. If not a new metabolite status entry, then next
-            if(any(temp_is_metabolite == temp_subset$is_metabolite)){
+            if(any(partner_is_metabolite == temp_subset$is_metabolite)){
               next
             }
             #3. if not much higher scores, then next
-            if(temp_score<=(1.2*max(temp_subset$score))){
+            if(partner_score<=(1.2*max(temp_subset$score))){
               next
             }
           }
           
-
           #Enter new entry
-          temp[nrow(temp)+1, ] = list(tail, temp_formula, temp_steps, temp_parent,temp_is_metabolite, temp_score)
+          temp[nrow(temp)+1, ] = list(partner_id, partner_formula, partner_steps, partner_parent,partner_is_metabolite, partner_score)
           temp = temp[with(temp, order(-score)),]
-          sf[[tail]]=temp
+          sf[[partner_id]]=temp
         }
       }
     }
-    
-
-    #Handling tail
-    {
-      edge_list_node2 = edge_list_sub[edge_list_sub$node2 %in% new_nodes_df$id,]
-      tail_list = edge_list_node2$node2
-      
-      for (n in 1: nrow(new_nodes_df)){
-        #if(n%%1000==0){print(paste("Tail_n =",n))}
-        tail = new_nodes_df$id[n]
-        tail_formula = new_nodes_df$formula[n]
-        tail_is_metabolite = new_nodes_df$is_metabolite[n]
-        
-        if(tail <= nrow_experiment){
-          #If tail signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
-          if(Mset$Data$mean_inten[tail]<2e4){next}
-          #If tail is an isotopic peak, then do not propagate
-          if(grepl("\\[",tail_formula)){next}
-          if(!tail_is_metabolite){
-            next
-            #temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
-          }
-        }
-        
-        
-        temp_edge_list=subset(edge_list_node2, edge_list_node2$node2==tail)
-        
-        if(nrow(temp_edge_list)==0){next}
-        
-        tail_score = sf[[tail]]$score[match(tail_formula,sf[[tail]]$formula)]
-        
-        if(tail_score==0){next}
-        i=1
-        for(i in 1:nrow(temp_edge_list)){
-          head=temp_edge_list$node1[i]
-          if(head>nrow_experiment){next}
-          
-          temp_fg = temp_edge_list$linktype[i]
-          if(temp_fg==""){
-            temp_formula = tail_formula
-          }else if (grepl("x",temp_fg)){
-            fold = as.numeric(gsub("x","",temp_fg))
-            temp_formula=my_calculate_formula(head_formula,head_formula,-(fold-1)/fold,Is_valid = T)
-            if(grepl(".", temp_formula)){temp_formula=F}
-          }else {
-            temp_formula=my_calculate_formula(tail_formula,temp_fg,-1,Is_valid = T)
-          }
-          
-          if(is.logical(temp_formula))#function return false if not valid formula
-          { temp_score=0
-          temp_formula=paste(tail_formula,temp_fg,sep="-")
-          }else{
-            temp_score = tail_score*temp_edge_list$edge_massdif_score[i]
-          }
-          
-          temp_parent = tail
-          temp_steps = step+1
-          temp_is_metabolite = all(tail_is_metabolite, temp_edge_list$category[i]==1)
-          #Criteria to enter new entry into formula list
-          #1. new formula
-          temp = sf[[head]]
-          temp_subset=subset(temp, temp$formula==temp_formula)
-          if(nrow(temp_subset)!=0){
-            #2. If not a new metabolite status entry, then next
-            if(any(temp_is_metabolite == temp_subset$is_metabolite)){
-              next
-            }
-            #3. if not much higher scores, then next
-            if(temp_score<=(1.2*max(temp_subset$score))){
-              next
-            }
-          }
-          #Enter new entry
-          temp[nrow(temp)+1, ] = list(head, temp_formula, temp_steps, temp_parent, temp_is_metabolite, temp_score)
-          temp = temp[with(temp, order(-score)),]
-          sf[[head]]=temp
-        }
-      }
-    }
-    
-    step=step+1
-    
-    
+    step = step+1
   }
   
   # Pruning formula  #
