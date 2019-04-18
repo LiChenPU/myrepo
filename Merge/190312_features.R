@@ -514,7 +514,7 @@ Edge_score = function(Biotransform){
 ## Variance between peaks ####
 Peak_variance = function(Mset, 
                          time_cutoff=0.1,
-                         mass_cutoff=0,
+                         TIC_cutoff=0,
                          correlation_cutoff = 0.2)
 {
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
@@ -533,14 +533,11 @@ Peak_variance = function(Mset,
         print((Sys.time()-timer))
       }
       
-      if(df_raw$mean_inten[i_min]<mass_cutoff){
+      if(df_raw$mean_inten[i_min]<TIC_cutoff){
         i_min = i_min+1
         next
       }
-      
-      
-      
-      
+    
       temp_t = df_raw$medRt[i_min]
       temp_t_end = temp_t+time_cutoff
       
@@ -551,6 +548,8 @@ Peak_variance = function(Mset,
       i_max = i_max-1
       
       temp_df_raw = df_raw[i_min:i_max,]
+      
+      
       
       temp_df_raw$time_dif=temp_df_raw$medRt-temp_df_raw$medRt[1]
       temp_df_raw$mz_dif = round(temp_df_raw$medMz-temp_df_raw$medMz[1], digits=5)
@@ -574,8 +573,10 @@ Peak_variance = function(Mset,
       # cor(temp_x, temp_y, method = "kendall")
       # cor(temp_x, temp_y, method = "spearman")
       # cosine(tem#p_x, temp_y)
+      
       temp_edge_ls=temp_edge_ls[temp_edge_ls$correlation>correlation_cutoff,]
       edge_list[[i_min]]=temp_edge_ls
+      
       i_min = i_min+1
     }
   }
@@ -623,7 +624,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     temp_df["category"]=NA
     temp_df["linktype"]=NA
     temp_df["direction"]=NA
-    temp_df["mass_dif"]=NA
+    temp_df["mass_dif"]=double()
     
     temp_df = temp_df[0,]
     
@@ -678,13 +679,13 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
           #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
           #if neutral data
           if(abs(temp_mz1*j-temp_mz2)<search_ms_cutoff){
-            temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), (temp_mz1*j-temp_mz2)/temp_mz1*10^6)
+            temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), 0,(temp_mz1*j-temp_mz2)/temp_mz2*10^6)
           }
         }
       }
     }
     rm(temp_edge_ls)
-    temp_df_oligo["direction"]=0
+    
     nrow(temp_df_oligo)
     
     oligo_summary=table(temp_df_oligo$linktype)
@@ -798,8 +799,8 @@ Network_prediction = function(Mset, edge_list_sub,
         
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
-        if(head <= nrow_experiment){
-          if(Mset$Data$mean_inten[head]< 2e4){next}
+        if(flag_id <= nrow_experiment){
+          if(Mset$Data$mean_inten[flag_id]< 2e4){next}
         }
         
         #If flag is not metabolite, then only look for artifacts
@@ -852,18 +853,12 @@ Network_prediction = function(Mset, edge_list_sub,
             }else if (grepl("x",temp_fg)){
               fold = as.numeric(gsub("x","",temp_fg))
               partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = T)
-              if(grepl(".", temp_formula)){temp_formula=F}
+              if(grepl(".", partner_formula)){partner_formula=F}
             }else {
               partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
             }
           }
-          
-          tictoc::tic()
-          for(i in 1:100000){
-            grepl("x",temp_fg)
-          }
-          tictoc::toc()
-          
+ 
           #function return false if not valid formula
           if(is.logical(partner_formula)){next}
           
@@ -1248,6 +1243,7 @@ Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
 {
   edge_info_sum = CPLEXset$data$edge_info_sum
   edge_info_sum$edge_score = edge_info_sum$edge_score + edge_penalty
+  
   unknown_formula = CPLEXset$data$unknown_formula
   
   test3 = edge_info_sum[edge_info_sum$ilp_index2<=nrow(unknown_formula)&
@@ -1543,8 +1539,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
-                                                      mass_cutoff = 2e4,
-                                                      correlation_cutoff = 0)
+                                                      TIC_cutoff = 2e4,
+                                                      correlation_cutoff = -1)
+  
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.001,
@@ -1553,11 +1550,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
-  e = EdgeSet[["Merge"]]
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
-                                                 top_formula_n = 1,
+                                                 top_formula_n = 3,
                                                  read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
@@ -1611,12 +1607,29 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 474
+  id = 327
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
   
   Mset$NodeSet_network[[id]]
+}
+
+{
+  edge_id=2450
+  edge_ilp_id = 8045
+  temp_formula = CPLEXset$data$edge_info_sum$formula1[8045]
+  temp_edge = EdgeSet$Merge[edge_id,]
+  temp_fg = temp_edge$linktype
+  temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
+  if(grepl("\\[",temp_fg )){
+    calc_abun = isotopic_abundance(temp_formula, temp_fg)
+    abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+    score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
+    #log score
+    temp_score = temp_score + log10(score_modifier+1e-10)+1
+  }
+  temp_score-log10(0.8)-1
 }
 {
   sf = bind_rows(Mset$NodeSet_network)
