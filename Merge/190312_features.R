@@ -524,7 +524,7 @@ Edge_score = function(Biotransform){
 Peak_variance = function(Mset, 
                          time_cutoff=0.1,
                          TIC_cutoff=0,
-                         correlation_cutoff = 0.2)
+                         correlation_cutoff = -1)
 {
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
   df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names])
@@ -532,88 +532,96 @@ Peak_variance = function(Mset,
   
   {
     df_raw = df_raw[with(df_raw, order(medRt)),]
-    i_min = i_max =1
+    i = 1
     
     edge_list = list()
     timer = Sys.time()
-    while(i_min!= nrow(df_raw)){
-      if(i_min %% 1000 ==0 ){
-        print(paste("nrow",i_min,"elapsed="))
+    while(i!= nrow(df_raw)){
+      if(i %% 1000 ==0 ){
+        print(paste("nrow",i,"elapsed="))
         print((Sys.time()-timer))
       }
       
-      if(df_raw$mean_inten[i_min]<TIC_cutoff){
-        i_min = i_min+1
+      if(df_raw$mean_inten[i]<TIC_cutoff){
+        i = i+1
         next
       }
     
-      temp_t = df_raw$medRt[i_min]
-      temp_t_end = temp_t+time_cutoff
+      temp_t = df_raw$medRt[i]
       
-      while(df_raw$medRt[i_max]<temp_t_end){
-        if(i_max == nrow(df_raw)){break}
-        i_max = i_max+1
+      temp_t_start = max(temp_t-time_cutoff, df_raw$medRt[1])
+      temp_t_end = min(temp_t+time_cutoff, df_raw$medRt[nrow(df_raw)])
+      
+      i_start = i_end = i
+      
+      
+      while(i_start >= 1 & df_raw$medRt[i_start] > temp_t_start){
+        i_start = i_start-1
       }
-      i_max = i_max-1
+      i_start = i_start+1
       
-      temp_df_raw = df_raw[i_min:i_max,]
+      while(i_start <= nrow(df_raw) & df_raw$medRt[i_end] < temp_t_end){
+        i_end = i_end + 1
+      }
+      i_end = i_end - 1
       
+      temp_df_raw = df_raw[i_start:i_end,]
       
+      temp_df_raw$time_dif=temp_df_raw$medRt-df_raw$medRt[i]
+      temp_df_raw$mz_dif = round(temp_df_raw$medMz-df_raw$medMz[i], digits=5)
       
-      temp_df_raw$time_dif=temp_df_raw$medRt-temp_df_raw$medRt[1]
-      temp_df_raw$mz_dif = round(temp_df_raw$medMz-temp_df_raw$medMz[1], digits=5)
-      
-      temp_x = t(temp_df_raw[1,Mset$Cohort$sample_names])
+      temp_x = t(df_raw[i,Mset$Cohort$sample_names])
       temp_y = t(temp_df_raw[,Mset$Cohort$sample_names])
       temp_df_raw$correlation = as.numeric(t(cor((temp_x), (temp_y))))
       
-      temp_df_raw["node1"]=temp_df_raw$ID[1]
+      temp_df_raw["node1"]=df_raw$ID[i]
       temp_df_raw["node2"]=temp_df_raw$ID
-      temp_df_raw["mz_node1"] = temp_df_raw$medMz[1]
-      temp_df_raw["mz_node2"] = temp_df_raw$medMz
-      temp_df_raw["log10_inten_node1"] = temp_df_raw$log10_inten[1]
-      temp_df_raw["log10_inten_node2"] = temp_df_raw$log10_inten
-      temp_df_raw["log10_inten_ratio"] = temp_df_raw["log10_inten_node2"]-temp_df_raw["log10_inten_node1"]
-      
-      temp_edge_ls=temp_df_raw[,c("node1","node2","time_dif", "mz_dif", "correlation","mz_node1",
-                                  "mz_node2","log10_inten_node1","log10_inten_node2",
-                                  "log10_inten_ratio")]
+
+      temp_edge_ls=temp_df_raw[,c("node1","node2", "correlation")]
       
       # cor(temp_x, temp_y, method = "kendall")
       # cor(temp_x, temp_y, method = "spearman")
       # cosine(tem#p_x, temp_y)
       
       temp_edge_ls=temp_edge_ls[temp_edge_ls$correlation>correlation_cutoff,]
-      edge_list[[i_min]]=temp_edge_ls
+      edge_list[[i]]=temp_edge_ls
       
-      i_min = i_min+1
+      i = i+1
     }
   }
   
   edge_ls = bind_rows(edge_list)
   edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
-  rm(edge_list)
+  
+  edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
+  edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
+  edge_ls["mz_dif"] = edge_ls["mz_node2"]-edge_ls["mz_node1"]
+  
   
   #Switch directionality
   {
     edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
     temp_data = edge_ls[edge_ls$mz_dif<0,]
     
-    temp_data$mz_node2=temp_data$mz_node1
-    temp_data$mz_node1=temp_data$mz_node1+temp_data$mz_dif
-    
     temp_node=temp_data$node1
     temp_data$node1=temp_data$node2
     temp_data$node2=temp_node
-    temp_data$time_dif=-temp_data$time_dif
-    temp_data$mz_dif=-temp_data$mz_dif
-    temp_data$log10_inten_ratio=-temp_data$log10_inten_ratio
     
     edge_ls[edge_ls$mz_dif<0,] = temp_data 
     rm(temp_data)
   }
   
+  edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
+  edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
+  edge_ls["mz_dif"] = edge_ls["mz_node2"]-edge_ls["mz_node1"]
+  edge_ls["log10_inten_node1"] = Mset$Data$log10_inten[edge_ls$node1]
+  edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
+  edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
+  edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
+  
+  
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
+  edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")])，]
   print("High correlation peaks identified.")
   return(edge_ls)
 }
