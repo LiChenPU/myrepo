@@ -2,6 +2,8 @@
 # Sys.setlocale(category = "LC_ALL", locale = "Chinese")
 # !diagnostics off
 
+
+
 # Import library ####
 {
   library(readr)
@@ -1031,7 +1033,9 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
         if(grepl("\\[",temp_fg )){
           calc_abun = isotopic_abundance(temp_formula, temp_fg)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
-          score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
+          
+          #score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
+          score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
           #log score
           temp_score = temp_score + log10(score_modifier+1e-10)+1
           
@@ -1232,6 +1236,8 @@ Score_formula = function(CPLEXset)
   #the rdbe score penalizes unsaturation below -1
   #Each node should be non-positive, to avoid node formula without edge connection
   unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"])+log10(unknown_formula["score"])+unknown_formula["step_score"]+unknown_formula["rdbe_score"]
+  
+  
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
@@ -1625,7 +1631,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   if(grepl("\\[",temp_fg )){
     calc_abun = isotopic_abundance(temp_formula, temp_fg)
     abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
-    score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
+    score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
     #log score
     temp_score = temp_score + log10(score_modifier+1e-10)+1
   }
