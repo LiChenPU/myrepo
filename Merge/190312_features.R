@@ -2,8 +2,6 @@
 # Sys.setlocale(category = "LC_ALL", locale = "Chinese")
 # !diagnostics off
 
-
-
 # Import library ####
 {
   library(readr)
@@ -31,7 +29,7 @@ read_library = function(library_file = "hmdb_unique.csv"){
   data(isotopes)
   hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
-  hmdb_lib$Exact_mass = formula_mz(hmdb_lib$MF)
+  hmdb_lib$Exact_Mass = formula_mz(hmdb_lib$MF)
 
   return(hmdb_lib)
 }
@@ -445,8 +443,13 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
     
     for (k in 1:nrow(Mset$Biotransform)){
       temp_fg=Mset$Biotransform$mass[k]
+      temp_direction = Mset$Biotransform$direction[k]
       i=j=1
-      temp_edge_list = data.frame(node1=as.numeric(), node2=as.numeric(), linktype=as.numeric(), mass_dif=as.numeric())
+      temp_edge_list = data.frame(node1=as.numeric(), 
+                                  node2=as.numeric(), 
+                                  linktype=as.numeric(), 
+                                  mass_dif=as.numeric(), 
+                                  direction = as.numeric())
       while(i<=merge_nrow){
         temp_ms=0
         mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
@@ -456,7 +459,11 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
           temp_ms = temp_mz_list[j]-temp_mz_list[i]
           
           if(abs(temp_ms-temp_fg)<mass_tol){
-            temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], merge_node_list$ID[j], k, (temp_ms-temp_fg)/temp_mz_list[j]*1E6)
+            temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], 
+                                                         merge_node_list$ID[j], 
+                                                         k, 
+                                                         (temp_ms-temp_fg)/temp_mz_list[j]*1E6, 
+                                                         temp_direction)
           }
           if((temp_ms-temp_fg)>mass_tol){break}
         }
@@ -485,7 +492,7 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   )
   
   edge_list_sub["category"]=1
-  edge_list_sub["direction"] = 0
+  
   
   write_csv(edge_list_sub,"edge_list_sub.txt")
   
@@ -1232,6 +1239,19 @@ Score_formula = function(CPLEXset)
   #Penalty happens when step > 5 on the existing score
   unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
   
+  # temp = unknown_formula$id[1]
+  # isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
+  # temp_Cl = unknown_formula[grepl("Cl",unknown_formula$formula),]
+  # temp_Cl["Cl_expect"] = unlist(lapply (temp_Cl$formula, isotopic_abundance,"[37]Cl1Cl-1"))
+  #   
+  #   a= lapply (temp_Cl$formula, isotopic_abundance,"[37]Cl1Cl-1")
+  #   for(i in 1:length(a)){
+  #     if(length(a[[i]])==0){
+  #       print(temp_Cl$formula[i])
+  #       break
+  #     }
+  #   }
+  #   isotopic_abundance("[37]Cl1C11H13N2O2", "[37]Cl1Cl-1")
   #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
   #the rdbe score penalizes unsaturation below -1
   #Each node should be non-positive, to avoid node formula without edge connection
@@ -1613,7 +1633,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 327
+  id = 2117
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
