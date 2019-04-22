@@ -843,7 +843,7 @@ Network_prediction = function(Mset, edge_list_sub,
 
         if(nrow(temp_edge_list)==0){next}
         
-
+        flag_score = new_nodes_df$score[n]
         i=2
         for(i in 1:nrow(temp_edge_list)){
           #If flag is head
@@ -918,21 +918,22 @@ Network_prediction = function(Mset, edge_list_sub,
     pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
     pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
     
-    pred_formula["mz"] = formula_mz(pred_formula$formula)
-    pred_formula["measured_mz"]=NA
-    
-    
-    for(i in 1:nrow(pred_formula)){
-      pred_formula$measured_mz[i] = mnl$mz[mnl$ID==pred_formula$id[i]]
-    }
-    pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
-    pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
-    pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
-    
-    
-    pred_formula_1["rdbe"] = NA
-    pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula)
-    
+    # pred_formula["mz"] = formula_mz(pred_formula$formula)
+    # pred_formula["measured_mz"]=NA
+    # 
+    # 
+    # for(i in 1:nrow(pred_formula)){
+    #   pred_formula$measured_mz[i] = mnl$mz[mnl$ID==pred_formula$id[i]]
+    # }
+    # pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
+    # pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
+    # pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
+    # 
+    # 
+    # pred_formula_1["rdbe"] = NA
+    # pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula)
+    # 
+    pred_formula_1 = pred_formula
     merge_formula = pred_formula_1[,1:6]
     sf = list()
     for(n in 1: max(merge_formula$id)){
@@ -960,81 +961,20 @@ Network_prediction = function(Mset, edge_list_sub,
 
 
 # Function for CPLEX ####
-### Score_formula ####
-Score_formula = function(CPLEXset)
-{
-  unknown_formula = CPLEXset$data$unknown_formula
-  
-  #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
-  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
-  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
-  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
-  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
-  
-  #when rdbe < -1, penalty to each rdbe less
-  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
-  unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
-  
-  #when step is large, the likelihood of the formula is true decrease from its network score
-  #Penalty happens when step > 5 on the existing score
-  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-3), min, 0) 
-  
-  
-  unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
-  
-  
-  No_expect_isotope_penalty = function(unknown_formula, linktype){
-    isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
-    
-    unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node1[isotope_peaks$category==linktype]
-    if(linktype == "[10]B"){
-      unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node2[isotope_peaks$category==linktype]
-    }
-    unknown_formula["iso_expect_ratio"] = 0
-    unknown_formula$iso_expect_ratio[unknown_formula$No_isotope_peak] = unlist(lapply (unknown_formula$formula[unknown_formula$No_isotope_peak], isotopic_abundance,linktype))
-    unknown_formula["iso_intensity"] = unknown_formula["intensity"]*unknown_formula["iso_expect_ratio"]
-    unknown_formula["iso_penalty_score"] = log10(dnorm(0,unknown_formula$iso_intensity, 2e4) / 
-                                                   dnorm(unknown_formula$iso_intensity,unknown_formula$iso_intensity, 2e4)+1e-10)
-    return(unknown_formula["iso_penalty_score"])
-  }
-  unknown_formula["Cl_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[37]Cl")
-  unknown_formula["S_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[34]S")
-  unknown_formula["K_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[41]K")
-  unknown_formula["B_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[10]B")
-  
-  unknown_formula["sum_iso_penalty_score"] = 0
-  unknown_formula["sum_iso_penalty_score"] = base::rowSums(unknown_formula[,grepl("iso_penalty_score", colnames(unknown_formula))])
-  
-  # the mass score x step score evaluate from mass perspective how likely the formula fits the peak
-  # the rdbe score penalizes unsaturation below -1
-  #Each node should be non-positive, to avoid node formula without edge connection
-  unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"]) +
-    log10(unknown_formula["score"]) +
-    unknown_formula["step_score"] + 
-    unknown_formula["rdbe_score"]
-  unknown_formula["cplex_score2"] = unknown_formula["sum_iso_penalty_score"]+unknown_formula["cplex_score"]
-  
-  
-  # hist(unknown_formula$cplex_score)
-  # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
-  
-  return(unknown_formula)
-}
 ## Prepare_CPLEX parameter ####
 Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
-  All_formula_predict=bind_rows(Mset[["NodeSet_network"]])
-  raw_pred_formula = All_formula_predict
+  raw_pred_formula=bind_rows(Mset[["NodeSet_network"]])
   raw_node_list = Mset$NodeSet
   raw_edge_list = EdgeSet$Merge
   
   #Clean up
   {
-    pred_formula = raw_pred_formula[!grepl("-",raw_pred_formula$formula),]
-    pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+    
+    pred_formula = raw_pred_formula
     
     
     lib_nodes = raw_node_list[raw_node_list$category==0,]
-    lib_nodes_cutoff = nrow(raw_node_list)-nrow(lib_nodes)
+    lib_nodes_cutoff = nrow(Mset$Data)
     unknown_nodes = raw_node_list[raw_node_list$category!=0,]
     unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
     num_unknown_nodes = nrow(unknown_nodes)
@@ -1227,8 +1167,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
       #test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])
       edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=0
-      
-      
+
     }
     
     write_csv(triplet_df,"triplet_df.txt")
@@ -1293,6 +1232,77 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
 }
 
 
+### Score_formula ####
+Score_formula = function(CPLEXset, msr_cal_mass_dif = T, rdbe=T, step_score=T, iso_penalty_score=T)
+{
+  unknown_formula = CPLEXset$data$unknown_formula
+  
+  #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
+  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
+  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
+  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
+  
+  #when rdbe < -1, penalty to each rdbe less
+  if(rdbe==T){
+    unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
+    unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
+  }
+  
+  
+  #when step is large, the likelihood of the formula is true decrease from its network score
+  #Penalty happens when step > 5 on the existing score
+  if(step_score==T){
+    unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
+  }
+  else{
+    unknown_formula["step_score"]=0
+  }
+  
+  
+  unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
+  
+  if(iso_penalty_score==TRUE){
+    No_expect_isotope_penalty = function(unknown_formula, linktype){
+      isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
+      
+      unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node1[isotope_peaks$category==linktype]
+      if(linktype == "[10]B"){
+        unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node2[isotope_peaks$category==linktype]
+      }
+      unknown_formula["iso_expect_ratio"] = 0
+      unknown_formula$iso_expect_ratio[unknown_formula$No_isotope_peak] = unlist(lapply (unknown_formula$formula[unknown_formula$No_isotope_peak], isotopic_abundance,linktype))
+      unknown_formula["iso_intensity"] = unknown_formula["intensity"]*unknown_formula["iso_expect_ratio"]
+      unknown_formula["iso_penalty_score"] = log10(dnorm(0,unknown_formula$iso_intensity, 2e4) / 
+                                                     dnorm(unknown_formula$iso_intensity,unknown_formula$iso_intensity, 2e4)+1e-10)
+      return(unknown_formula["iso_penalty_score"])
+    }
+    unknown_formula["Cl_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[37]Cl")
+    unknown_formula["S_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[34]S")
+    unknown_formula["K_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[41]K")
+    unknown_formula["B_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[10]B")
+    
+    unknown_formula["sum_iso_penalty_score"] = base::rowSums(unknown_formula[,grepl("iso_penalty_score", colnames(unknown_formula))])
+  }
+  else{
+    unknown_formula["sum_iso_penalty_score"] = 0
+  }
+  
+  # the mass score x step score evaluate from mass perspective how likely the formula fits the peak
+  # the rdbe score penalizes unsaturation below -1
+  #Each node should be non-positive, to avoid node formula without edge connection
+  unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"]) +
+    log10(unknown_formula["score"]) +
+    unknown_formula["step_score"] + 
+    unknown_formula["rdbe_score"] +
+    unknown_formula["sum_iso_penalty_score"]
+  
+  
+  # hist(unknown_formula$cplex_score)
+  # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
+  
+  return(unknown_formula)
+}
 ### Score_edge_cplex ####
 Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
 {
