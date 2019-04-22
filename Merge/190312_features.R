@@ -627,7 +627,7 @@ Peak_variance = function(Mset,
 }
 
 ### Artifact_prediction - Edge_list for artifacts ####
-Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001,read_from_csv=F)
+Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001, search_ppm_cutoff = 5, read_from_csv=F)
 {
   if(read_from_csv == F){
     #edge_ls_highcor = EdgeSet$Peak_inten_correlation
@@ -647,16 +647,18 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     while (i <= nrow(edge_ls_highcor)){
       i=i+1
-      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_ms_cutoff)){
+      search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
+      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
         next
       }
-      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_ms_cutoff)){
+      
+      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_cutoff)){
         temp_ls[[j]]=temp_df
         temp_df = temp_df[0,]
         j=j+1
         if(j>nrow(junk_df)){break}
-        #search_ms_cutoff = 10 * initial_FIT$estimate[2]/1000 
-        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_ms_cutoff)){i=i-1}
+        #search_cutoff = 10 * initial_FIT$estimate[2]/1000 
+        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_cutoff)){i=i-1}
         next
       }
       temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
@@ -691,11 +693,12 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
         temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
         temp_mz1 = df_raw$medMz[which(df_raw$ID==temp_data$node1)]
         temp_mz2 = temp_mz1 + temp_data$mz_dif
+        search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*temp_mz2/10^6)
         for(j in 2:10){
           #if charge data
           #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
           #if neutral data
-          if(abs(temp_mz1*j-temp_mz2)<search_ms_cutoff){
+          if(abs(temp_mz1*j-temp_mz2)<search_cutoff){
             temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), 0,(temp_mz1*j-temp_mz2)/temp_mz2*10^6)
           }
         }
@@ -754,7 +757,7 @@ Merge_edgeset = function(EdgeSet){
 
 ## Network_prediction used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, edge_list_sub, 
-                              top_formula_n=2,
+                              top_formula_n=5,
                               read_from_csv = F
                               )
 {
@@ -788,11 +791,13 @@ Network_prediction = function(Mset, edge_list_sub,
   step=0
   timer=Sys.time()
   New_nodes_in_network = 1
+  
+  propagation_score_threshold = 0.5
   while(New_nodes_in_network==1){
     
     all_nodes_df = bind_rows(lapply(sf, head,top_formula_n))
     new_nodes_df = all_nodes_df[all_nodes_df$steps==step 
-                                &all_nodes_df$score>0,]
+                                &all_nodes_df$score>propagation_score_threshold,]
     print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
     print((Sys.time()-timer))
     
@@ -838,9 +843,7 @@ Network_prediction = function(Mset, edge_list_sub,
 
         if(nrow(temp_edge_list)==0){next}
         
-        flag_score = new_nodes_df$score[n]
-        if(flag_score==0){next}
-        
+
         i=2
         for(i in 1:nrow(temp_edge_list)){
           #If flag is head
@@ -957,6 +960,66 @@ Network_prediction = function(Mset, edge_list_sub,
 
 
 # Function for CPLEX ####
+### Score_formula ####
+Score_formula = function(CPLEXset)
+{
+  unknown_formula = CPLEXset$data$unknown_formula
+  
+  #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
+  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
+  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
+  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
+  
+  #when rdbe < -1, penalty to each rdbe less
+  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
+  unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
+  
+  #when step is large, the likelihood of the formula is true decrease from its network score
+  #Penalty happens when step > 5 on the existing score
+  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-3), min, 0) 
+  
+  
+  unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
+  
+  
+  No_expect_isotope_penalty = function(unknown_formula, linktype){
+    isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
+    
+    unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node1[isotope_peaks$category==linktype]
+    if(linktype == "[10]B"){
+      unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node2[isotope_peaks$category==linktype]
+    }
+    unknown_formula["iso_expect_ratio"] = 0
+    unknown_formula$iso_expect_ratio[unknown_formula$No_isotope_peak] = unlist(lapply (unknown_formula$formula[unknown_formula$No_isotope_peak], isotopic_abundance,linktype))
+    unknown_formula["iso_intensity"] = unknown_formula["intensity"]*unknown_formula["iso_expect_ratio"]
+    unknown_formula["iso_penalty_score"] = log10(dnorm(0,unknown_formula$iso_intensity, 2e4) / 
+                                                   dnorm(unknown_formula$iso_intensity,unknown_formula$iso_intensity, 2e4)+1e-10)
+    return(unknown_formula["iso_penalty_score"])
+  }
+  unknown_formula["Cl_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[37]Cl")
+  unknown_formula["S_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[34]S")
+  unknown_formula["K_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[41]K")
+  unknown_formula["B_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[10]B")
+  
+  unknown_formula["sum_iso_penalty_score"] = 0
+  unknown_formula["sum_iso_penalty_score"] = base::rowSums(unknown_formula[,grepl("iso_penalty_score", colnames(unknown_formula))])
+  
+  # the mass score x step score evaluate from mass perspective how likely the formula fits the peak
+  # the rdbe score penalizes unsaturation below -1
+  #Each node should be non-positive, to avoid node formula without edge connection
+  unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"]) +
+    log10(unknown_formula["score"]) +
+    unknown_formula["step_score"] + 
+    unknown_formula["rdbe_score"]
+  unknown_formula["cplex_score2"] = unknown_formula["sum_iso_penalty_score"]+unknown_formula["cplex_score"]
+  
+  
+  # hist(unknown_formula$cplex_score)
+  # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
+  
+  return(unknown_formula)
+}
 ## Prepare_CPLEX parameter ####
 Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
   All_formula_predict=bind_rows(Mset[["NodeSet_network"]])
@@ -1036,7 +1099,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       formula_1 = pred_formula_ls[[node_1]]
       formula_2 = pred_formula_ls[[node_2]]
       temp_fg = temp_edge$linktype
-      
+      temp_iso = temp_edge$category
 
       temp_formula = formula_1$formula[2]
       for(temp_formula in unique(formula_1$formula)){
@@ -1046,7 +1109,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
         #if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
         #modify score based on isotopic abundance of formula
         if(grepl("\\[",temp_fg )){
-          calc_abun = isotopic_abundance(temp_formula, temp_fg)
+          calc_abun = isotopic_abundance(temp_formula, temp_iso)
           abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
           
           #score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
@@ -1223,55 +1286,13 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                     unknown_nodes = unknown_nodes,
                     unknown_formula = unknown_formula
   )
+  print("finish CPLEXset.")
   return(CPLEX = list(data = CPLEX_data,
                       para = CPLEX_para)
   )
 }
 
-### Score_formula ####
-Score_formula = function(CPLEXset)
-{
-  unknown_formula = CPLEXset$data$unknown_formula
-  
-  #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
-  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
-  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
-  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
-  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
-  
-  #when rdbe < -1, penalty to each rdbe less
-  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
-  unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
-  
-  #when step is large, the likelihood of the formula is true decrease from its network score
-  #Penalty happens when step > 5 on the existing score
-  unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
-  
-  # temp = unknown_formula$id[1]
-  # isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
-  # temp_Cl = unknown_formula[grepl("Cl",unknown_formula$formula),]
-  # temp_Cl["Cl_expect"] = unlist(lapply (temp_Cl$formula, isotopic_abundance,"[37]Cl1Cl-1"))
-  #   
-  #   a= lapply (temp_Cl$formula, isotopic_abundance,"[37]Cl1Cl-1")
-  #   for(i in 1:length(a)){
-  #     if(length(a[[i]])==0){
-  #       print(temp_Cl$formula[i])
-  #       break
-  #     }
-  #   }
-  #   isotopic_abundance("[37]Cl1C11H13N2O2", "[37]Cl1Cl-1")
-  #the mass score x step score evaluate from mass perspective how likely the formula fits the peak
-  #the rdbe score penalizes unsaturation below -1
-  #Each node should be non-positive, to avoid node formula without edge connection
-  unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"])+log10(unknown_formula["score"])+unknown_formula["step_score"]+unknown_formula["rdbe_score"]
-  
-  
-  
-  # hist(unknown_formula$cplex_score)
-  # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
-  
-  return(unknown_formula)
-}
+
 ### Score_edge_cplex ####
 Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
 {
@@ -1578,7 +1599,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
-                                               search_ms_cutoff=0.001,
+                                               search_ms_cutoff=0.002,
+                                               search_ppm_cutoff=10,
                                                read_from_csv = read_from_csv)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
 
@@ -1610,6 +1632,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Read CPLEX result ####
 {
+  
 
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
   
@@ -1641,11 +1664,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 2117
+  id = 3178
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
-  
+  edge_high_core_id = EdgeSet$Peak_inten_correlation[EdgeSet$Peak_inten_correlation$node1==id | EdgeSet$Peak_inten_correlation$node2==id,]
   Mset$NodeSet_network[[id]]
 }
 
