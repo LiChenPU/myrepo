@@ -1233,7 +1233,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
 
 
 ### Score_formula ####
-Score_formula = function(CPLEXset, msr_cal_mass_dif = T, rdbe=T, step_score=T, iso_penalty_score=T)
+Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=T)
 {
   unknown_formula = CPLEXset$data$unknown_formula
   
@@ -1244,11 +1244,13 @@ Score_formula = function(CPLEXset, msr_cal_mass_dif = T, rdbe=T, step_score=T, i
   unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
   
   #when rdbe < -1, penalty to each rdbe less
+  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
   if(rdbe==T){
-    unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
     unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
   }
-  
+  else{
+    unknown_formula["rdbe_score"]=0
+  }
   
   #when step is large, the likelihood of the formula is true decrease from its network score
   #Penalty happens when step > 5 on the existing score
@@ -1261,7 +1263,6 @@ Score_formula = function(CPLEXset, msr_cal_mass_dif = T, rdbe=T, step_score=T, i
   
   
   unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
-  
   if(iso_penalty_score==TRUE){
     No_expect_isotope_penalty = function(unknown_formula, linktype){
       isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
@@ -1400,9 +1401,9 @@ Run_CPLEX = function(CPLEXset, obj){
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
   
-  edge_info_sum = CPLEXset$data$edge_info_sum
+  
   unknown_formula = CPLEXset$data$unknown_formula
-  obj = CPLEXset$Init_solution$obj
+  obj = CPLEXset$Init_solution[[1]]$obj
   obj_node = obj[1:nrow(unknown_formula)]
   obj_edge = obj[(nrow(unknown_formula)+1):length(obj)]
   solution_ls = list()
@@ -1624,8 +1625,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
   #sf =  CPLEXset$data$unknown_formula
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset)
-  
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
+                                                rdbe=T, step_score=T, iso_penalty_score=F)
+  test = CPLEXset$data$unknown_formula
 }
 
 # Run CPLEX ####
@@ -1637,7 +1639,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
 
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
-  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.3)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.1)
 }
 
 # Read CPLEX result ####
