@@ -1644,10 +1644,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Read CPLEX result ####
 {
-  
-
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-  
+  #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   unknown_nodes = CPLEXset$data$unknown_nodes
@@ -1666,9 +1664,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 
   # output assigned formula
-  Mdata = Mset$Summary
+  Mdata = Mset$Data
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
-  Mdata2 = merge(formula, Mdata, all = T)
+  Mdata2 = merge(formula, Mdata, all = T, by="ID")
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
   
 }
@@ -1683,6 +1681,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_high_core_id = EdgeSet$Peak_inten_correlation[EdgeSet$Peak_inten_correlation$node1==id | EdgeSet$Peak_inten_correlation$node2==id,]
   Mset$NodeSet_network[[id]]
 }
+
+
 
 {
   edge_id=2450
@@ -1708,6 +1708,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Evaluate Xi's data from annotation
 
 {
+  setwd("./xi_new_neg")
   wl_result = read_csv("WL_data_190405.csv")
   merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
