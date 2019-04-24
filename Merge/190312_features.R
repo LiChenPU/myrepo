@@ -406,13 +406,21 @@ Form_node_list = function(Mset)
   colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "category","compound_name")
   
   NodeSet[["Library"]] = Mset$Library
-  NodeSet$Library = cbind(NodeSet$Library, RT=NA)
+  NodeSet$Library = cbind(NodeSet$Library, RT= -1)
   colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","category", "RT")
   NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
-
   NodeSet$Library$category=0
   
   merge_node_list = rbind(NodeSet$Expe,NodeSet$Library)
+
+  NodeSet[["Adduct"]] = Mset$Artifacts[Mset$Artifacts$category=="adduct",]
+  NodeSet$Adduct["RT"] = -1
+  NodeSet$Adduct["ID"] = 1:nrow(NodeSet$Adduct)+nrow(merge_node_list)
+  NodeSet$Adduct$category = -1
+  NodeSet$Adduct = NodeSet$Adduct[,c("ID", "mass", "RT", "Formula", "category", "Symbol")]
+  colnames(NodeSet$Adduct) = c("ID","mz","RT","MF", "category","compound_name")
+  
+  merge_node_list = rbind(merge_node_list,NodeSet$Adduct)
 
   return(merge_node_list)
 }
@@ -432,8 +440,8 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   
   if(!read_from_csv){
-    
-  merge_node_list = Mset$NodeSet[with(Mset$NodeSet, order(mz)),]
+    merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
+  merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
   merge_nrow = nrow(merge_node_list)
   
   timer=Sys.time()
@@ -507,20 +515,25 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
 }
 ### Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform){
+  #Biotransform = EdgeSet$Artifacts
   if(nrow(Biotransform)>10000){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
   } else {
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
   }
-  
+  #summary(edge_mzdif_FIT)
+  # log10(dnorm(4, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])/
+  #   dnorm(edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2]))
   #hist(Biotransform$mass_dif)
+  
+  
   
   plot(edge_mzdif_FIT)  
   Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
-## Variance between peaks ####
+## Peak_variance - Variance between peaks ####
 Peak_variance = function(Mset, 
                          time_cutoff=0.1,
                          TIC_cutoff=0,
@@ -529,7 +542,7 @@ Peak_variance = function(Mset,
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
   df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names])
   df_raw["log10_inten"]=log10(df_raw$mean_inten)
-  
+
   {
     df_raw = df_raw[with(df_raw, order(medRt)),]
     i = 1
@@ -590,12 +603,29 @@ Peak_variance = function(Mset,
     }
   }
   
+  
+  
   edge_ls = bind_rows(edge_list)
   edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
+  # edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
+  # edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
+  edge_ls["mz_dif"] = Mset$Data$medMz[edge_ls$node2]-Mset$Data$medMz[edge_ls$node1]
   
-  edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
-  edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
-  edge_ls["mz_dif"] = edge_ls["mz_node2"]-edge_ls["mz_node1"]
+  # calculate mass difference between measured peak and adducts
+  {
+    adduct_set = Mset$NodeSet[Mset$NodeSet$category == -1,]
+    measure_set = Mset$NodeSet[Mset$NodeSet$category == 1,]
+    temp = outer(adduct_set$mz, measure_set$mz, "-")
+    rownames(temp) = adduct_set$ID
+    colnames(temp) = measure_set$ID
+    temp_gather = gather(as.data.frame(temp), key = "node1", value="mz_dif")
+    temp_gather["node1"] = as.numeric(temp_gather$node1)
+    temp_gather["node2"] = adduct_set$ID
+    # temp_gather["mz_node1"] = adduct_set$mz
+    # temp_gather["mz_node2"] = Mset$Data$medMz[temp_gather$node2]
+    temp_gather["correlation"] = 1
+  }
+  edge_ls = rbind(edge_ls, temp_gather)
   
   
   #Switch directionality
@@ -606,18 +636,19 @@ Peak_variance = function(Mset,
     temp_node=temp_data$node1
     temp_data$node1=temp_data$node2
     temp_data$node2=temp_node
+    temp_data$mz_dif = -temp_data$mz_dif
     
     edge_ls[edge_ls$mz_dif<0,] = temp_data 
     rm(temp_data)
   }
   
-  edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
-  edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
-  edge_ls["mz_dif"] = edge_ls["mz_node2"]-edge_ls["mz_node1"]
-  edge_ls["log10_inten_node1"] = Mset$Data$log10_inten[edge_ls$node1]
-  edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
-  edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
-  edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
+  edge_ls["mz_node1"] = Mset$NodeSet$mz[edge_ls$node1]
+  edge_ls["mz_node2"] = Mset$NodeSet$mz[edge_ls$node2]
+  # edge_ls["mz_dif"] = Mset$NodeSet$mz[edge_ls$node2] -Mset$NodeSet$mz[edge_ls$node1]
+  # edge_ls["log10_inten_node1"] = Mset$Data$log10_inten[edge_ls$node1]
+  # edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
+  # edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
+  # edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
   
   
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
@@ -627,11 +658,11 @@ Peak_variance = function(Mset,
 }
 
 ### Artifact_prediction - Edge_list for artifacts ####
-Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.001, search_ppm_cutoff = 5, read_from_csv=F)
+Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.002, search_ppm_cutoff = 10, read_from_csv=F)
 {
   if(read_from_csv == F){
     #edge_ls_highcor = EdgeSet$Peak_inten_correlation
-    edge_ls_highcor=Peak_inten_correlation
+    edge_ls_highcor = Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
     junk_df = Mset$Artifacts
     
@@ -646,6 +677,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     temp_df = temp_df[0,]
     
     while (i <= nrow(edge_ls_highcor)){
+      if(i%%100000==0){print(paste(i, "edges screened."))}
       i=i+1
       search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
       if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
@@ -665,7 +697,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
                                     as.character(junk_df$Symbol[j]), 
                                     junk_df$Formula[j], 
                                     junk_df$direction[j],
-                                    (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node1[i]*10^6
+                                    (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
       )
     }
     
@@ -678,10 +710,10 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     test_time = Sys.time()
     {
-      ppm=5/10^6
+      
       temp_df_oligo = temp_df[0,]
       
-      df_raw = Mset$Data
+      nodeset = Mset$NodeSet[Mset$NodeSet$category!=0,]
       
       temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
       temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
@@ -691,7 +723,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
       
       for(i in 1:nrow(temp_edge_ls)){
         temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
-        temp_mz1 = df_raw$medMz[which(df_raw$ID==temp_data$node1)]
+        temp_mz1 = nodeset$mz[which(nodeset$ID==temp_data$node1)]
         temp_mz2 = temp_mz1 + temp_data$mz_dif
         search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*temp_mz2/10^6)
         for(j in 2:10){
@@ -721,8 +753,8 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction")]
     
     write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
-  } else{
-    
+  } 
+  else{
     edge_ls_annotate_network = read.csv("artifact_edge_list.txt",stringsAsFactors = F)
   }
   
@@ -732,7 +764,6 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
 
 ## Merge_edgeset ####
 Merge_edgeset = function(EdgeSet){
-  
   edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
   Mdata = Mset$Data$log10_inten
   node1 = edge_merge$node1
@@ -757,8 +788,9 @@ Merge_edgeset = function(EdgeSet){
 
 ## Network_prediction used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, edge_list_sub, 
-                              top_formula_n=5,
-                              read_from_csv = F
+                              top_formula_n=3,
+                              read_from_csv = F, 
+                              max_step = 10
                               )
 {
   if(!read_from_csv){
@@ -777,12 +809,17 @@ Network_prediction = function(Mset, edge_list_sub,
 
     sf = lapply(1:nrow(mnl),function(i)(data_str))
     
-    for(i in (1+nrow(Mset$Data)):nrow(mnl)){
+    for(i in mnl$ID[mnl$category==0]){
       Initial_formula =sf[[i]]
       Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1)
       sf[[i]]=Initial_formula
-      
     }
+    for(i in mnl$ID[mnl$category==-1]){
+      Initial_formula =sf[[i]]
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1)
+      sf[[i]]=Initial_formula
+    }
+    
   }
   
   #while loop to Predict formula based on known formula and edgelist 
@@ -909,6 +946,7 @@ Network_prediction = function(Mset, edge_list_sub,
         }
       }
     }
+    if(step == max_step){break}
     step = step+1
   }
   
@@ -972,10 +1010,10 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     
     pred_formula = raw_pred_formula
     
-    
-    lib_nodes = raw_node_list[raw_node_list$category==0,]
+    #1 is measured peaks; 0 is library; -1 is system adduct
+    lib_nodes = raw_node_list[raw_node_list$category!=0,]
     lib_nodes_cutoff = nrow(Mset$Data)
-    unknown_nodes = raw_node_list[raw_node_list$category!=0,]
+    unknown_nodes = raw_node_list[raw_node_list$category==1,]
     unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
     num_unknown_nodes = nrow(unknown_nodes)
     
@@ -1616,6 +1654,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
 
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
+  
   
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
