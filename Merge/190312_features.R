@@ -17,6 +17,7 @@
   library(cplexAPI)
   
   #devtools::install_github("LiChenPU/Formula_manipulation")
+  
   library(lc8)
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -933,10 +934,10 @@ Network_prediction = function(Mset, edge_list_sub,
             if(any(partner_is_metabolite == temp_subset$is_metabolite)){
               next
             }
-            #3. if not much higher scores, then next
-            if(partner_score<=(1.2*max(temp_subset$score))){
-              next
-            }
+            # #3. if not much higher scores, then next
+            # if(partner_score<=(1.2*max(temp_subset$score))){
+            #   next
+            # }
           }
           
           #Enter new entry
@@ -946,8 +947,9 @@ Network_prediction = function(Mset, edge_list_sub,
         }
       }
     }
-    if(step == max_step){break}
+    
     step = step+1
+    if(step == max_step){break}
   }
   
   # Pruning formula  #
@@ -1007,11 +1009,10 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
   
   #Clean up
   {
-    
     pred_formula = raw_pred_formula
     
     #1 is measured peaks; 0 is library; -1 is system adduct
-    lib_nodes = raw_node_list[raw_node_list$category!=0,]
+    lib_nodes = raw_node_list[raw_node_list$category!=1,]
     lib_nodes_cutoff = nrow(Mset$Data)
     unknown_nodes = raw_node_list[raw_node_list$category==1,]
     unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
@@ -1069,6 +1070,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       if(n%%10000==0){
         print(paste("n=",n,"elapsed="))
         print(Sys.time()-timer)
+        
       }
       
       temp_edge = edge_list[n,]
@@ -1077,34 +1079,23 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       formula_1 = pred_formula_ls[[node_1]]
       formula_2 = pred_formula_ls[[node_2]]
       temp_fg = temp_edge$linktype
-      temp_iso = temp_edge$category
+      
 
-      temp_formula = formula_1$formula[2]
+      #temp_formula = formula_1$formula[2]
       for(temp_formula in unique(formula_1$formula)){
-        temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
+        temp_score = temp_edge$edge_massdif_score
 
-        #drop off edge where an isotopic peak reaches out to other
-        #if(!grepl("\\[",temp_fg ) & grepl("\\[", temp_formula )){next}
-        #modify score based on isotopic abundance of formula
-        if(grepl("\\[",temp_fg )){
-          calc_abun = isotopic_abundance(temp_formula, temp_iso)
-          abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
-          
-          #score_modifier = dnorm(abun_ratio,1,0.2)/dnorm(1,1,0.2)
-          score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
-          #log score
-          temp_score = temp_score + log10(score_modifier+1e-10)+1
-          
-          #linear score
-          #temp_score = temp_score * score_modifier + temp_score * score_modifier * (1-temp_score * score_modifier)
-        }
         
         #Assuming formula in node_1 is always smaller than node_2
         if(temp_fg==""){
-          temp_formula_2=temp_formula
-        }else{
-          temp_formula_2 = my_calculate_formula(temp_formula, temp_fg)
+          temp_formula_2 = temp_formula
+        }else if (grepl("x",temp_fg)){
+          fold = as.numeric(gsub("x","",temp_fg))
+          temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = T)
+        }else {
+          temp_formula_2=my_calculate_formula(temp_formula,temp_fg,1,Is_valid = T)
         }
+
         #Write triplet for edge and corresponding 2 nodes
         if(temp_formula_2 %in% formula_2$formula){
           temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
@@ -1204,7 +1195,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                       duplicated(test1[,c("formula1","ilp_index1")], fromLast=TRUE),]
       test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
       #test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])
-      edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=0
+      edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=1e-10
 
     }
     
@@ -1256,7 +1247,6 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                     lb = lb,
                     ub = ub,
                     ctype = ctype
-                    
   )
   CPLEX_data = list(edge_info_sum = edge_info_sum,
                     pred_formula_ls = pred_formula_ls,
@@ -1269,24 +1259,31 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
   )
 }
 
-
 ### Score_formula ####
-Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=T)
+Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
 {
   unknown_formula = CPLEXset$data$unknown_formula
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
   unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
   unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  # unknown_formula["cal_mass"]=NA
+  # 
+  # for(i in 1:nrow(unknown_formula)){
+  #   
+  #   unknown_formula$cal_mass[i]=formula_mz(unknown_formula$formula[i])
+  #   
+  # }
   unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
+  # edge_mzdif_FIT <- fitdist(unknown_formula$msr_cal_mass_dif*1000, "norm")    
+  # summary(edge_mzdif_FIT)
   unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
   
   #when rdbe < -1, penalty to each rdbe less
   unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
   if(rdbe==T){
     unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
-  }
-  else{
+  } else{
     unknown_formula["rdbe_score"]=0
   }
   
@@ -1294,8 +1291,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=T)
   #Penalty happens when step > 5 on the existing score
   if(step_score==T){
     unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
-  }
-  else{
+  } else{
     unknown_formula["step_score"]=0
   }
   
@@ -1322,8 +1318,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=T)
     unknown_formula["B_iso_penalty_score"] = No_expect_isotope_penalty(unknown_formula, linktype="[10]B")
     
     unknown_formula["sum_iso_penalty_score"] = base::rowSums(unknown_formula[,grepl("iso_penalty_score", colnames(unknown_formula))])
-  }
-  else{
+  } else {
     unknown_formula["sum_iso_penalty_score"] = 0
   }
   
@@ -1343,12 +1338,43 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=T)
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
-Score_edge_cplex = function(CPLEXset, edge_penalty = -0.5)
+Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 {
   edge_info_sum = CPLEXset$data$edge_info_sum
-  edge_info_sum$edge_score = edge_info_sum$edge_score + edge_penalty
+  edge_info_sum = edge_info_sum[with(edge_info_sum, order(edge_ilp_id)),]
   
-  unknown_formula = CPLEXset$data$unknown_formula
+  
+{
+  edge_info_sum["isotope_score"] = NA
+  edge_info_sum["category"] = EdgeSet$Merge$category[edge_info_sum$edge_id]
+  edge_info_sum["msr_inten_dif"] =  EdgeSet$Merge$msr_inten_dif[edge_info_sum$edge_id]
+  
+  edge_info_isotope = edge_info_sum[grepl("\\[", edge_info_sum$category) & !is.na(edge_info_sum$msr_inten_dif),]
+  i=nrow(edge_info_isotope)
+  for(i in 1:nrow(edge_info_isotope)){
+    temp_edge = EdgeSet$Merge[edge_info_sum$edge_id[i],]
+    temp_iso = temp_edge$category
+    if(temp_iso=="[10]B"){
+      temp_formula = edge_info_isotope$formula2[i]
+      parent_inten = temp_edge$node1_log10_inten
+      temp_edge$msr_inten_dif = -temp_edge$msr_inten_dif
+    }else {
+      temp_formula = edge_info_isotope$formula1[i]
+      parent_inten = temp_edge$node2_log10_inten
+    }
+    calc_abun = isotopic_abundance(temp_formula, temp_iso)
+    abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
+    edge_info_isotope$isotope_score[i] = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
+    # edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id[i]] = edge_info_isotope$isotope_score[i]
+  }
+  edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id] = edge_info_isotope$isotope_score
+}
+
+  
+  edge_info_sum$edge_score = edge_info_sum$edge_score + edge_bonus
+  edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus
+  edge_info_sum$isotope_score[is.na(edge_info_sum$isotope_score)]=0
+  edge_info_sum$edge_score = edge_info_sum$edge_score+edge_info_sum$isotope_score
   
   test3 = edge_info_sum[edge_info_sum$ilp_index2<=nrow(unknown_formula)&
                           edge_info_sum$ilp_index1<=nrow(unknown_formula),]
@@ -1458,12 +1484,12 @@ CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
 }
 
 ## CPLEX_screen_edge ####
-CPLEX_screen_edge = function(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1)){
+CPLEX_screen_edge = function(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1)){
 
   solution_ls = list()
   #result_solution =1
-  for(edge_penalty in edge_penalty_range){
-    edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = edge_penalty)
+  for(edge_bonus in edge_bonus_range){
+    edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus)
     temp_obj = c(CPLEXset$data$unknown_formula$cplex_score,
                             edge_info_sum$edge_score)
     result_solution = Run_CPLEX(CPLEXset, obj = temp_obj)
@@ -1660,24 +1686,25 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
                                                  top_formula_n = 3,
-                                                 read_from_csv = F)
+                                                 read_from_csv = F,
+                                                 max_step = 10)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
   #sf =  CPLEXset$data$unknown_formula
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
                                                 rdbe=T, step_score=T, iso_penalty_score=F)
-  test = CPLEXset$data$unknown_formula
+  #test = CPLEXset$data$unknown_formula
 }
 
 # Run CPLEX ####
 {
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_penalty = -log10(.8)-1)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = -log10(.5))
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   #CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
 
-  #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_penalty_range = seq(-.6, -0.9, by=-0.1))
+  #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.1)
 }
 
