@@ -31,7 +31,7 @@ read_library = function(library_file = "hmdb_unique.csv"){
   hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
   hmdb_lib$Exact_Mass = formula_mz(hmdb_lib$MF)
-
+  hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$MF)
   return(hmdb_lib)
 }
   
@@ -404,11 +404,12 @@ Form_node_list = function(Mset)
   NodeSet[["Expe"]] = Mset$Data[,c("ID","medMz","medRt","formula")]
   NodeSet$Expe["category"]=1
   NodeSet$Expe["compound_name"]=NA
-  colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "category","compound_name")
+  NodeSet$Expe["rdbe"]=NA
+  colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "category","compound_name","rdbe")
   
   NodeSet[["Library"]] = Mset$Library
   NodeSet$Library = cbind(NodeSet$Library, RT= -1)
-  colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","category", "RT")
+  colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","category","rdbe","RT")
   NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
   NodeSet$Library$category=0
   
@@ -418,8 +419,8 @@ Form_node_list = function(Mset)
   NodeSet$Adduct["RT"] = -1
   NodeSet$Adduct["ID"] = 1:nrow(NodeSet$Adduct)+nrow(merge_node_list)
   NodeSet$Adduct$category = -1
-  NodeSet$Adduct = NodeSet$Adduct[,c("ID", "mass", "RT", "Formula", "category", "Symbol")]
-  colnames(NodeSet$Adduct) = c("ID","mz","RT","MF", "category","compound_name")
+  NodeSet$Adduct = NodeSet$Adduct[,c("ID", "mass", "RT", "Formula", "category", "Symbol", "rdbe")]
+  colnames(NodeSet$Adduct) = c("ID","mz","RT","MF", "category","compound_name","rdbe")
   
   merge_node_list = rbind(merge_node_list,NodeSet$Adduct)
 
@@ -1601,7 +1602,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-
   datapath = ("./Xi_new_neg")
   setwd(datapath)
   
@@ -1698,7 +1698,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = -log10(.5))
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = -log10(.8))
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1740,7 +1740,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 3178
+  id = 262
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
