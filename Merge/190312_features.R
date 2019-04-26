@@ -454,12 +454,14 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
     for (k in 1:nrow(Mset$Biotransform)){
       temp_fg=Mset$Biotransform$mass[k]
       temp_direction = Mset$Biotransform$direction[k]
+      temp_rdbe = Mset$Biotransform$rdbe[k]
       i=j=1
       temp_edge_list = data.frame(node1=as.numeric(), 
                                   node2=as.numeric(), 
                                   linktype=as.numeric(), 
                                   mass_dif=as.numeric(), 
-                                  direction = as.numeric())
+                                  direction = as.numeric(),
+                                  rdbe = as.numeric())
       while(i<=merge_nrow){
         temp_ms=0
         mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
@@ -473,7 +475,9 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
                                                          merge_node_list$ID[j], 
                                                          k, 
                                                          (temp_ms-temp_fg)/temp_mz_list[j]*1E6, 
-                                                         temp_direction)
+                                                         temp_direction,
+                                                         temp_rdbe
+                                                         )
           }
           if((temp_ms-temp_fg)>mass_tol){break}
         }
@@ -674,6 +678,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     temp_df["category"]=NA
     temp_df["linktype"]=NA
     temp_df["direction"]=NA
+    temp_df["rdbe"]=NA
     temp_df["mass_dif"]=double()
     
     temp_df = temp_df[0,]
@@ -699,6 +704,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
                                     as.character(junk_df$Symbol[j]), 
                                     junk_df$Formula[j], 
                                     junk_df$direction[j],
+                                    junk_df$rdbe[j],
                                     (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
       )
     }
@@ -733,7 +739,12 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
           #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
           #if neutral data
           if(abs(temp_mz1*j-temp_mz2)<search_cutoff){
-            temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,"oligomer",paste("x",j,sep=""), 0,(temp_mz1*j-temp_mz2)/temp_mz2*10^6)
+            temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,
+                                                      "oligomer",
+                                                      paste("x",j,sep=""), 
+                                                      0,
+                                                      paste("x",j,sep=""),
+                                                      (temp_mz1*j-temp_mz2)/temp_mz2*10^6)
           }
         }
       }
@@ -752,15 +763,13 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     
     
-    edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction")]
+    edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction","rdbe")]
     
     write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
   } 
   else{
     edge_ls_annotate_network = read.csv("artifact_edge_list.txt",stringsAsFactors = F)
   }
-  
-  
   return(edge_ls_annotate_network)
 }
 
@@ -806,19 +815,21 @@ Network_prediction = function(Mset, edge_list_sub,
                           steps=as.numeric(), 
                           parent=as.numeric(), 
                           is_metabolite = as.logical(),
-                          score=as.numeric(), stringsAsFactors = F)
+                          score=as.numeric(),
+                          rdbe=as.numeric(),
+                          stringsAsFactors = F)
     #sf stands for summary_formula
 
     sf = lapply(1:nrow(mnl),function(i)(data_str))
     
     for(i in mnl$ID[mnl$category==0]){
       Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1)
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1,mnl$rdbe[i])
       sf[[i]]=Initial_formula
     }
     for(i in mnl$ID[mnl$category==-1]){
       Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1)
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
       sf[[i]]=Initial_formula
     }
     
@@ -883,13 +894,22 @@ Network_prediction = function(Mset, edge_list_sub,
         if(nrow(temp_edge_list)==0){next}
         
         flag_score = new_nodes_df$score[n]
+        flag_rdbe = new_nodes_df$rdbe[n]
         i=2
         for(i in 1:nrow(temp_edge_list)){
+          temp_rdbe = temp_edge_list$rdbe[i]
           #If flag is head
           if(temp_edge_list$node1[i] == flag_id){
             partner_id = temp_edge_list$node2[i]
             if(partner_id>nrow_experiment){next}
             
+            if(grepl("x", temp_rdbe)){
+              fold = as.numeric(gsub("x","",temp_rdbe))
+              partner_rdbe = flag_rdbe * fold
+            } else{
+              partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
+            }
+
             temp_fg = temp_edge_list$linktype[i]
             if(temp_fg==""){
               partner_formula = flag_formula
@@ -905,6 +925,13 @@ Network_prediction = function(Mset, edge_list_sub,
           if(temp_edge_list$node2[i] == flag_id){
             partner_id = temp_edge_list$node1[i]
             if(partner_id>nrow_experiment){next}
+            
+            if(grepl("x", temp_rdbe)){
+              fold = as.numeric(gsub("x","",temp_rdbe))
+              partner_rdbe = flag_rdbe / fold
+            } else{
+              partner_rdbe = flag_rdbe - as.numeric(temp_rdbe)
+            }
             
             temp_fg = temp_edge_list$linktype[i]
             if(temp_fg==""){
@@ -942,7 +969,13 @@ Network_prediction = function(Mset, edge_list_sub,
           }
           
           #Enter new entry
-          temp[nrow(temp)+1, ] = list(partner_id, partner_formula, partner_steps, partner_parent,partner_is_metabolite, partner_score)
+          temp[nrow(temp)+1, ] = list(partner_id, 
+                                      partner_formula, 
+                                      partner_steps, 
+                                      partner_parent,
+                                      partner_is_metabolite, 
+                                      partner_score,
+                                      partner_rdbe)
           temp = temp[with(temp, order(-score)),]
           sf[[partner_id]]=temp
         }
@@ -959,23 +992,8 @@ Network_prediction = function(Mset, edge_list_sub,
     pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
     pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
     
-    # pred_formula["mz"] = formula_mz(pred_formula$formula)
-    # pred_formula["measured_mz"]=NA
-    # 
-    # 
-    # for(i in 1:nrow(pred_formula)){
-    #   pred_formula$measured_mz[i] = mnl$mz[mnl$ID==pred_formula$id[i]]
-    # }
-    # pred_formula["abs_dif"] = pred_formula["mz"]-pred_formula["measured_mz"]
-    # pred_formula["ppm_dif"] = pred_formula["abs_dif"]/pred_formula$measured_mz*1E6
-    # pred_formula_1 = pred_formula[abs(pred_formula$abs_dif)<0.001|abs(pred_formula$ppm_dif)<5,]
-    # 
-    # 
-    # pred_formula_1["rdbe"] = NA
-    # pred_formula_1$rdbe = formula_rdbe(pred_formula_1$formula)
-    # 
-    pred_formula_1 = pred_formula
-    merge_formula = pred_formula_1[,1:6]
+    
+    merge_formula = pred_formula
     sf = list()
     for(n in 1: max(merge_formula$id)){
       sf[[n]]=merge_formula[merge_formula$id==n,]
@@ -1281,9 +1299,9 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
   
   #when rdbe < -1, penalty to each rdbe less
-  unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
+  #unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
   if(rdbe==T){
-    unknown_formula["rdbe_score"] = sapply((0.1*(unknown_formula$rdbe)), min, 0)
+    unknown_formula["rdbe_score"] = sapply((0.2*(unknown_formula$rdbe)), min, 0)
   } else{
     unknown_formula["rdbe_score"]=0
   }
@@ -1351,9 +1369,9 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
   edge_info_sum["msr_inten_dif"] =  EdgeSet$Merge$msr_inten_dif[edge_info_sum$edge_id]
   
   edge_info_isotope = edge_info_sum[grepl("\\[", edge_info_sum$category) & !is.na(edge_info_sum$msr_inten_dif),]
-  i=nrow(edge_info_isotope)
+  i=8706
   for(i in 1:nrow(edge_info_isotope)){
-    temp_edge = EdgeSet$Merge[edge_info_sum$edge_id[i],]
+    temp_edge = EdgeSet$Merge[edge_info_isotope$edge_id[i],]
     temp_iso = temp_edge$category
     if(temp_iso=="[10]B"){
       temp_formula = edge_info_isotope$formula2[i]
@@ -1369,10 +1387,11 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
     # edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id[i]] = edge_info_isotope$isotope_score[i]
   }
   edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id] = edge_info_isotope$isotope_score
+  # edge_info_sum[edge_info_sum$edge_ilp_id==8716,]
 }
 
   
-  edge_info_sum$edge_score = edge_info_sum$edge_score + edge_bonus
+  edge_info_sum$edge_score = log10(edge_info_sum$edge_score) + edge_bonus
   edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus
   edge_info_sum$isotope_score[is.na(edge_info_sum$isotope_score)]=0
   edge_info_sum$edge_score = edge_info_sum$edge_score+edge_info_sum$isotope_score
@@ -1404,8 +1423,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
   temp_edge_info_sum = temp_edge_info_sum[with(temp_edge_info_sum, order(edge_ilp_id)),]
   
   return(temp_edge_info_sum)
-  
-  
+
 }
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj){
@@ -1632,25 +1650,25 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 }
 
-## Feature generation ####
-{
-  #Identify peaks with high blanks
-  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-  #View(Mset$High_blanks)
-  
-  #library_match
-  
-  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-
-  #Metaboanalyst_Statistic
-  Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-  
-
-  # output assigned formula
-  Mset[["Summary"]] = Summary_Mset(Mset)
-  write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
-  save.image()
-} 
+# ## Feature generation ####
+# {
+#   #Identify peaks with high blanks
+#   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
+#   #View(Mset$High_blanks)
+#   
+#   #library_match
+#   
+#   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
+# 
+#   #Metaboanalyst_Statistic
+#   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+#   
+# 
+#   # output assigned formula
+#   Mset[["Summary"]] = Summary_Mset(Mset)
+#   write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
+#   save.image()
+# } 
 
 # Network ####
 {
@@ -1681,11 +1699,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
-  
-  
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet$Merge, 
-                                                 top_formula_n = 3,
+                                                 top_formula_n = 5,
                                                  read_from_csv = F,
                                                  max_step = 10)
   
@@ -1705,7 +1721,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
 
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.1)
+  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.1)
 }
 
 # Read CPLEX result ####
@@ -1714,7 +1730,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
-  unknown_nodes = CPLEXset$data$unknown_nodes
+  unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
   unknown_formula = CPLEXset$data$unknown_formula
   
   unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
@@ -1740,7 +1756,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 262
+  id = 122
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1750,22 +1766,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 
 
-{
-  edge_id=2450
-  edge_ilp_id = 8045
-  temp_formula = CPLEXset$data$edge_info_sum$formula1[8045]
-  temp_edge = EdgeSet$Merge[edge_id,]
-  temp_fg = temp_edge$linktype
-  temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
-  if(grepl("\\[",temp_fg )){
-    calc_abun = isotopic_abundance(temp_formula, temp_fg)
-    abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
-    score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
-    #log score
-    temp_score = temp_score + log10(score_modifier+1e-10)+1
-  }
-  temp_score-log10(0.8)-1
-}
+
 {
   sf = bind_rows(Mset$NodeSet_network)
   test = sf[duplicated(sf[,c("id","formula")]),]
@@ -1774,8 +1775,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Evaluate Xi's data from annotation
 
 {
-  setwd("./xi_new_neg")
-  wl_result = read_csv("WL_data_190405.csv")
+  
+  wl_result = read_csv("WL_190405_both.csv")
   merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
 }
@@ -1794,10 +1795,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Compare formula #
 {
   
-  merge_result_with_formula = merge_result[merge_result$formula.y!="[]",]
-  merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$formula.y &
+  merge_result_with_formula = merge_result[!is.na(merge_result$`Ground truth`) & !is.na(merge_result$`Correct?`),]
+  merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$`Ground truth` &
                                                                   (!is.na(merge_result_with_formula$formula.x)),]
-  merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$formula.y |
+  merge_result_with_formula_dif = merge_result_with_formula[merge_result_with_formula$formula.x!=merge_result_with_formula$`Ground truth` |
                                                               (is.na(merge_result_with_formula$formula.x)),]
   nrow(merge_result_with_formula_correct)/nrow(merge_result_with_formula)
 }
@@ -2064,4 +2065,21 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 #   unknown_node_CPLEX_Xi_met_dif = unknown_node_CPLEX_Xi_met[unknown_node_CPLEX_Xi_met$formula.x!=
 #                                                               unknown_node_CPLEX_Xi_met$formula.y,]
 #   
+# }
+# #Calculate isotopic score
+# {
+#   edge_id=2450
+#   edge_ilp_id = 8045
+#   temp_formula = CPLEXset$data$edge_info_sum$formula1[8045]
+#   temp_edge = EdgeSet$Merge[edge_id,]
+#   temp_fg = temp_edge$linktype
+#   temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
+#   if(grepl("\\[",temp_fg )){
+#     calc_abun = isotopic_abundance(temp_formula, temp_fg)
+#     abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+#     score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
+#     #log score
+#     temp_score = temp_score + log10(score_modifier+1e-10)+1
+#   }
+#   temp_score-log10(0.8)-1
 # }
