@@ -30,6 +30,8 @@ read_library = function(library_file = "hmdb_unique.csv"){
   data(isotopes)
   hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
+  hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1")
+  hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1",-1)
   hmdb_lib$Exact_Mass = formula_mz(hmdb_lib$MF)
   hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$MF)
   return(hmdb_lib)
@@ -685,28 +687,33 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     while (i <= nrow(edge_ls_highcor)){
       if(i%%100000==0){print(paste(i, "edges screened."))}
-      i=i+1
+      
       search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
+      
+      
       if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
+        i=i+1
         next
       }
-      
-      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+search_cutoff)){
+      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]+search_cutoff)){
+        temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
+                                      as.character(junk_df$Symbol[j]), 
+                                      junk_df$Formula[j], 
+                                      junk_df$direction[j],
+                                      junk_df$rdbe[j],
+                                      (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
+        )
+      }
+      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
         temp_ls[[j]]=temp_df
         temp_df = temp_df[0,]
         j=j+1
         if(j>nrow(junk_df)){break}
         #search_cutoff = 10 * initial_FIT$estimate[2]/1000 
-        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-search_cutoff)){i=i-1}
+        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
         next
       }
-      temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
-                                    as.character(junk_df$Symbol[j]), 
-                                    junk_df$Formula[j], 
-                                    junk_df$direction[j],
-                                    junk_df$rdbe[j],
-                                    (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
-      )
+      i=i+1
     }
     
     temp_df_isotope = bind_rows(temp_ls)
@@ -1286,13 +1293,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
   unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
   unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
-  # unknown_formula["cal_mass"]=NA
-  # 
-  # for(i in 1:nrow(unknown_formula)){
-  #   
-  #   unknown_formula$cal_mass[i]=formula_mz(unknown_formula$formula[i])
-  #   
-  # }
+
   unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
   # edge_mzdif_FIT <- fitdist(unknown_formula$msr_cal_mass_dif*1000, "norm")    
   # summary(edge_mzdif_FIT)
@@ -1361,7 +1362,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 {
   edge_info_sum = CPLEXset$data$edge_info_sum
   edge_info_sum = edge_info_sum[with(edge_info_sum, order(edge_ilp_id)),]
-  
+  unknown_formula = CPLEXset$data$unknown_formula
   
 {
   edge_info_sum["isotope_score"] = NA
@@ -1392,7 +1393,8 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 
   
   edge_info_sum$edge_score = log10(edge_info_sum$edge_score) + edge_bonus
-  edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus
+  edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus*2
+  #edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus
   edge_info_sum$isotope_score[is.na(edge_info_sum$isotope_score)]=0
   edge_info_sum$edge_score = edge_info_sum$edge_score+edge_info_sum$isotope_score
   
@@ -1616,7 +1618,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   Mset = list()
-  Mset[["Library"]] = read_library("hmdb_unique.csv")
+  Mset[["Library"]] = read_library("hmdb_CHNOPS.csv")
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
@@ -1706,14 +1708,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  max_step = 10)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
-  #sf =  CPLEXset$data$unknown_formula
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
-                                                rdbe=T, step_score=T, iso_penalty_score=F)
-  #test = CPLEXset$data$unknown_formula
+
 }
 
 # Run CPLEX ####
 {
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
+                                                rdbe=T, step_score=T, iso_penalty_score=F)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = -log10(.8))
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
@@ -1754,9 +1755,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 
+
   # Helper function
 {
-  id = 122
+  id = 516
+
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1764,18 +1767,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset$NodeSet_network[[id]]
 }
 
-
-
-
 {
   sf = bind_rows(Mset$NodeSet_network)
   test = sf[duplicated(sf[,c("id","formula")]),]
 }
 
 # Evaluate Xi's data from annotation
-
 {
-  
   wl_result = read_csv("WL_190405_both.csv")
   merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
@@ -2082,4 +2080,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 #     temp_score = temp_score + log10(score_modifier+1e-10)+1
 #   }
 #   temp_score-log10(0.8)-1
+# }
+# {
+#   hmdb = Mset$Library
+#   hmdb = hmdb[!grepl("As|F|Fe|Se|Ni|Mn|Tl|I",hmdb$MF),]
+#   hmdb$MF  = gsub("Cl|C|H|N|O|P|S|\\d+","", hmdb$MF)
+#   write.csv(hmdb,"HMDB_CHNOPS.csv",row.names = F)
 # }
