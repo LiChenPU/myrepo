@@ -3,11 +3,13 @@ library(dplyr)
 
 #test2
 
-target=906.9958
+target=115.9207
 
-massRange = 5*906.9958/10^6
+charge = "-"
+massRange = 5*target/10^6
 time = Sys.time()
-mfRange="C0-99 H0-100 N0-12 O0-20 P0-3 S0-3 Si0-2 K0-1 Cl0-5 Na0-1"
+mfRange="C0-99 H0-100 N0-12 O0-20 P0-3 S0-3 Si0-2 K0-1 Cl0-5 Na0-1 Cu0-1 Cr0-1"
+mfRange = paste(mfRange, charge, sep="")
 
 query <- paste("http://www.chemcalc.org/chemcalc/em?monoisotopicMass=",target,
                "&mfRange=", mfRange,
