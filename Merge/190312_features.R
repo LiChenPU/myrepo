@@ -805,14 +805,20 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Network_prediction used to connect nodes to library and predict formula ####
-Network_prediction = function(Mset, edge_list_sub, 
-                              top_formula_n=3,
-                              read_from_csv = F, 
-                              max_step = 10
+Network_prediction = function(Mset, 
+                              edge_biotransform, 
+                              edge_artifact,
+                              biotransform_step = 5,
+                              artifact_step = 5,
+                              propagation_score_threshold = 0.5,
+                              top_n = 50,
+                              read_from_csv = F
                               )
 {
   if(!read_from_csv){
   mnl=Mset$NodeSet
+  edge_biotransform = EdgeSet$Biotransform
+  edge_artifact = EdgeSet$Artifacts
   # top_formula_n=1
   # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
@@ -843,80 +849,66 @@ Network_prediction = function(Mset, edge_list_sub,
   }
   
   #while loop to Predict formula based on known formula and edgelist 
-  
   nrow_experiment = nrow(Mset$Data)
   step=0
+
   timer=Sys.time()
-  New_nodes_in_network = 1
-  
-  propagation_score_threshold = 0.5
-  while(New_nodes_in_network==1){
+  while(step <= biotransform_step){
     
-    all_nodes_df = bind_rows(lapply(sf, head,top_formula_n))
-    new_nodes_df = all_nodes_df[all_nodes_df$steps==step 
-                                &all_nodes_df$score>propagation_score_threshold,]
-    print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
-    print((Sys.time()-timer))
+    all_nodes_df = bind_rows(sf)
     
-    if(nrow(new_nodes_df)==0){break}
-    
-    #Core algorithm
-    {
-      edge_list_node = edge_list_sub[edge_list_sub$node1 %in% new_nodes_df$id | 
-                                       edge_list_sub$node2 %in% new_nodes_df$id,]
+    # Handle artifacts
+    sub_step = 0
+    while(sub_step <= 0.01 * artifact_step){
+      all_nodes_df = bind_rows(sf)
+      new_nodes_df = all_nodes_df[all_nodes_df$steps==(step + sub_step)
+                                  &all_nodes_df$score>propagation_score_threshold,]
+      sub_step = sub_step+0.01
+      if(nrow(new_nodes_df)==0){break}
+      edge_artifact_sub = edge_artifact[edge_artifact$node1 %in% new_nodes_df$id | 
+                                       edge_artifact$node2 %in% new_nodes_df$id,]
       
-      n=1
-      for (n in 1: nrow(new_nodes_df)){
-        #if(n%%1000==0){print(paste("Head_n =",n))}
+      for(n in 1:nrow(new_nodes_df)){
+        temp_new_node = new_nodes_df[n,]
+        flag_id = temp_new_node$id
+        flag_formula = temp_new_node$formula
+        flag_is_metabolite = temp_new_node$is_metabolite
+        flag_score = temp_new_node$score
+        flag_rdbe = temp_new_node$rdbe
         
-        flag_id = new_nodes_df$id[n]
-        flag_formula = new_nodes_df$formula[n]
-        flag_is_metabolite = new_nodes_df$is_metabolite[n]
-        
-        temp_edge_list=subset(edge_list_node, edge_list_node$node1==flag_id |
-                                                  edge_list_node$node2==flag_id)
-        
+        temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
+                                edge_artifact_sub$node2==flag_id)
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(flag_id <= nrow_experiment){
           if(Mset$Data$mean_inten[flag_id]< 2e4){next}
         }
-        
-        #If flag is not metabolite, then only look for artifacts
-        if(!flag_is_metabolite){
-          temp_edge_list = temp_edge_list[temp_edge_list$category!=1, ]
-        }
-        
+      
         #If flag is an isotopic peak, then only look for isotopic peaks
         if(grepl("\\[",flag_formula)){
           temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+          if(nrow(temp_edge_list)==0){next}
         }
-        
-        if(nrow(temp_edge_list)==0){next}
 
-        #Filter 
+        #Filter edge direction
         temp_edge_list = temp_edge_list[(temp_edge_list$node1 == flag_id & temp_edge_list$direction != -1) 
-                                  |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
-
+                                        |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
         if(nrow(temp_edge_list)==0){next}
         
-        flag_score = new_nodes_df$score[n]
-        flag_rdbe = new_nodes_df$rdbe[n]
-        i=2
+        i=1
         for(i in 1:nrow(temp_edge_list)){
           temp_rdbe = temp_edge_list$rdbe[i]
           #If flag is head
           if(temp_edge_list$node1[i] == flag_id){
             partner_id = temp_edge_list$node2[i]
             if(partner_id>nrow_experiment){next}
-            
             if(grepl("x", temp_rdbe)){
               fold = as.numeric(gsub("x","",temp_rdbe))
               partner_rdbe = flag_rdbe * fold
             } else{
               partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
             }
-
+            
             temp_fg = temp_edge_list$linktype[i]
             if(temp_fg==""){
               partner_formula = flag_formula
@@ -939,7 +931,6 @@ Network_prediction = function(Mset, edge_list_sub,
             } else{
               partner_rdbe = flag_rdbe - as.numeric(temp_rdbe)
             }
-            
             temp_fg = temp_edge_list$linktype[i]
             if(temp_fg==""){
               partner_formula = flag_formula
@@ -951,31 +942,150 @@ Network_prediction = function(Mset, edge_list_sub,
               partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
             }
           }
- 
+          
           #function return false if not valid formula
           if(is.logical(partner_formula)){next}
+        
+          #Criteria to enter new entry into formula list
+          #1. If it is a new formula or a new metabolite status, then record
           
           partner_score = flag_score*temp_edge_list$edge_massdif_score[i]
           partner_parent = flag_id
-          partner_steps = step+1
-          partner_is_metabolite = all(flag_is_metabolite, temp_edge_list$category[i]==1)
+          partner_steps = step+sub_step
+          partner_is_metabolite = F
           
-          #Criteria to enter new entry into formula list
-          #1. new formula
           temp = sf[[partner_id]]
-          temp_subset=subset(temp, temp$formula==partner_formula)
+          temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
           if(nrow(temp_subset)!=0){
-            #2. If not a new metabolite status entry, then next
-            if(any(partner_is_metabolite == temp_subset$is_metabolite)){
+            #2. if not much higher scores, then next
+            if(partner_score<=(1.2*max(temp_subset$score))){
               next
             }
-            # #3. if not much higher scores, then next
-            # if(partner_score<=(1.2*max(temp_subset$score))){
-            #   next
-            # }
           }
           
-          #Enter new entry
+          #New entry
+          temp[nrow(temp)+1, ] = list(partner_id, 
+                                      partner_formula, 
+                                      partner_steps, 
+                                      partner_parent,
+                                      partner_is_metabolite, 
+                                      partner_score,
+                                      partner_rdbe)
+          temp = temp[with(temp, order(-score)),]
+          sf[[partner_id]]=temp
+        }
+      }
+      
+    }
+    
+    # Handle biotransform
+    {
+      all_nodes_df = bind_rows(sf)
+      new_nodes_df = all_nodes_df[all_nodes_df$steps==step
+                                  &all_nodes_df$score>propagation_score_threshold,]
+      print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
+      print((Sys.time()-timer))
+      step = step + 1
+      if(nrow(new_nodes_df)==0){break}
+      edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
+                                                  edge_biotransform$node2 %in% new_nodes_df$id,]
+      
+      for(n in 1:nrow(new_nodes_df)){
+        temp_new_node = new_nodes_df[n,]
+        flag_id = temp_new_node$id
+        flag_formula = temp_new_node$formula
+        flag_is_metabolite = temp_new_node$is_metabolite
+        flag_score = temp_new_node$score
+        flag_rdbe = temp_new_node$rdbe
+        
+        temp_edge_list=subset(edge_biotransform_sub, edge_biotransform_sub$node1==flag_id |
+                                edge_biotransform_sub$node2==flag_id)
+        
+        #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
+        if(flag_id <= nrow_experiment){
+          if(Mset$Data$mean_inten[flag_id]< 2e4){next}
+        }
+        
+        #If flag is an isotopic peak, then only look for isotopic peaks
+        if(grepl("\\[",flag_formula)){
+          temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+          if(nrow(temp_edge_list)==0){next}
+        }
+        
+        #Filter edge direction
+        temp_edge_list = temp_edge_list[(temp_edge_list$node1 == flag_id & temp_edge_list$direction != -1) 
+                                        |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
+        if(nrow(temp_edge_list)==0){next}
+        
+        i=1
+        for(i in 1:nrow(temp_edge_list)){
+          temp_rdbe = temp_edge_list$rdbe[i]
+          #If flag is head
+          if(temp_edge_list$node1[i] == flag_id){
+            partner_id = temp_edge_list$node2[i]
+            if(partner_id>nrow_experiment){next}
+            if(grepl("x", temp_rdbe)){
+              fold = as.numeric(gsub("x","",temp_rdbe))
+              partner_rdbe = flag_rdbe * fold
+            } else{
+              partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
+            }
+            
+            temp_fg = temp_edge_list$linktype[i]
+            if(temp_fg==""){
+              partner_formula = flag_formula
+            }else if (grepl("x",temp_fg)){
+              fold = as.numeric(gsub("x","",temp_fg))
+              partner_formula=my_calculate_formula(flag_formula,flag_formula,fold-1,Is_valid = T)
+            }else {
+              partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
+            }
+          }
+          
+          #If flag is tail
+          if(temp_edge_list$node2[i] == flag_id){
+            partner_id = temp_edge_list$node1[i]
+            if(partner_id>nrow_experiment){next}
+            
+            if(grepl("x", temp_rdbe)){
+              fold = as.numeric(gsub("x","",temp_rdbe))
+              partner_rdbe = flag_rdbe / fold
+            } else{
+              partner_rdbe = flag_rdbe - as.numeric(temp_rdbe)
+            }
+            temp_fg = temp_edge_list$linktype[i]
+            if(temp_fg==""){
+              partner_formula = flag_formula
+            }else if (grepl("x",temp_fg)){
+              fold = as.numeric(gsub("x","",temp_fg))
+              partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = T)
+              if(grepl(".", partner_formula)){partner_formula=F}
+            }else {
+              partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
+            }
+          }
+          
+          #function return false if not valid formula
+          if(is.logical(partner_formula)){next}
+          
+          #Criteria to enter new entry into formula list
+          #1. If it is a new formula or a new metabolite status, then record
+          
+          partner_score = flag_score*temp_edge_list$edge_massdif_score[i]
+          partner_parent = flag_id
+          partner_steps = step
+          partner_is_metabolite = T
+          
+          temp = sf[[partner_id]]
+          temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
+          if(nrow(temp_subset)!=0){
+            #2. if not much higher scores, then next
+            if(partner_score<=(1.2*max(temp_subset$score))){
+              next
+            }
+          }
+          
+          #New entry
           temp[nrow(temp)+1, ] = list(partner_id, 
                                       partner_formula, 
                                       partner_steps, 
@@ -988,17 +1098,14 @@ Network_prediction = function(Mset, edge_list_sub,
         }
       }
     }
-    
-    step = step+1
-    if(step == max_step){break}
   }
   
+
   # Pruning formula  #
   {
-    pred_formula = bind_rows(sf)
+    pred_formula = bind_rows(lapply(sf, head, top_n))
     pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
     pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
-    
     
     merge_formula = pred_formula
     sf = list()
@@ -1023,8 +1130,6 @@ Network_prediction = function(Mset, edge_list_sub,
   
   return(sf)
 }
-
-
 
 # Function for CPLEX ####
 ## Prepare_CPLEX parameter ####
@@ -1310,7 +1415,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   #when step is large, the likelihood of the formula is true decrease from its network score
   #Penalty happens when step > 5 on the existing score
   if(step_score==T){
-    unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-5), min, 0) 
+    unknown_formula["step_score"] = sapply(-0.1*(unknown_formula$steps-3), min, 0) 
   } else{
     unknown_formula["step_score"]=0
   }
@@ -1354,7 +1459,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
-  
+  print("Finish scoring formula.")
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
@@ -1424,6 +1529,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
     
   temp_edge_info_sum = temp_edge_info_sum[with(temp_edge_info_sum, order(edge_ilp_id)),]
   
+  print("Finish scoring edges.")
   return(temp_edge_info_sum)
 
 }
@@ -1702,10 +1808,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
-                                                 EdgeSet$Merge, 
-                                                 top_formula_n = 5,
-                                                 read_from_csv = F,
-                                                 max_step = 10)
+                                                 edge_biotransform = EdgeSet$Biotransform, 
+                                                 edge_artifact = EdgeSet$Artifacts,
+                                                 biotransform_step = 5,
+                                                 artifact_step = 5,
+                                                 propagation_score_threshold = 0.5,
+                                                 top_n = 50,
+                                                 read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
 
@@ -1713,9 +1822,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
+  unknown_formula = CPLEXset$data$unknown_formula
+  t = unknown_formula[duplicated(unknown_formula[,c("cal_mass")]),]
+  
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
-                                                rdbe=T, step_score=T, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = -log10(.8))
+                                                rdbe=T, step_score=F, iso_penalty_score=F)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -1758,9 +1870,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 516
-
+  id = 1592
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
+  
+
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
   edge_high_core_id = EdgeSet$Peak_inten_correlation[EdgeSet$Peak_inten_correlation$node1==id | EdgeSet$Peak_inten_correlation$node2==id,]
@@ -1775,7 +1888,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Evaluate Xi's data from annotation
 {
   wl_result = read_csv("WL_190405_both.csv")
-  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite")],wl_result, by.x="ID", by.y = "id", all =T)
+  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","steps")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
 }
 
@@ -2064,23 +2177,26 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 #                                                               unknown_node_CPLEX_Xi_met$formula.y,]
 #   
 # }
-# #Calculate isotopic score
-# {
-#   edge_id=2450
-#   edge_ilp_id = 8045
-#   temp_formula = CPLEXset$data$edge_info_sum$formula1[8045]
-#   temp_edge = EdgeSet$Merge[edge_id,]
-#   temp_fg = temp_edge$linktype
-#   temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
-#   if(grepl("\\[",temp_fg )){
-#     calc_abun = isotopic_abundance(temp_formula, temp_fg)
-#     abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
-#     score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
-#     #log score
-#     temp_score = temp_score + log10(score_modifier+1e-10)+1
-#   }
-#   temp_score-log10(0.8)-1
-# }
+#Calculate isotopic score
+{
+  edge_id=6674
+  edge_ilp_id = 30598
+  temp_formula = CPLEXset$data$edge_info_sum$formula1[edge_ilp_id]
+  temp_edge = EdgeSet$Merge[edge_id,]
+  temp_fg = temp_edge$linktype
+  #temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
+  if(grepl("\\[",temp_fg )){
+    calc_abun = isotopic_abundance(temp_formula, temp_fg)
+    abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+    score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
+    #log score
+    #temp_score = temp_score + log10(score_modifier+1e-10)+1
+  }
+  C2H7K2O10P1S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C2H7K2O10P1S1"|
+                                     edge_info_sum_id$formula2 == "C2H7K2O10P1S1",]
+  C4H7K3O8S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C4H7K3O8S1"|
+                                     edge_info_sum_id$formula2 == "C4H7K3O8S1",]
+}
 # {
 #   hmdb = Mset$Library
 #   hmdb = hmdb[!grepl("As|F|Fe|Se|Ni|Mn|Tl|I",hmdb$MF),]
