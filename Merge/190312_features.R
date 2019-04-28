@@ -26,7 +26,7 @@
 # Fucntions ####
 # Function for parsing#### 
 ## read_library ####
-read_library = function(library_file = "hmdb_unique.csv"){
+read_library = function(library_file){
   data(isotopes)
   hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
@@ -35,6 +35,21 @@ read_library = function(library_file = "hmdb_unique.csv"){
   hmdb_lib$Exact_Mass = formula_mz(hmdb_lib$MF)
   hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$MF)
   return(hmdb_lib)
+}
+## Read_rule_table - for biotransformation rule and artifacts ####
+Read_rule_table = function(rule_table_file = "biotransform.csv"){
+  data("isotopes")
+  biotransform = read.csv(rule_table_file,stringsAsFactors = F)
+  for(i in 1: nrow(biotransform)){
+    if(biotransform$Formula[i]==""){next}
+    biotransform$Formula[i] = check_chemform(isotopes,biotransform$Formula[i])$new_formula
+    biotransform$Formula[i] = my_calculate_formula(biotransform$Formula[i], "C1",Is_valid = F)
+    biotransform$Formula[i] = my_calculate_formula(biotransform$Formula[i], "C1", -1 ,Is_valid = F)
+    biotransform$mass[i] = formula_mz(biotransform$Formula[i])
+  }
+
+  biotransform = biotransform[with(biotransform, order(mass)),]
+  return(biotransform)
 }
   
 ## Cohort_Info - Data name and cohorts ####
@@ -429,15 +444,6 @@ Form_node_list = function(Mset)
   return(merge_node_list)
 }
 
-## Read_rule_table - for biotransformation rule and artifacts ####
-Read_rule_table = function(rule_table_file = "biotransform.csv"){
-  library(enviPat)
-  data("isotopes")
-  biotransform = read.csv(rule_table_file,stringsAsFactors = F)
-  biotransform$Formula = check_chemform(isotopes,biotransform$Formula)$new_formula
-  biotransform = biotransform[with(biotransform, order(mass)),]
-  return(biotransform)
-}
 ## Edge_biotransform - generate Edge_list for biotransformation ####
 Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_from_csv=F)
 {
@@ -986,7 +992,7 @@ Network_prediction = function(Mset,
       print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
       print((Sys.time()-timer))
       step = step + 1
-      if(nrow(new_nodes_df)==0){break}
+      if(nrow(new_nodes_df)==0 | step > biotransform_step){break}
       edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
                                                   edge_biotransform$node2 %in% new_nodes_df$id,]
       
@@ -1822,11 +1828,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Run CPLEX ####
 {
-  unknown_formula = CPLEXset$data$unknown_formula
-  t = unknown_formula[duplicated(unknown_formula[,c("cal_mass")]),]
-  
+  save.image()
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
-                                                rdbe=T, step_score=F, iso_penalty_score=F)
+                                                rdbe=T, step_score=T, iso_penalty_score=F)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
@@ -1870,7 +1874,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 1592
+  id = 8939
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   
 
@@ -2192,10 +2196,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     #log score
     #temp_score = temp_score + log10(score_modifier+1e-10)+1
   }
-  C2H7K2O10P1S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C2H7K2O10P1S1"|
-                                     edge_info_sum_id$formula2 == "C2H7K2O10P1S1",]
-  C4H7K3O8S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C4H7K3O8S1"|
-                                     edge_info_sum_id$formula2 == "C4H7K3O8S1",]
+  C4H11N1O5S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C4H11N1O5S1"|
+                                     edge_info_sum_id$formula2 == "C4H11N1O5S1",]
+  C3H11N1O6Si1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C3H11N1O6Si1"|
+                                     edge_info_sum_id$formula2 == "C3H11N1O6Si1",]
 }
 # {
 #   hmdb = Mset$Library
