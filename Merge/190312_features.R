@@ -1871,13 +1871,38 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 
+#heterodimer  
+{
+  e = EdgeSet$Peak_inten_correlation
+  e2 = e[e$node1 %in% Mset$Data$ID & e$node2 %in% Mset$Data$ID, ]
+  e3 = e2[e2$mz_dif > min(e2$mz_node1) & e2$mz_dif < max(e2$mz_node1),]
+  e3_list = split(e3, e3$node2)
+  hetero_dimer_ls = list()
+  for(i in 1: length(e3_list)){
+    temp_e = e3_list[[i]]
+    temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+") 
+    temp_matrix = (temp_matrix - temp_e$mz_node2[1])/temp_e$mz_node2[1] * 10^6
+    temp_index = which(abs(temp_matrix) < 5, arr.ind = T)
+    if(length(temp_index)>0){
+      temp_ppm = temp_matrix[temp_index]
+      temp_node_1 = temp_e$node1[temp_index[,1]]
+      linktype = temp_e$node1[temp_index[,2]]
+      temp_df = data.frame(node1 = temp_node_1, linktype = linktype, node2 = temp_e$node2[1], mass_dif = temp_ppm)
+      hetero_dimer_ls[[length(hetero_dimer_ls)+1]] = temp_df
+    }
+  }
+  hetero_dimer_df = bind_rows(hetero_dimer_ls)
+  hetero_dimer_df["category"]="Heterodimer"
+  hetero_dimer_df["direction"]=1
+  hetero_dimer_df["rdbe"]=0
+  # hetero_dimer_df_duplicate = hetero_dimer_df[duplicated(hetero_dimer_df[,c("node2", "linktype")]) | duplicated(hetero_dimer_df[,c("node2", "linktype")], fromLast = T),]
+}
+
 
   # Helper function
 {
-  id = 8939
+  id = 17750
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
-  
-
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
   edge_high_core_id = EdgeSet$Peak_inten_correlation[EdgeSet$Peak_inten_correlation$node1==id | EdgeSet$Peak_inten_correlation$node2==id,]
