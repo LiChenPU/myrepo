@@ -1734,10 +1734,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Xi_new_neg")
+  datapath = ("./Raphael_QE_neg")
   setwd(datapath)
   
-  filename = c("Xi_new_neg.csv")
+  filename = c("QE_neg.csv")
 
   
   Mset[["Raw_data"]] <- read_csv(filename)
@@ -1752,37 +1752,38 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
+  Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=1/10^6, 
-                                rt_dif_min=0.01,
-                                detection_limit=500)
+                                ms_dif_ppm=5/10^6, 
+                                rt_dif_min=0.1,
+                                detection_limit=5000)
   #View(Mset$Data)
   Mset[["ID"]]=Mset$Data$ID
   
 }
 
-# ## Feature generation ####
-# {
-#   #Identify peaks with high blanks
-#   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-#   #View(Mset$High_blanks)
-#   
-#   #library_match
-#   
-#   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-# 
-#   #Metaboanalyst_Statistic
-#   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-#   
-# 
-#   # output assigned formula
-#   Mset[["Summary"]] = Summary_Mset(Mset)
-#   write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
-#   save.image()
-# } 
+## Feature generation ####
+{
+  #Identify peaks with high blanks
+  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
+  #View(Mset$High_blanks)
+
+  #library_match
+
+  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
+
+  #Metaboanalyst_Statistic
+  Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+
+
+  # output assigned formula
+  Mset[["Summary"]] = Summary_Mset(Mset)
+  write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
+  save.image()
+}
 
 # Network ####
 {
@@ -1863,7 +1864,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 
   # output assigned formula
-  Mdata = Mset$Data
+  Mdata = Mset$Summary
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata2 = merge(formula, Mdata, all = T, by="ID")
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
@@ -1901,7 +1902,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 17750
+  id = 17365
+
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
