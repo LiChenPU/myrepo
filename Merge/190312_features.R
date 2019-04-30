@@ -15,7 +15,7 @@
   library(Matrix)
   library(slam)
   library(cplexAPI)
-  
+  library(MetaboAnalystR)
   #devtools::install_github("LiChenPU/Formula_manipulation")
   
   library(lc8)
@@ -307,7 +307,7 @@ Metaboanalyst_Statistic = function(Mset){
   mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", ratio=FALSE, ratioNum=20)
   # mSet<-FilterVariable(mSet, "iqr", "F", 25)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
-  mSet<-ANOVA.Anal(mSet, F, 0.05, "fisher")
+  mSet<-ANOVA.Anal(mSet, F, 0.5, "fisher")
   gc()
   if(ncol(mSet$dataSet$norm) > 15000){
     mSet<-my_PlotSubHeatMap(mSet, "top15000_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
@@ -447,8 +447,6 @@ Form_node_list = function(Mset)
 ## Edge_biotransform - generate Edge_list for biotransformation ####
 Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_from_csv=F)
 {
-  
-  
   if(!read_from_csv){
     merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
   merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
@@ -527,23 +525,99 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   
   return(edge_list_sub)
 }
+## Check_sys_measure_error - Check systematic error ####
+Check_sys_measure_error = function(Biotransform){
+  #install.packages("pracma")
+  library(pracma)
+  #Biotransform = EdgeSet$Biotransform
+  Biotransform = Biotransform[Biotransform$linktype=="",]
+  Biotransform = Biotransform[Biotransform$node1>nrow(Mset$Data)|Biotransform$node2>nrow(Mset$Data),]
+  A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  A_col_3 = - as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  A_col_4 = as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+
+  A = cbind(A_col_1,A_col_2,A_col_3,A_col_4)
+  b = - Biotransform$mass_dif
+  d = 0
+  C = matrix(c(1,-1,0,0), nrow = 1)
+  x <- lsqlin(A, b, C,d)
+  ppm_adjust = x[1]
+
+  C = matrix(c(0, 0,1,-1), nrow = 1)
+  x <- lsqlin(A, b, C,d)
+  abs_adjust = x[3]/10^6
+
+  if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
+    print("expect system error.")
+    return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
+  } else{
+    print("Do not expect system error.")
+    return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
+  }
+  
+  # A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))
+  # A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))
+  # 
+  # A = cbind(A_col_1,A_col_2)
+  # b = - Mset$NodeSet$mz[Biotransform$node2] * Biotransform$mass_dif
+  # d = 0
+  # C = matrix(c(1,-1), nrow = 1)
+  # x <- lsqlin(A, b, C,d)
+  # ppm_adjust = x[1]
+  # 
+  # if(abs(ppm_adjust)>0.5){
+  #   print("expect system error.")
+  #   return(ppm_adjust)
+  # } else{
+  #   print("Do not expect system error.")
+  #   return(ppm_adjust)
+  # }
+  # Biotransform = EdgeSet$Biotransform
+  # Biotransform_0 = Biotransform[Biotransform$node1<=nrow(Mset$Data)&Biotransform$node2<=nrow(Mset$Data),]
+  # Biotransform_1 = Biotransform[Biotransform$node1>nrow(Mset$Data)&Biotransform$node2<=nrow(Mset$Data),]
+  # Biotransform_2 = Biotransform[Biotransform$node1<=nrow(Mset$Data)&Biotransform$node2>nrow(Mset$Data),]
+  # edge_mzdif_FIT = fitdist(as.numeric(Biotransform$mass_dif), "norm") 
+  # edge_mzdif_FIT_0 = fitdist(as.numeric(Biotransform_0$mass_dif), "norm")    
+  # edge_mzdif_FIT_1 = fitdist(as.numeric(Biotransform_1$mass_dif), "norm")    
+  # edge_mzdif_FIT_2 = fitdist(as.numeric(Biotransform_2$mass_dif), "norm")    
+  # 
+  # plot(edge_mzdif_FIT_0)
+  # shapiro.test(Biotransform_0$mass_dif[base::sample(nrow(Biotransform_0),min(5000, nrow(Biotransform_0)))])
+  # 
+  # mean_0 = edge_mzdif_FIT_0$estimate[1]
+  # sd_0 = edge_mzdif_FIT_0$estimate[2]
+  # mean_1 = edge_mzdif_FIT_1$estimate[1]
+  # sd_1 = edge_mzdif_FIT_1$estimate[2]
+  # mean_2 = edge_mzdif_FIT_2$estimate[1]
+  # sd_2 = edge_mzdif_FIT_2$estimate[2]
+  # 
+  # #install.packages("mclust")
+  # library(mclust)
+  # mc <- Mclust(Biotransform$mass_dif, G=3)
+  # mc$parameters
+  # a=mc$z
+  # 
+  # #install.packages("flexmix")
+  # library(flexmix)
+  # fl = flexmix(Biotransform_0$mass_dif~1, k=4)
+  # a = fl@posterior
+  # 
+}
+
 ### Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform){
-  #Biotransform = EdgeSet$Artifacts
+  #Biotransform = EdgeSet$Biotransform
   if(nrow(Biotransform)>10000){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
   } else {
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
   }
-  #summary(edge_mzdif_FIT)
-  # log10(dnorm(4, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])/
-  #   dnorm(edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2]))
-  #hist(Biotransform$mass_dif)
-  
-  
-  
+
   plot(edge_mzdif_FIT)  
-  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, edge_mzdif_FIT$estimate[1], edge_mzdif_FIT$estimate[2])
+  summary(edge_mzdif_FIT)
+  
+  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
@@ -1734,10 +1808,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Raphael_QE_neg")
+  datapath = ("./Raphael_E")
   setwd(datapath)
   
-  filename = c("QE_neg.csv")
+  filename = c("E.csv")
 
   
   Mset[["Raw_data"]] <- read_csv(filename)
@@ -1752,7 +1826,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
-  Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
+  Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
@@ -1762,22 +1836,18 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 detection_limit=5000)
   #View(Mset$Data)
   Mset[["ID"]]=Mset$Data$ID
-  
 }
 
 ## Feature generation ####
 {
   #Identify peaks with high blanks
   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-  #View(Mset$High_blanks)
 
   #library_match
-
   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-
+  
   #Metaboanalyst_Statistic
   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-
 
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
@@ -1797,8 +1867,17 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                 mass_abs = 0.001, 
                                                 mass_ppm = 5/10^6, 
                                                 read_from_csv = read_from_csv)
-  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
+  adjust = Check_sys_measure_error(EdgeSet$Biotransform)
+  if(abs(adjust[1])>0.5 | abs(adjust[2])> 0.0001){
+    Mset$Data$medMz = Mset$Data$medMz*(1+adjust[1]/10^6)+adjust[2]
+    Mset[["NodeSet"]]=Form_node_list(Mset)
+    EdgeSet[["Biotransform"]] = Edge_biotransform(Mset,
+                                                  mass_abs = 0.001,
+                                                  mass_ppm = 5/10^6,
+                                                  read_from_csv = read_from_csv)
+  }
+  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
@@ -1824,7 +1903,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  read_from_csv = F)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
-
 }
 
 # Run CPLEX ####
@@ -1836,16 +1914,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
-  #CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
-
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.1)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.1)
 }
 
 # Read CPLEX result ####
 {
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-  #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
@@ -1868,7 +1944,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata2 = merge(formula, Mdata, all = T, by="ID")
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
-  
+  Mdata3 = Mdata2[!is.na(Mdata2$formula) & !is.na(Mdata2$library_match_formula) & Mdata2$formula!=Mdata2$library_match_formula,]
 }
 
 
@@ -1902,8 +1978,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 17365
-
+  id = 103
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1916,7 +1991,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   test = sf[duplicated(sf[,c("id","formula")]),]
 }
 
-# Evaluate Xi's data from annotation
+# Evaluate Xi's data from annotation ####
 {
   wl_result = read_csv("WL_190405_both.csv")
   merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","steps")],wl_result, by.x="ID", by.y = "id", all =T)
