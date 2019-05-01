@@ -294,7 +294,11 @@ library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
 Metaboanalyst_Statistic = function(Mset){
   library(MetaboAnalystR)
   
+  
+  Mdata = Mset$library_match$library_match_formula
+  Mdata["Merge_ID"] = with(Mdata, paste(ID, library_match_formula, library_match_name, sep="_" ))
   MA_output = Mset$Data[,c("ID",  Mset$Cohort$sample_names)]
+  MA_output$ID = Mdata$Merge_ID
   MA_output = rbind(c("cohort",Mset$Cohort$sample_cohort),MA_output)
 
   write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
@@ -311,8 +315,7 @@ Metaboanalyst_Statistic = function(Mset){
   gc()
   if(ncol(mSet$dataSet$norm) > 15000){
     mSet<-my_PlotSubHeatMap(mSet, "top15000_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
-  } 
-  else{
+  } else{
     mSet<-PlotHeatMap(mSet, "full_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
   }
   gc()
@@ -539,58 +542,21 @@ Check_sys_measure_error = function(Biotransform){
 
   A = cbind(A_col_1,A_col_2,A_col_3,A_col_4)
   b = - Biotransform$mass_dif
-  d = 0
-  C = matrix(c(1,-1,0,0), nrow = 1)
+  C = matrix(c(1,0,-1,0,0,1,0,-1), nrow = 2)
+  d = matrix(c(0,0), nrow=2)
+
   x <- lsqlin(A, b, C,d)
   ppm_adjust = x[1]
-
-  C = matrix(c(0, 0,1,-1), nrow = 1)
-  x <- lsqlin(A, b, C,d)
   abs_adjust = x[3]/10^6
 
   if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
-    print("expect system error.")
+    print(psate("expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust )
     return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
   } else{
-    print("Do not expect system error.")
+    print(psate("Do not expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust )
     return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
   }
-  
-  # A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))
-  # A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))
-  # 
-  # A = cbind(A_col_1,A_col_2)
-  # b = - Mset$NodeSet$mz[Biotransform$node2] * Biotransform$mass_dif
-  # d = 0
-  # C = matrix(c(1,-1), nrow = 1)
-  # x <- lsqlin(A, b, C,d)
-  # ppm_adjust = x[1]
-  # 
-  # if(abs(ppm_adjust)>0.5){
-  #   print("expect system error.")
-  #   return(ppm_adjust)
-  # } else{
-  #   print("Do not expect system error.")
-  #   return(ppm_adjust)
-  # }
-  # Biotransform = EdgeSet$Biotransform
-  # Biotransform_0 = Biotransform[Biotransform$node1<=nrow(Mset$Data)&Biotransform$node2<=nrow(Mset$Data),]
-  # Biotransform_1 = Biotransform[Biotransform$node1>nrow(Mset$Data)&Biotransform$node2<=nrow(Mset$Data),]
-  # Biotransform_2 = Biotransform[Biotransform$node1<=nrow(Mset$Data)&Biotransform$node2>nrow(Mset$Data),]
-  # edge_mzdif_FIT = fitdist(as.numeric(Biotransform$mass_dif), "norm") 
-  # edge_mzdif_FIT_0 = fitdist(as.numeric(Biotransform_0$mass_dif), "norm")    
-  # edge_mzdif_FIT_1 = fitdist(as.numeric(Biotransform_1$mass_dif), "norm")    
-  # edge_mzdif_FIT_2 = fitdist(as.numeric(Biotransform_2$mass_dif), "norm")    
-  # 
-  # plot(edge_mzdif_FIT_0)
-  # shapiro.test(Biotransform_0$mass_dif[base::sample(nrow(Biotransform_0),min(5000, nrow(Biotransform_0)))])
-  # 
-  # mean_0 = edge_mzdif_FIT_0$estimate[1]
-  # sd_0 = edge_mzdif_FIT_0$estimate[2]
-  # mean_1 = edge_mzdif_FIT_1$estimate[1]
-  # sd_1 = edge_mzdif_FIT_1$estimate[2]
-  # mean_2 = edge_mzdif_FIT_2$estimate[1]
-  # sd_2 = edge_mzdif_FIT_2$estimate[2]
+
   # 
   # #install.packages("mclust")
   # library(mclust)
@@ -1826,7 +1792,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
+  
   Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
+  
+  if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
+    {print("Warning! cohort number does not match sample number.")}
+  #Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
@@ -1978,7 +1949,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 103
+  id = 7
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
