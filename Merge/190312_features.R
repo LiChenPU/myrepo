@@ -321,6 +321,7 @@ Metaboanalyst_Statistic = function(Mset){
   gc()
   mSet<-my_PlotSubHeatMap(mSet, "top50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
   gc()
+  
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
   
@@ -411,6 +412,7 @@ Summary_Mset = function(Mset){
   HMDB = Mset$library_match$library_match_formula[,c("ID","library_match_formula","library_match_name")]
   Mdata = merge(HMDB,Mdata, all=T)
   ANOVA_FDR = Mset$Metaboanalyst_Statistic
+  ANOVA_FDR$ID = as.numeric(gsub("_.*","", ANOVA_FDR$ID))
   Mdata = merge(ANOVA_FDR,Mdata, all=T)
   
   return(Mdata)
@@ -529,12 +531,15 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   return(edge_list_sub)
 }
 ## Check_sys_measure_error - Check systematic error ####
-Check_sys_measure_error = function(Biotransform){
+Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
   #install.packages("pracma")
   library(pracma)
-  #Biotransform = EdgeSet$Biotransform
+  Biotransform = EdgeSet$Biotransform
   Biotransform = Biotransform[Biotransform$linktype=="",]
-  Biotransform = Biotransform[Biotransform$node1>nrow(Mset$Data)|Biotransform$node2>nrow(Mset$Data),]
+  # Biotransform = Biotransform[Biotransform$node1>nrow(Mset$Data)|Biotransform$node2>nrow(Mset$Data),]
+  high_inten_node = Mset$Data$ID[Mset$Data$mean_inten>inten_threshold]
+  Biotransform = Biotransform[Biotransform$node1 %in% high_inten_node | Biotransform$node2 %in% high_inten_node, ]
+  
   A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
   A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
   A_col_3 = - as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
@@ -544,16 +549,16 @@ Check_sys_measure_error = function(Biotransform){
   b = - Biotransform$mass_dif
   C = matrix(c(1,0,-1,0,0,1,0,-1), nrow = 2)
   d = matrix(c(0,0), nrow=2)
-
   x <- lsqlin(A, b, C,d)
   ppm_adjust = x[1]
   abs_adjust = x[3]/10^6
 
+
   if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
-    print(psate("expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust )
+    print(paste("expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust ))
     return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
   } else{
-    print(psate("Do not expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust )
+    print(paste("Do not expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust ))
     return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
   }
 
@@ -1774,10 +1779,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Raphael_E")
+  datapath = ("./Raphael_QE_pos")
   setwd(datapath)
   
-  filename = c("E.csv")
+  filename = c("QE_pos.csv")
 
   
   Mset[["Raw_data"]] <- read_csv(filename)
@@ -1789,15 +1794,16 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = -1,
+  Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   
-  Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
-  
+  #Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
+  #Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
+  Mset$Cohort$sample_cohort = c(rep("b",10),rep("a",10))
   if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
     {print("Warning! cohort number does not match sample number.")}
-  #Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
+  
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
@@ -1822,7 +1828,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
-  write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
+  write_csv(Mset$Summary, paste("Mdata_1_",filename,sep="_"))
   save.image()
 }
 
@@ -1839,7 +1845,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                 mass_ppm = 5/10^6, 
                                                 read_from_csv = read_from_csv)
   
-  adjust = Check_sys_measure_error(EdgeSet$Biotransform)
+  adjust = Check_sys_measure_error(EdgeSet$Biotransform, inten_threshold=1e5)
   if(abs(adjust[1])>0.5 | abs(adjust[2])> 0.0001){
     Mset$Data$medMz = Mset$Data$medMz*(1+adjust[1]/10^6)+adjust[2]
     Mset[["NodeSet"]]=Form_node_list(Mset)
@@ -1886,13 +1892,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.1)
+  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.1)
 }
 
 # Read CPLEX result ####
 {
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
@@ -1949,7 +1955,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 7
+  id = 127
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
