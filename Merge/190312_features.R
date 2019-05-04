@@ -78,7 +78,7 @@ Peak_cleanup = function(Mset,
 {
   
   raw = Mset$Raw_data
-  raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
+  #raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
   colnames(raw)[colnames(raw)=="groupId"] = "ID"
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
@@ -234,7 +234,6 @@ library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  mode = Mset$Global_parameter$mode
   
   hmdb_df = Mset$Library
   data(isotopes)
@@ -711,7 +710,7 @@ Peak_variance = function(Mset,
   
   
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
-  edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")])，]
+  edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")]),]
   print("High correlation peaks identified.")
   return(edge_ls)
 }
@@ -1779,10 +1778,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Raphael_QE_pos")
+  datapath = ("./Melanie_merge")
   setwd(datapath)
   
-  filename = c("QE_pos.csv")
+  filename = c("merge.csv")
 
   
   Mset[["Raw_data"]] <- read_csv(filename)
@@ -1800,7 +1799,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   #Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
   #Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
-  Mset$Cohort$sample_cohort = c(rep("b",10),rep("a",10))
+  #Mset$Cohort$sample_cohort = c(rep("b",10),rep("a",10))
   if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
     {print("Warning! cohort number does not match sample number.")}
   
@@ -1825,10 +1824,11 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   #Metaboanalyst_Statistic
   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+  #Mset[["Metaboanalyst_Statistic"]]=ANOVA_FDR
 
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
-  write_csv(Mset$Summary, paste("Mdata_1_",filename,sep="_"))
+  write_csv(Mset$Summary, paste("Mdata_1",filename,sep="_"))
   save.image()
 }
 
