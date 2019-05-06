@@ -16,6 +16,7 @@
   library(slam)
   library(cplexAPI)
   library(MetaboAnalystR)
+  library(pracma)
   #devtools::install_github("LiChenPU/Formula_manipulation")
   
   library(lc8)
@@ -65,6 +66,8 @@ Cohort_Info = function(Mset)
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
   sample_cohort=stri_replace_last_regex(sample_names,'_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
+  if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
+  {print("Warning! cohort number does not match sample number.")}
   
   return(list("sample_names"=sample_names,"blank_names"=blank_names, "sample_cohort"=sample_cohort))
 }
@@ -76,13 +79,13 @@ Peak_cleanup = function(Mset,
                         detection_limit=2500
                         )
 {
-  
   raw = Mset$Raw_data
   #raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
   colnames(raw)[colnames(raw)=="groupId"] = "ID"
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  raw$medMz = raw$medMz*abs(Mset$Global_parameter$mode) - (H_mass-e_mass)*Mset$Global_parameter$mode
+  ion_mode = Mset$Global_parameter$mode
+  raw$medMz = raw$medMz*abs(ion_mode) - (H_mass-e_mass)*ion_mode
   
   #Group MS groups
   {
@@ -449,12 +452,13 @@ Form_node_list = function(Mset)
 }
 
 ## Edge_biotransform - generate Edge_list for biotransformation ####
-Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_from_csv=F)
+Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5, read_from_csv=F)
 {
   if(!read_from_csv){
+    mass_ppm = mass_ppm/10^6
     merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
-  merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
-  merge_nrow = nrow(merge_node_list)
+    merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
+    merge_nrow = nrow(merge_node_list)
   
   timer=Sys.time()
   {
@@ -516,23 +520,16 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6, read_fro
   )
   
   edge_list_sub["category"]=1
-  
-  
   write_csv(edge_list_sub,"edge_list_sub.txt")
   
   } else{
-    
     edge_list_sub = read.csv("edge_list_sub.txt", na="NA", stringsAsFactors = F)
-    
   }
-  
-  
   return(edge_list_sub)
 }
 ## Check_sys_measure_error - Check systematic error ####
 Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
-  #install.packages("pracma")
-  library(pracma)
+
   Biotransform = EdgeSet$Biotransform
   Biotransform = Biotransform[Biotransform$linktype=="",]
   # Biotransform = Biotransform[Biotransform$node1>nrow(Mset$Data)|Biotransform$node2>nrow(Mset$Data),]
@@ -561,6 +558,9 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
     return(adjust = c(ppm_adjust=ppm_adjust, abs_adjust=abs_adjust))
   }
 
+  
+  # Check if distribution is gaussian
+  # shapiro.test(EdgeSet$Biotransform$mass_dif[base::sample(nrow(EdgeSet$Biotransform),5000)])
   # 
   # #install.packages("mclust")
   # library(mclust)
@@ -643,7 +643,11 @@ Peak_variance = function(Mset,
       
       temp_x = t(df_raw[i,Mset$Cohort$sample_names])
       temp_y = t(temp_df_raw[,Mset$Cohort$sample_names])
-      temp_df_raw$correlation = as.numeric(t(cor((temp_x), (temp_y))))
+      temp_df_raw$correlation = as.numeric(t(cor(temp_x, temp_y)))
+      
+      # temp_x = c(0.1,1,1.1,1.2)
+      # temp_y = c(0.01,0.05,0.02,0.1)
+      # cor(temp_x, temp_y)
       
       temp_df_raw["node1"]=df_raw$ID[i]
       temp_df_raw["node2"]=temp_df_raw$ID
@@ -829,6 +833,36 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
   }
   return(edge_ls_annotate_network)
 }
+
+### Hetero_dimer - Edge_list for hetero_dimer ####
+Hetero_dimer = function(Peak_inten_correlation)
+{
+  e = Peak_inten_correlation
+  e2 = e[e$node1 %in% Mset$Data$ID & e$node2 %in% Mset$Data$ID, ]
+  e3 = e2[e2$mz_dif > min(e2$mz_node1) & e2$mz_dif < max(e2$mz_node1),]
+  e3_list = split(e3, e3$node2)
+  hetero_dimer_ls = list()
+  for(i in 1: length(e3_list)){
+    temp_e = e3_list[[i]]
+    temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+") 
+    temp_matrix = (temp_matrix - temp_e$mz_node2[1])/temp_e$mz_node2[1] * 10^6
+    temp_index = which(abs(temp_matrix) < 5, arr.ind = T)
+    if(length(temp_index)>0){
+      temp_ppm = temp_matrix[temp_index]
+      temp_node_1 = temp_e$node1[temp_index[,1]]
+      linktype = temp_e$node1[temp_index[,2]]
+      temp_df = data.frame(node1 = temp_node_1, linktype = linktype, node2 = temp_e$node2[1], mass_dif = temp_ppm)
+      hetero_dimer_ls[[length(hetero_dimer_ls)+1]] = temp_df
+    }
+  }
+  hetero_dimer_df = bind_rows(hetero_dimer_ls)
+  hetero_dimer_df["category"]="Heterodimer"
+  hetero_dimer_df["direction"]=1
+  hetero_dimer_df["rdbe"]=0
+  # hetero_dimer_df_duplicate = hetero_dimer_df[duplicated(hetero_dimer_df[,c("node2", "linktype")]) | duplicated(hetero_dimer_df[,c("node2", "linktype")], fromLast = T),]
+  return(hetero_dimer_df)
+}
+
 
 ## Merge_edgeset ####
 Merge_edgeset = function(EdgeSet){
@@ -1778,31 +1812,19 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Melanie_merge")
+  datapath = ("./Xi_new_neg")
   setwd(datapath)
   
-  filename = c("merge.csv")
-
-  
+  filename = c("Xi_new_neg.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
-  #Mset[["Raw_data"]] = Mset$Raw_data[base::sample(nrow(Mset$Raw_data),8000),]
-  
-
-  #write.csv(Mset[["Library"]], "HMDB_detected_nodes_clean.csv")
 }
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = 1,
+
+  Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
-  
-  #Mset$Cohort$sample_cohort = c("b",	"b",	"b",	"a",	"b",	"b",	"a",	"a",	"a",	"b",	"b",	"a",	"a",	"a",	"a",	"b",	"b",	"b",	"a",	"a")
-  #Mset$Cohort$sample_cohort = c(rep("b",13),rep("a",13))
-  #Mset$Cohort$sample_cohort = c(rep("b",10),rep("a",10))
-  if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
-    {print("Warning! cohort number does not match sample number.")}
-  
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
@@ -1810,8 +1832,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 ms_dif_ppm=5/10^6, 
                                 rt_dif_min=0.1,
                                 detection_limit=5000)
-  #View(Mset$Data)
-  Mset[["ID"]]=Mset$Data$ID
 }
 
 ## Feature generation ####
@@ -1867,6 +1887,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                search_ppm_cutoff=10,
                                                read_from_csv = read_from_csv)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
+  
+  #heterodimer  
+  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation)
+  
 
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
@@ -1877,9 +1901,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  artifact_step = 5,
                                                  propagation_score_threshold = 0.5,
                                                  top_n = 50,
-                                                 read_from_csv = F)
+                                                 read_from_csv = read_from_csv)
   
-  CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = F)
+  CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)
 }
 
 # Run CPLEX ####
@@ -1917,41 +1941,17 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
 
   # output assigned formula
-  Mdata = Mset$Summary
+  if(length(Mset$Summary)!=0){
+    Mdata = Mset$Summary
+  } else {
+    Mdata = Mset$Data
+  }
+  
   formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata2 = merge(formula, Mdata, all = T, by="ID")
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
   Mdata3 = Mdata2[!is.na(Mdata2$formula) & !is.na(Mdata2$library_match_formula) & Mdata2$formula!=Mdata2$library_match_formula,]
 }
-
-
-#heterodimer  
-{
-  e = EdgeSet$Peak_inten_correlation
-  e2 = e[e$node1 %in% Mset$Data$ID & e$node2 %in% Mset$Data$ID, ]
-  e3 = e2[e2$mz_dif > min(e2$mz_node1) & e2$mz_dif < max(e2$mz_node1),]
-  e3_list = split(e3, e3$node2)
-  hetero_dimer_ls = list()
-  for(i in 1: length(e3_list)){
-    temp_e = e3_list[[i]]
-    temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+") 
-    temp_matrix = (temp_matrix - temp_e$mz_node2[1])/temp_e$mz_node2[1] * 10^6
-    temp_index = which(abs(temp_matrix) < 5, arr.ind = T)
-    if(length(temp_index)>0){
-      temp_ppm = temp_matrix[temp_index]
-      temp_node_1 = temp_e$node1[temp_index[,1]]
-      linktype = temp_e$node1[temp_index[,2]]
-      temp_df = data.frame(node1 = temp_node_1, linktype = linktype, node2 = temp_e$node2[1], mass_dif = temp_ppm)
-      hetero_dimer_ls[[length(hetero_dimer_ls)+1]] = temp_df
-    }
-  }
-  hetero_dimer_df = bind_rows(hetero_dimer_ls)
-  hetero_dimer_df["category"]="Heterodimer"
-  hetero_dimer_df["direction"]=1
-  hetero_dimer_df["rdbe"]=0
-  # hetero_dimer_df_duplicate = hetero_dimer_df[duplicated(hetero_dimer_df[,c("node2", "linktype")]) | duplicated(hetero_dimer_df[,c("node2", "linktype")], fromLast = T),]
-}
-
 
   # Helper function
 {
