@@ -4,6 +4,7 @@
 
 # Import library ####
 {
+  
   library(readr)
   library(igraph)
   library(fitdistrplus)
@@ -268,9 +269,6 @@ library_match = function(Mset, ppm=5/10^6, library_file = "hmdb_unique.csv")
   
   counts=unlist(lapply(library_match,nrow))
   num_of_library_match = cbind(ID=Mset$ID,counts)
-  
-  
-  
   
   df = as.data.frame(num_of_library_match)
   
@@ -1955,7 +1953,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 127
+  id = 8
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1998,33 +1996,55 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 
+
 # Graphic analysis ####
 {
   Graphset = list()
   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
-  merge_node_list = merge(Mset$NodeSet,unknown_node_CPLEX,all=T)
-  for(i in 1:nrow(merge_node_list)){
-    if(is.na(merge_node_list$formula[i]) & !is.na(merge_node_list$MF[i])){
-      merge_node_list$formula[i] = merge_node_list$MF[i]
-    }
+  # merge_node_list = merge(Mset$NodeSet,unknown_node_CPLEX,all=T, by= -"rdbe")
+  merge_node_list = Mset$NodeSet
+  
+  merge_node_list$rdbe[unknown_node_CPLEX$ID]=unknown_node_CPLEX$rdbe
+  merge_node_list$MF[unknown_node_CPLEX$ID]=unknown_node_CPLEX$formula
+  
+  colors <- c("grey", "white", "red", "yellow", "green")
+  merge_node_list["color"] = colors[merge_node_list$category+2]
+  
+  
+  merge_node_list["is_artifact"]=NA
+  artifact_edgeset = merge_edge_list[merge_edge_list$category!=1,]
+  artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
+                            artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
+  artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
+  merge_node_list$is_artifact[artifact_nodes]=TRUE
+  
+  merge_node_list["is_biotransform"]=NA
+  biotranform_edgeset = merge_edge_list[merge_edge_list$category==1,]
+  g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = merge_node_list[merge_node_list$ID %in% c(biotranform_edgeset$node1, biotranform_edgeset$node2),], directed = F)
+  clu=components(g_sub)
+  #subnetwork criteria 
+  g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+  test2 = as.data.frame(clu$membership)
+  test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
+  biotranform_nodes_id = c()
+  for(i in unique(test3)){
+    biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
   }
+  #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
+  merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
   
-  merge_node_list["log10_inten"] = NA
-  merge_node_list$log10_inten[Mset$Data$ID] = Mset$Data$log10_inten
-  
-  merge_node_list_1e5 = merge_node_list[merge_node_list$log10_inten>5 &
-                                          !is.na(merge_node_list$log10_inten), ]
-  nrow(merge_node_list_1e5[is.na(merge_node_list_1e5$formula),])
-  
-  colors <- c("white", "red", "orange", "yellow", "green")
-  merge_node_list["color"] = colors[merge_node_list$category+1]
+  test = merge_node_list[is.na(merge_node_list$is_artifact)&merge_node_list$is_biotransform&!is.na(merge_node_list$is_biotransform),]
   
   g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
-  #E(g)$color = colors[merge_edge_list$category+1]
-  merge_node_list["degree"]=degree(g, mode = c("all"))
   
-  g_sub = graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),], directed = T)
-  #E(g_sub)$color = colors[merge_edge_list$category+1]
+  
+  plot(g_sub,
+       vertex.label = NA,
+       #edge.color = 'black',
+       vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+       edge.arrow.size = 0.05,
+       layout = layout_nicely(g_sub))
+
   
   
   #Basic graph characteristics, distance, degree, betweeness
@@ -2050,7 +2070,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     
     nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
     
-    
+    # 
     # plot(g_sub,
     #      vertex.label = NA,
     #      #edge.color = 'black',
@@ -2076,9 +2096,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 
 {
-  
-  
-  subgraph_specific_node("2115", g_sub,1)
+  subgraph_specific_node("122", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
   
 }
@@ -2105,7 +2123,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     }
   }
   
-  find_node_in_subgraph(331, subnetwork)
+  find_node_in_subgraph(576, subnetwork)
   
   for(i in 1:5){
     #Analyze the network/subgraph of specific node
@@ -2280,7 +2298,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   C3H11N1O6Si1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C3H11N1O6Si1"|
                                      edge_info_sum_id$formula2 == "C3H11N1O6Si1",]
 }
-# {
+````# {
 #   hmdb = Mset$Library
 #   hmdb = hmdb[!grepl("As|F|Fe|Se|Ni|Mn|Tl|I",hmdb$MF),]
 #   hmdb$MF  = gsub("Cl|C|H|N|O|P|S|\\d+","", hmdb$MF)
