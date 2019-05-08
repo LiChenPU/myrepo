@@ -4,7 +4,6 @@
 
 # Import library ####
 {
-  
   library(readr)
   library(igraph)
   library(fitdistrplus)
@@ -18,8 +17,9 @@
   library(cplexAPI)
   library(MetaboAnalystR)
   library(pracma)
+  # install.packages("janitor")
+  library(janitor)
   #devtools::install_github("LiChenPU/Formula_manipulation")
-  
   library(lc8)
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -1570,7 +1570,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
       parent_inten = temp_edge$node2_log10_inten
     }
     calc_abun = isotopic_abundance(temp_formula, temp_iso)
-    abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
+    abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
     edge_info_isotope$isotope_score[i] = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
     # edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id[i]] = edge_info_isotope$isotope_score[i]
   }
@@ -1827,9 +1827,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=5/10^6, 
-                                rt_dif_min=0.1,
-                                detection_limit=5000)
+                                ms_dif_ppm=1/10^6, 
+                                rt_dif_min=0.01,
+                                detection_limit=500)
 }
 
 ## Feature generation ####
@@ -1937,6 +1937,54 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
+  # Graphic analysis
+  {
+    Graphset = list()
+    merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
+    merge_node_list = Mset$NodeSet
+    
+    merge_node_list$rdbe[unknown_node_CPLEX$ID]=unknown_node_CPLEX$rdbe
+    merge_node_list$MF[unknown_node_CPLEX$ID]=unknown_node_CPLEX$formula
+    
+    colors <- c("grey", "white", "red", "yellow", "green")
+    merge_node_list["color"] = colors[merge_node_list$category+2]
+    
+    merge_node_list["is_artifact"]=FALSE
+    artifact_edgeset = merge_edge_list[merge_edge_list$category!=1,]
+    artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
+                              artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
+    artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
+    merge_node_list$is_artifact[artifact_nodes]=TRUE
+    
+    merge_node_list["is_biotransform"]=FALSE
+    biotranform_edgeset = merge_edge_list[merge_edge_list$category==1,]
+    g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = merge_node_list[merge_node_list$ID %in% c(biotranform_edgeset$node1, biotranform_edgeset$node2),], directed = F)
+    clu=components(g_bio)
+    #subnetwork criteria 
+    g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+    test2 = as.data.frame(clu$membership)
+    test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
+    biotranform_nodes_id = c()
+    for(i in unique(test3)){
+      biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
+    }
+    #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
+    merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
+    formula = merge_node_list[1:nrow(Mset$Data),c("ID", "MF","is_artifact", "is_biotransform")]
+    
+    unknown_node_CPLEX = merge(formula, unknown_node_CPLEX)
+    unknown_node_CPLEX = unknown_node_CPLEX[,-2]
+    for(i in 1:nrow(unknown_node_CPLEX)){
+      if(unknown_node_CPLEX$is_artifact[i]){
+        if(unknown_node_CPLEX$is_biotransform[i]){unknown_node_CPLEX$is_metabolite[i]="Maybe"
+        }else{unknown_node_CPLEX$is_metabolite[i]="No"}
+      }else{
+        if(unknown_node_CPLEX$is_biotransform[i]){unknown_node_CPLEX$is_metabolite[i]="Yes"
+        }else{unknown_node_CPLEX$is_metabolite[i]=NA}
+      }
+    }
+  }
+  
 
   # output assigned formula
   if(length(Mset$Summary)!=0){
@@ -1944,8 +1992,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   } else {
     Mdata = Mset$Data
   }
-  
-  formula = unknown_node_CPLEX[,c("ID","formula","is_metabolite")]
   Mdata2 = merge(formula, Mdata, all = T, by="ID")
   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
   Mdata3 = Mdata2[!is.na(Mdata2$formula) & !is.na(Mdata2$library_match_formula) & Mdata2$formula!=Mdata2$library_match_formula,]
@@ -1953,7 +1999,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 8
+  id = 355
+
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -1961,15 +2008,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset$NodeSet_network[[id]]
 }
 
-{
-  sf = bind_rows(Mset$NodeSet_network)
-  test = sf[duplicated(sf[,c("id","formula")]),]
-}
-
 # Evaluate Xi's data from annotation ####
 {
   wl_result = read_csv("WL_190405_both.csv")
-  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","steps")],wl_result, by.x="ID", by.y = "id", all =T)
+  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","is_artifact", "is_biotransform","steps")],wl_result, by.x="ID", by.y = "id", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
 }
 
@@ -1986,7 +2028,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Compare formula #
 {
-  
   merge_result_with_formula = merge_result[!is.na(merge_result$`Ground truth`) & !is.na(merge_result$`Correct?`),]
   merge_result_with_formula_correct = merge_result_with_formula[merge_result_with_formula$formula.x==merge_result_with_formula$`Ground truth` &
                                                                   (!is.na(merge_result_with_formula$formula.x)),]
@@ -1996,42 +2037,28 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 
 
+# Compare assignment #
+{
+  merge_result_notbg = merge_result_e5[merge_result_e5$feature!="background",]
+  merge_result_notbg = merge_result_e6[merge_result_e6$feature!="background",]
+  
+  PAVE_NetID= tabyl(merge_result_notbg, feature_1, is_metabolite)
+  PAVE_NetID_filter = filter(merge_result_notbg, feature_1 == "Adduct", is_metabolite == "Yes")
+  
+  WY_NetID = tabyl(merge_result_notbg, feature, is_metabolite)
+  WY_NetID_filter = filter(merge_result_notbg, feature == "buffer", is_metabolite == "Yes")
+  
+  artifact_vs_fea = tabyl(merge_result_e5_notbg, is_artifact, feature )
+  artifact_vs_fea1 = tabyl(merge_result_e5_notbg, is_artifact, feature_1,is_biotransform )
+}
+
+
+
+
 
 # Graphic analysis ####
 {
-  Graphset = list()
-  merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
-  # merge_node_list = merge(Mset$NodeSet,unknown_node_CPLEX,all=T, by= -"rdbe")
-  merge_node_list = Mset$NodeSet
-  
-  merge_node_list$rdbe[unknown_node_CPLEX$ID]=unknown_node_CPLEX$rdbe
-  merge_node_list$MF[unknown_node_CPLEX$ID]=unknown_node_CPLEX$formula
-  
-  colors <- c("grey", "white", "red", "yellow", "green")
-  merge_node_list["color"] = colors[merge_node_list$category+2]
-  
-  
-  merge_node_list["is_artifact"]=NA
-  artifact_edgeset = merge_edge_list[merge_edge_list$category!=1,]
-  artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
-                            artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
-  artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
-  merge_node_list$is_artifact[artifact_nodes]=TRUE
-  
-  merge_node_list["is_biotransform"]=NA
-  biotranform_edgeset = merge_edge_list[merge_edge_list$category==1,]
-  g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = merge_node_list[merge_node_list$ID %in% c(biotranform_edgeset$node1, biotranform_edgeset$node2),], directed = F)
-  clu=components(g_sub)
-  #subnetwork criteria 
-  g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
-  test2 = as.data.frame(clu$membership)
-  test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
-  biotranform_nodes_id = c()
-  for(i in unique(test3)){
-    biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
-  }
-  #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
-  merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
+
   
   test = merge_node_list[is.na(merge_node_list$is_artifact)&merge_node_list$is_biotransform&!is.na(merge_node_list$is_biotransform),]
   
@@ -2098,7 +2125,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   subgraph_specific_node("122", g_sub,1)
   Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
-  
 }
 
   
@@ -2107,8 +2133,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   subDir = "subgraph of specific node"
   dir.create(file.path(mainDir, subDir),showWarnings=F)
   setwd(file.path(mainDir, subDir))
-  
-  
   
   clu=components(g_sub)
   #subnetwork criteria 
@@ -2278,29 +2302,89 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 #                                                               unknown_node_CPLEX_Xi_met$formula.y,]
 #   
 # }
-#Calculate isotopic score
-{
-  edge_id=6674
-  edge_ilp_id = 30598
-  temp_formula = CPLEXset$data$edge_info_sum$formula1[edge_ilp_id]
-  temp_edge = EdgeSet$Merge[edge_id,]
-  temp_fg = temp_edge$linktype
-  #temp_score = log10(temp_edge$edge_massdif_score+1e-10)+1
-  if(grepl("\\[",temp_fg )){
-    calc_abun = isotopic_abundance(temp_formula, temp_fg)
-    abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
-    score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
-    #log score
-    #temp_score = temp_score + log10(score_modifier+1e-10)+1
-  }
-  C4H11N1O5S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C4H11N1O5S1"|
-                                     edge_info_sum_id$formula2 == "C4H11N1O5S1",]
-  C3H11N1O6Si1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C3H11N1O6Si1"|
-                                     edge_info_sum_id$formula2 == "C3H11N1O6Si1",]
-}
-````# {
+# #Calculate isotopic score
+# {
+#   edge_id=6799
+#   edge_ilp_id = 16459
+#   edge_info_isotope = edge_info_sum[edge_ilp_id,]
+#   temp_edge = edge_info_isotope$edge_id
+#   temp_iso = temp_edge$category
+#   if(temp_iso=="[10]B"){
+#     temp_formula = edge_info_isotope$formula2
+#     parent_inten = temp_edge$node1_log10_inten
+#     temp_edge$msr_inten_dif = -temp_edge$msr_inten_dif
+#   }else {
+#     temp_formula = edge_info_isotope$formula1
+#     parent_inten = temp_edge$node2_log10_inten
+#   }
+#   calc_abun = isotopic_abundance(temp_formula, temp_iso)
+#   abun_ratio = calc_abun/10^temp_edge$msr_inten_dif
+#   isotope_score = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
+#   
+#   temp_formula = CPLEXset$data$edge_info_sum$formula1[edge_ilp_id]
+#   temp_edge = EdgeSet$Merge[edge_id,]
+#   temp_fg = temp_edge$linktype
+#   temp_score = log10(temp_edge$edge_massdif_score+1e-10)
+#   if(grepl("\\[",temp_fg )){
+#     calc_abun = isotopic_abundance(temp_formula, temp_fg)
+#     abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+#     score_modifier = dnorm(abun_ratio,1,0.2+10^(4-temp_edge$node2_log10_inten))/dnorm(1,1,0.2+10^(4-temp_edge$node2_log10_inten))
+#     #log score
+#     temp_score = temp_score + log10(score_modifier+1e-10)
+#   }
+#   C4H11N1O5S1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C4H11N1O5S1"|
+#                                      edge_info_sum_id$formula2 == "C4H11N1O5S1",]
+#   C3H11N1O6Si1 = edge_info_sum_id[edge_info_sum_id$formula1 == "C3H11N1O6Si1"|
+#                                      edge_info_sum_id$formula2 == "C3H11N1O6Si1",]
+#   
+#   
+#   
+#   edge_list_isotope = EdgeSet$Merge[grepl("\\[", EdgeSet$Merge$category),]
+#   edge_info_sum_isotope = edge_info_sum[edge_info_sum$ILP_result==1 & grepl("\\[", edge_info_sum$category),]
+#   edge_info_sum_isotope = edge_info_sum_isotope[complete.cases(edge_info_sum_isotope),]
+#   edge_info_sum_isotope["Cal_inten"] = NA
+#   edge_info_sum_isotope["Msr_inten"] = NA
+#   i=1
+#   for(i in 1:nrow(edge_info_sum_isotope)){
+#     edge_info_isotope = edge_info_sum[edge_info_sum_isotope$edge_ilp_id[i],]
+#     temp_edge = EdgeSet$Merge[edge_info_isotope$edge_id,]
+#     temp_iso = temp_edge$category
+#     if(temp_iso=="[10]B"){
+#       temp_formula = edge_info_isotope$formula2
+#       parent_inten = temp_edge$node1_log10_inten
+#       temp_edge$msr_inten_dif = -temp_edge$msr_inten_dif
+#     }else {
+#       temp_formula = edge_info_isotope$formula1
+#       parent_inten = temp_edge$node2_log10_inten
+#     }
+#     calc_abun = isotopic_abundance(temp_formula, temp_iso)
+#     edge_info_sum_isotope$Cal_inten[i] = 10^parent_inten*calc_abun*10^(-temp_edge$msr_inten_dif)
+#     edge_info_sum_isotope$Msr_inten[i] = 10^parent_inten
+#   }
+#   edge_info_sum_isotope = edge_info_sum_isotope[edge_info_sum_isotope$Msr_inten>100000,]
+#   edge_info_sum_isotope["dif_ratio"] = (edge_info_sum_isotope$Cal_inten - edge_info_sum_isotope$Msr_inten)/edge_info_sum_isotope$Msr_inten
+#   edge_info_sum_isotope["dif_sqrt_ratio"] = (edge_info_sum_isotope$Cal_inten - edge_info_sum_isotope$Msr_inten)/sqrt(edge_info_sum_isotope$Msr_inten)
+#   
+#   shapiro.test(edge_info_sum_isotope$dif_ratio)
+#   shapiro.test(edge_info_sum_isotope$dif_sqrt_ratio)
+#   
+#   dif_ratio = fitdist(edge_info_sum_isotope$dif_ratio, "norm")  
+#   edge_info_sum_isotope["dif_ratio_sc"]=dnorm(edge_info_sum_isotope$dif_ratio, 0, dif_ratio$estimate[2])
+#   edge_info_sum_isotope["dif_ratio_sc"]=edge_info_sum_isotope["dif_ratio_sc"]/max(edge_info_sum_isotope["dif_ratio_sc"])
+#   plot(dif_ratio)
+#   
+#   dif_sqrt_ratio = fitdist(edge_info_sum_isotope$dif_sqrt_ratio, "norm")  
+#   edge_info_sum_isotope["dif_sqrt_ratio_sc"]=dnorm(edge_info_sum_isotope$dif_sqrt_ratio, 0, dif_sqrt_ratio$estimate[2])
+#   edge_info_sum_isotope["dif_sqrt_ratio_sc"]=edge_info_sum_isotope["dif_sqrt_ratio_sc"]/max(edge_info_sum_isotope["dif_sqrt_ratio_sc"])
+#   
+#   plot(dif_sqrt_ratio)
+#   
+# }
+# {
 #   hmdb = Mset$Library
 #   hmdb = hmdb[!grepl("As|F|Fe|Se|Ni|Mn|Tl|I",hmdb$MF),]
 #   hmdb$MF  = gsub("Cl|C|H|N|O|P|S|\\d+","", hmdb$MF)
 #   write.csv(hmdb,"HMDB_CHNOPS.csv",row.names = F)
 # }
+  
+  
