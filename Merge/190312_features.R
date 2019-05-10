@@ -17,6 +17,7 @@
   library(cplexAPI)
   library(MetaboAnalystR)
   library(pracma)
+  library(tictoc)
   # install.packages("janitor")
   library(janitor)
   #devtools::install_github("LiChenPU/Formula_manipulation")
@@ -1673,8 +1674,6 @@ Run_CPLEX = function(CPLEXset, obj){
 }
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
-  
-  
   unknown_formula = CPLEXset$data$unknown_formula
   obj = CPLEXset$Init_solution[[1]]$obj
   obj_node = obj[1:nrow(unknown_formula)]
@@ -1709,21 +1708,90 @@ CPLEX_screen_edge = function(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1
 }
 
 
+## Add_constraint_CPLEX ####
+Add_constraint_CPLEX = function(CPLEXset, obj){
+  obj = obj_cplex
+  env <- openEnvCPLEX()
+  prob <- initProbCPLEX(env)
+  
+  nc = CPLEXset$para$nc
+  nr = CPLEXset$para$nr
+  CPX_MAX = CPLEXset$para$CPX_MAX
+  rhs = CPLEXset$para$rhs
+  sense = CPLEXset$para$sense
+  beg = CPLEXset$para$beg
+  cnt = CPLEXset$para$cnt
+  ind = CPLEXset$para$ind
+  val = CPLEXset$para$val
+  lb = CPLEXset$para$lb
+  ub = CPLEXset$para$ub
+  ctype = CPLEXset$para$ctype
+  
+  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj, rhs, sense,
+                    beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+  copyColTypeCPLEX(env, prob, ctype)
+  
+  
+  nnz = sum((unknown_formula$ILP_result!=0)==T)
+  matbeg = 0
+  matval = rep(1,nnz)
+  matind = which(unknown_formula$ILP_result!=0)-1
+  addRowsCPLEX(env, prob, ncols=0, nrows=1, nnz=nnz, matbeg=matbeg, matind=matind, matval=matval,
+               rhs = base::floor(nnz*.99), sense = "L",
+               cnames = NULL, rnames = NULL)
+  # addRowsCPLEX(env, prob, ncols=0, nrows=1, nnz=1, matbeg=0, matind=3909, matval=1,
+  #              rhs = 1, sense = "E",
+  #              cnames = NULL, rnames = NULL)
+  # delRowsCPLEX(env, prob, begin = nr, end = getNumRowsCPLEX(env, prob)-1)
+  getNumRowsCPLEX(env, prob)
+  
+  
+  tictoc::tic()
+  return_code = mipoptCPLEX(env, prob)
+  result_solution=solutionCPLEX(env, prob)
+  
+  print(paste(return_codeCPLEX(return_code),"-",
+              status_codeCPLEX(env, getStatCPLEX(env, prob)),
+              " - OBJ_value =", result_solution$objval))
+  
+  tictoc::toc()
+  
+  # writeProbCPLEX(env, prob, "prob.lp")
+  delProbCPLEX(env, prob)
+  closeEnvCPLEX(env)
+  # 
+  # CPLEX_x = result_solution$x
+  # CPLEX_slack = result_solution$slack
+  # 
+  # 
+  # if(write_to_csv){
+  #   write_csv(as.data.frame(result_solution$x),"CPLEX_x.txt")
+  #   write_csv(as.data.frame(result_solution$slack),"CPLEX_slack.txt")
+  # }
+  # 
+  # } else{
+  #   
+  #   CPLEX_x = read.csv("CPLEX_x.txt")
+  #   CPLEX_slack = read.csv("CPLEX_slack.txt")
+  #   if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
+  # }
+  
+  return(list(obj = obj, result_solution = result_solution))
+}
 ## Read CPLEX result ####
 Read_CPLEX_result = function(solution){
   CPLEX_all_x=list()
-  
   for(i in 1:length(solution)){
     CPLEX_all_x[[i]] =  solution[[i]]$result_solution$x
-    
   }
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
 }
 # Function for graph ####
 ## Analysis of Subnetwork  ####
-Subnetwork_analysis = function(g_sub, member_lb = 1, member_ub = 10)
+Subnetwork_analysis = function(g_sub, member_lb = 3, member_ub = 10)
 {
+  g_sub=g
   clu=components(g_sub)
   #subnetwork criteria 
   subnetwork = igraph::groups(clu)[table(clu$membership)<= member_ub & table(clu$membership)>= member_lb]
@@ -1735,12 +1803,12 @@ Subnetwork_analysis = function(g_sub, member_lb = 1, member_ub = 10)
          #vertex.color = 'white',
          vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$formula,
          #vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$mz,
-         vertex.label.color = "red",
+         vertex.label.color = "black",
          vertex.label.cex = 1,
          #edge.color = 'black',
          edge.label = edge.attributes(g_subnetwork_list[[i]][[1]])$linktype,
          vertex.size = 10,
-         edge.arrow.size = 2/length(vertex.attributes(g_subnetwork_list[[i]][[1]])$formula),
+         edge.arrow.size = 2/(length(vertex.attributes(g_subnetwork_list[[i]][[1]])$MF)+1),
          main = paste("Subnetwork",names(subnetwork)[[i]])
     )
   }
@@ -1912,16 +1980,18 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
-  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  #CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.1)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
 {
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution2)
   #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+  CPLEX_x = result_solution$x
   
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
   unknown_formula = CPLEXset$data$unknown_formula
@@ -1971,21 +2041,26 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
     merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
     formula = merge_node_list[1:nrow(Mset$Data),c("ID", "MF","is_artifact", "is_biotransform")]
-    
-    unknown_node_CPLEX = merge(formula, unknown_node_CPLEX)
-    unknown_node_CPLEX = unknown_node_CPLEX[,-2]
-    for(i in 1:nrow(unknown_node_CPLEX)){
-      if(unknown_node_CPLEX$is_artifact[i]){
-        if(unknown_node_CPLEX$is_biotransform[i]){unknown_node_CPLEX$is_metabolite[i]="Maybe"
-        }else{unknown_node_CPLEX$is_metabolite[i]="No"}
+    formula["is_metabolite"]=NA
+    for(i in 1:nrow(formula)){
+      if(formula$is_artifact[i]){
+        if(formula$is_biotransform[i]){formula$is_metabolite[i]="Maybe"
+        }else{formula$is_metabolite[i]="No"}
       }else{
-        if(unknown_node_CPLEX$is_biotransform[i]){unknown_node_CPLEX$is_metabolite[i]="Yes"
-        }else{unknown_node_CPLEX$is_metabolite[i]=NA}
+        if(formula$is_biotransform[i]){formula$is_metabolite[i]="Yes"
+        }else{formula$is_metabolite[i]=NA}
       }
     }
+    
+    unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="is_metabolite")]
+    
+    unknown_node_CPLEX = merge(formula, unknown_node_CPLEX)
+    unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="MF")]
+    
+    
+    unknown_node_CPLEX_dup = unknown_node_CPLEX[duplicated(unknown_node_CPLEX$ID)|
+                                              duplicated(unknown_node_CPLEX$ID, fromLast = T),]
   }
-  
-
   # output assigned formula
   if(length(Mset$Summary)!=0){
     Mdata = Mset$Summary
@@ -1999,8 +2074,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   # Helper function
 {
-  id = 355
-
+  id = 9311
   unknown_formula_id = unknown_formula[unknown_formula$id==id,]
   edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
   edge_info_sum_id = edge_info_sum[edge_info_sum$edge_id %in% edge_list_id$edge_id,]
@@ -2008,10 +2082,27 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset$NodeSet_network[[id]]
 }
 
+# Report node score and half of all associated edge score
+{
+  merge_node_list["Node_score"] = NA
+  merge_node_list["Edge_score"] = NA
+  i=1
+  for(i in 1:nrow(Mset$Data)){
+    if(!is.na(merge_node_list$MF[i])){
+      id = merge_node_list$ID[i]
+      edge_list_id = EdgeSet$Merge[EdgeSet$Merge$node1==id | EdgeSet$Merge$node2==id,]
+      edge_info_sum_id = edge_info_CPLEX[edge_info_CPLEX$edge_id %in% edge_list_id$edge_id,]
+      merge_node_list$Node_score[i]=unknown_node_CPLEX$cplex_score[unknown_node_CPLEX$ID==id]
+      merge_node_list$Edge_score[i]=0.5*sum(edge_info_sum_id$edge_score-0.1*nrow(edge_info_sum_id$edge_score))
+    }
+  }
+  merge_node_list["score"] = merge_node_list["Node_score"]+merge_node_list["Edge_score"]
+}
+
 # Evaluate Xi's data from annotation ####
 {
-  wl_result = read_csv("WL_190405_both.csv")
-  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","is_artifact", "is_biotransform","steps")],wl_result, by.x="ID", by.y = "id", all =T)
+  wl_result = read_csv("WL_data_190509.csv")
+  merge_result = merge(unknown_node_CPLEX[,c("ID","formula","is_metabolite","is_artifact", "is_biotransform","steps")],wl_result, by.x="ID", by.y = "ID", all =T)
   merge_result$formula.y = check_chemform(isotopes, merge_result$formula.y)$new_formula
 }
 
@@ -2040,16 +2131,17 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # Compare assignment #
 {
   merge_result_notbg = merge_result_e5[merge_result_e5$feature!="background",]
-  merge_result_notbg = merge_result_e6[merge_result_e6$feature!="background",]
+  #merge_result_notbg = merge_result_e6[merge_result_e6$feature!="background",]
   
   PAVE_NetID= tabyl(merge_result_notbg, feature_1, is_metabolite)
   PAVE_NetID_filter = filter(merge_result_notbg, feature_1 == "Adduct", is_metabolite == "Yes")
+  PAVE_NetID_filter = filter(merge_result_notbg, feature_1 == "Isotope", is_metabolite != "No")
   
   WY_NetID = tabyl(merge_result_notbg, feature, is_metabolite)
   WY_NetID_filter = filter(merge_result_notbg, feature == "buffer", is_metabolite == "Yes")
   
-  artifact_vs_fea = tabyl(merge_result_e5_notbg, is_artifact, feature )
-  artifact_vs_fea1 = tabyl(merge_result_e5_notbg, is_artifact, feature_1,is_biotransform )
+  fea_vs_fea1 = tabyl(merge_result_notbg, feature, feature_1 )
+  artifact_vs_fea1 = tabyl(merge_result_notbg, is_artifact, feature_1,is_biotransform )
 }
 
 
@@ -2058,12 +2150,16 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 # Graphic analysis ####
 {
-
-  
-  test = merge_node_list[is.na(merge_node_list$is_artifact)&merge_node_list$is_biotransform&!is.na(merge_node_list$is_biotransform),]
-  
+  g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
   g <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = T)
   
+  write_csv(merge_edge_list, "merge_edge_list.csv")
+  write_csv(merge_node_list, "merge_node_list.csv")
+  
+  {
+    subgraph_specific_node("122", g,1)
+    Subnetwork_analysis(g, member_lb = 4, member_ub = 10)
+  }
   
   plot(g_sub,
        vertex.label = NA,
@@ -2122,10 +2218,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
 
 
-{
-  subgraph_specific_node("122", g_sub,1)
-  Subnetwork_analysis(g_sub, member_lb = 4, member_ub = 10)
-}
+
 
   
   #Analyze the network/subgraph of specific node
