@@ -315,13 +315,14 @@ Metaboanalyst_Statistic = function(Mset){
   mSet<-ANOVA.Anal(mSet, F, 0.5, "fisher")
   gc()
   if(ncol(mSet$dataSet$norm) > 15000){
-    mSet<-my_PlotSubHeatMap(mSet, "top15000_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
+    mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top15000_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
   } else{
-    mSet<-PlotHeatMap(mSet, "full_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+    mSet<-PlotHeatMap(mSet, paste(gsub(".csv","", filename),"full_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
   }
   gc()
-  mSet<-my_PlotSubHeatMap(mSet, "top50_", "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
+  mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top50_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
   gc()
+  
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
@@ -1187,7 +1188,7 @@ Network_prediction = function(Mset,
   # Pruning formula  #
   {
     pred_formula = bind_rows(lapply(sf, head, top_n))
-    pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
+    #pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
     pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
     
     merge_formula = pred_formula
@@ -1328,8 +1329,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                                        edge_score= temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
-                                       ilp_index1 = temp_j1,
-                                       ilp_index2 = temp_j2
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
             )
           }
           if(node_2>lib_nodes_cutoff){
@@ -1343,8 +1344,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                                        edge_score=temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
-                                       ilp_index1 = temp_j1,
-                                       ilp_index2 = temp_j2
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
             )
           }
           
@@ -1360,8 +1361,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                                        edge_score=temp_score,
                                        formula1 = temp_formula,
                                        formula2 = temp_formula_2,
-                                       ilp_index1 = temp_j1,
-                                       ilp_index2 = temp_j2
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
             )
           }
           temp_i = temp_i+1
@@ -1395,21 +1396,21 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       
       
       
-      test1 = test[test$ilp_index2>nrow(unknown_formula)&
-                     test$ilp_index1<=nrow(unknown_formula),]
-      test2 = test[test$ilp_index1>nrow(unknown_formula)&
-                     test$ilp_index2<=nrow(unknown_formula),]
+      test1 = test[test$ILP_id2>nrow(unknown_formula)&
+                     test$ILP_id1<=nrow(unknown_formula),]
+      test2 = test[test$ILP_id1>nrow(unknown_formula)&
+                     test$ILP_id2<=nrow(unknown_formula),]
       colnames(test2)=sub(1,3,colnames(test2))
       colnames(test2)=sub(2,1,colnames(test2))
       colnames(test2)=sub(3,2,colnames(test2))
       
       test1 = merge(test1,test2,all=T)
       
-      test1 = test1[duplicated(test1[,c("formula1","ilp_index1")]) | 
-                      duplicated(test1[,c("formula1","ilp_index1")], fromLast=TRUE),]
+      test1 = test1[duplicated(test1[,c("formula1","ILP_id1")]) | 
+                      duplicated(test1[,c("formula1","ILP_id1")], fromLast=TRUE),]
       test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
-      #test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])
-      edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ilp_index1","formula1")])]]=1e-10
+      #test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])
+      edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])]]=1e-10
 
     }
     
@@ -1586,8 +1587,8 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
   edge_info_sum$isotope_score[is.na(edge_info_sum$isotope_score)]=0
   edge_info_sum$edge_score = edge_info_sum$edge_score+edge_info_sum$isotope_score
   
-  test3 = edge_info_sum[edge_info_sum$ilp_index2<=nrow(unknown_formula)&
-                          edge_info_sum$ilp_index1<=nrow(unknown_formula),]
+  test3 = edge_info_sum[edge_info_sum$ILP_id2<=nrow(unknown_formula)&
+                          edge_info_sum$ILP_id1<=nrow(unknown_formula),]
   
   test3_same12 = test3[test3$formula1==test3$formula2,]
   df_same12 = table(test3_same12$formula1)
@@ -1732,18 +1733,22 @@ Add_constraint_CPLEX = function(CPLEXset, obj){
   copyColTypeCPLEX(env, prob, ctype)
   
   
-  nnz = sum((unknown_formula$ILP_result!=0)==T)
-  matbeg = 0
-  matval = rep(1,nnz)
-  matind = which(unknown_formula$ILP_result!=0)-1
-  addRowsCPLEX(env, prob, ncols=0, nrows=1, nnz=nnz, matbeg=matbeg, matind=matind, matval=matval,
-               rhs = base::floor(nnz*.99), sense = "L",
-               cnames = NULL, rnames = NULL)
+  # nnz = sum((unknown_formula$ILP_result!=0)==T)
+  # matbeg = 0
+  # matval = rep(1,nnz)
+  # matind = which(unknown_formula$ILP_result!=0)-1
+  # addRowsCPLEX(env, prob, ncols=0, nrows=1, nnz=nnz, matbeg=matbeg, matind=matind, matval=matval,
+  #              rhs = base::floor(nnz*.99), sense = "L",
+  #              cnames = NULL, rnames = NULL)
   # addRowsCPLEX(env, prob, ncols=0, nrows=1, nnz=1, matbeg=0, matind=3909, matval=1,
   #              rhs = 1, sense = "E",
   #              cnames = NULL, rnames = NULL)
   # delRowsCPLEX(env, prob, begin = nr, end = getNumRowsCPLEX(env, prob)-1)
-  getNumRowsCPLEX(env, prob)
+  # getNumRowsCPLEX(env, prob)
+  
+  # addMIPstartsCPLEX(env, prob, mcnt = 1, nzcnt = nc, beg = 0, varindices = 1:nc,
+  #                   values = CPLEXset$Init_solution2$CPLEX_x, effortlevel = 1, mipstartname = NULL)
+  # 
   
   
   tictoc::tic()
@@ -1980,19 +1985,21 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
-  CPLEXset[["Init_solution2"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
 {
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution2)
-  #CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
+  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
-  CPLEX_x = result_solution$x
-  
+  #CPLEX_x = result_solution$x
+}
+
+{
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
   unknown_formula = CPLEXset$data$unknown_formula
   
@@ -2002,74 +2009,70 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
   
-  #edge_info_sum = CPLEXset$data$edge_info_sum
+  
+  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
+  formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
+  formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
+  formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
+
+  formula_list["ILP_id"]=NA
+  formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
   
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
-  edge_info_CPLEX = edge_info_sum[edge_info_sum$ILP_result!=0,]
   
-  # Graphic analysis
-  {
-    Graphset = list()
-    merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
-    merge_node_list = Mset$NodeSet
-    
-    merge_node_list$rdbe[unknown_node_CPLEX$ID]=unknown_node_CPLEX$rdbe
-    merge_node_list$MF[unknown_node_CPLEX$ID]=unknown_node_CPLEX$formula
-    
-    colors <- c("grey", "white", "red", "yellow", "green")
-    merge_node_list["color"] = colors[merge_node_list$category+2]
-    
-    merge_node_list["is_artifact"]=FALSE
-    artifact_edgeset = merge_edge_list[merge_edge_list$category!=1,]
-    artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
-                              artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
-    artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
-    merge_node_list$is_artifact[artifact_nodes]=TRUE
-    
-    merge_node_list["is_biotransform"]=FALSE
-    biotranform_edgeset = merge_edge_list[merge_edge_list$category==1,]
-    g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = merge_node_list[merge_node_list$ID %in% c(biotranform_edgeset$node1, biotranform_edgeset$node2),], directed = F)
-    clu=components(g_bio)
-    #subnetwork criteria 
-    g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
-    test2 = as.data.frame(clu$membership)
-    test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
-    biotranform_nodes_id = c()
-    for(i in unique(test3)){
-      biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
-    }
-    #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
-    merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
-    formula = merge_node_list[1:nrow(Mset$Data),c("ID", "MF","is_artifact", "is_biotransform")]
-    formula["is_metabolite"]=NA
-    for(i in 1:nrow(formula)){
-      if(formula$is_artifact[i]){
-        if(formula$is_biotransform[i]){formula$is_metabolite[i]="Maybe"
-        }else{formula$is_metabolite[i]="No"}
-      }else{
-        if(formula$is_biotransform[i]){formula$is_metabolite[i]="Yes"
-        }else{formula$is_metabolite[i]=NA}
-      }
-    }
-    
-    unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="is_metabolite")]
-    
-    unknown_node_CPLEX = merge(formula, unknown_node_CPLEX)
-    unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="MF")]
-    
-    
-    unknown_node_CPLEX_dup = unknown_node_CPLEX[duplicated(unknown_node_CPLEX$ID)|
-                                              duplicated(unknown_node_CPLEX$ID, fromLast = T),]
+  relation_list = edge_info_sum[edge_info_sum$ILP_result!=0,]
+  relation_list["direction"] = EdgeSet$Merge$direction[relation_list$edge_id]
+  relation_list["node1"] = EdgeSet$Merge$node1[relation_list$edge_id]
+  relation_list["node2"] = EdgeSet$Merge$node2[relation_list$edge_id]
+  
+  colors <- c("grey", "white", "red", "yellow", "green")
+  formula_list["color"] = colors[formula_list$category+2]
+}
+
+
+## Define if formula comes from artifact or biotransform
+{
+  formula_list["is_artifact"]=FALSE
+  artifact_edgeset = relation_list[relation_list$category!=1,]
+  artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
+                            artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
+  artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
+  formula_list$is_artifact[artifact_nodes]=TRUE
+  
+  colnames(relation_list)[grepl("ilp_index",colnames(relation_list))] = c("ILP_id1","ILP_id2")
+  colnames(formula_list)[grepl("ild_id",colnames(formula_list))] = c("ILP_id")
+  
+  formula_list2 = cbind(formula_list[,c("ILP_id")], formula_list[,-which(colnames(formula_list) =="ILP_id")])
+  relation_list2 = cbind(relation_list[,c("ILP_id1","ILP_id2")], relation_list[,-which(colnames(relation_list)==c("ILP_id1","ILP_id2"))] )
+  
+  formula_list2["is_biotransform"]=FALSE
+  biotranform_edgeset = relation_list2[relation_list2$category==1,]
+  test1 = formula_list2[formula_list2$`formula_list[, c("ILP_id")]` %in% c(biotranform_edgeset$ILP_id1, biotranform_edgeset$ILP_id2),]
+  g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = test1, directed = F)
+  clu=components(g_bio)
+  #subnetwork criteria 
+  g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+  test2 = as.data.frame(clu$membership)
+  test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
+  biotranform_nodes_id = c()
+  for(i in unique(test3)){
+    biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
   }
-  # output assigned formula
-  if(length(Mset$Summary)!=0){
-    Mdata = Mset$Summary
-  } else {
-    Mdata = Mset$Data
+  #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
+  formula_list2[!is.na(formula_list2$formula)& formula_list2$`formula_list[, c("ILP_id")]`%in% biotranform_nodes_id, "is_biotransform"]=TRUE
+  
+  formula = merge_node_list[1:nrow(Mset$Data),c("ID", "MF","is_artifact", "is_biotransform")]
+  formula["is_metabolite"]=NA
+  for(i in 1:nrow(formula)){
+    if(formula$is_artifact[i]){
+      if(formula$is_biotransform[i]){formula$is_metabolite[i]="Maybe"
+      }else{formula$is_metabolite[i]="No"}
+    }else{
+      if(formula$is_biotransform[i]){formula$is_metabolite[i]="Yes"
+      }else{formula$is_metabolite[i]=NA}
+    }
   }
-  Mdata2 = merge(formula, Mdata, all = T, by="ID")
-  write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
-  Mdata3 = Mdata2[!is.na(Mdata2$formula) & !is.na(Mdata2$library_match_formula) & Mdata2$formula!=Mdata2$library_match_formula,]
+  
 }
 
   # Helper function
@@ -2479,5 +2482,73 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 #   hmdb$MF  = gsub("Cl|C|H|N|O|P|S|\\d+","", hmdb$MF)
 #   write.csv(hmdb,"HMDB_CHNOPS.csv",row.names = F)
 # }
+# # Graphic analysis
+# {
+#   Graphset = list()
+#   merge_edge_list = EdgeSet$Merge[edge_info_CPLEX$edge_id,]
+#   merge_node_list = Mset$NodeSet
+#   
+#   merge_node_list$rdbe[unknown_node_CPLEX$ID]=unknown_node_CPLEX$rdbe
+#   merge_node_list$MF[unknown_node_CPLEX$ID]=unknown_node_CPLEX$formula
+#   
+#   colors <- c("grey", "white", "red", "yellow", "green")
+#   merge_node_list["color"] = colors[merge_node_list$category+2]
+#   
+#   merge_node_list["is_artifact"]=FALSE
+#   artifact_edgeset = merge_edge_list[merge_edge_list$category!=1,]
+#   artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
+#                             artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
+#   artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
+#   merge_node_list$is_artifact[artifact_nodes]=TRUE
+#   
+#   merge_node_list["is_biotransform"]=FALSE
+#   biotranform_edgeset = merge_edge_list[merge_edge_list$category==1,]
+#   g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = merge_node_list[merge_node_list$ID %in% c(biotranform_edgeset$node1, biotranform_edgeset$node2),], directed = F)
+#   clu=components(g_bio)
+#   #subnetwork criteria 
+#   g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+#   test2 = as.data.frame(clu$membership)
+#   test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
+#   biotranform_nodes_id = c()
+#   for(i in unique(test3)){
+#     biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
+#   }
+#   #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
+#   merge_node_list$is_biotransform[biotranform_nodes_id]=TRUE
+#   formula = merge_node_list[1:nrow(Mset$Data),c("ID", "MF","is_artifact", "is_biotransform")]
+#   formula["is_metabolite"]=NA
+#   for(i in 1:nrow(formula)){
+#     if(formula$is_artifact[i]){
+#       if(formula$is_biotransform[i]){formula$is_metabolite[i]="Maybe"
+#       }else{formula$is_metabolite[i]="No"}
+#     }else{
+#       if(formula$is_biotransform[i]){formula$is_metabolite[i]="Yes"
+#       }else{formula$is_metabolite[i]=NA}
+#     }
+#   }
+#   
+#   unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="is_metabolite")]
+#   
+#   unknown_node_CPLEX = merge(formula, unknown_node_CPLEX)
+#   unknown_node_CPLEX = unknown_node_CPLEX[,-which(colnames(unknown_node_CPLEX)=="MF")]
+#   
+#   
+#   unknown_node_CPLEX_dup = unknown_node_CPLEX[duplicated(unknown_node_CPLEX$ID)|
+#                                                 duplicated(unknown_node_CPLEX$ID, fromLast = T),]
+# }
+
+# {  
+#   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+#   # output assigned formula
+#   if(length(Mset$Summary)!=0){
+#     Mdata = Mset$Summary
+#   } else {
+#     Mdata = Mset$Data
+#   }
+#   Mdata2 = merge(formula, Mdata, all = T, by="ID")
+#   write.csv(Mdata2, paste("Mdata",filename,sep="_"),row.names = F)
+#   Mdata3 = Mdata2[!is.na(Mdata2$formula) & !is.na(Mdata2$library_match_formula) & Mdata2$formula!=Mdata2$library_match_formula,]
+# }
   
+
   
