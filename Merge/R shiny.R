@@ -55,6 +55,22 @@ Plot_g_interest = function(g_interest, interested_node)
 }
 
 
+g_show_vertice = function(g_interest)
+{
+  g_interest_vertice = igraph::as_data_frame(g_interest, "vertices")
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform")
+  g_interest_vertice = g_interest_vertice[,colname_vertice]
+  return(g_interest_vertice)
+}
+
+
+g_show_edge = function(g_interest)
+{
+  g_interest_edge = igraph::as_data_frame(g_interest, "edges")
+  colname_edge = c("node1", "node2", "formula1", "formula2", "linktype")
+  g_interest_edge = g_interest_edge[,colname_edge]
+  return(g_interest_edge)
+}
 
 ## -------- Shiny R --------------------####
 ui <- fluidPage(
@@ -67,7 +83,9 @@ ui <- fluidPage(
                label = "Go")
   ),
   mainPanel(
-    plotOutput("graph"),
+    plotOutput("graph"
+               , width = "100%"
+               ),
     dataTableOutput("nodetable"),
     dataTableOutput("edgetable")
     
@@ -85,12 +103,14 @@ server <- function(input, output) {
   output$graph <- renderPlot({
     # g_interest = g_interest_node(input$Peak_id, g,1)
     Plot_g_interest(g_interest(), input$Peak_id)
-  })
+  }
+  # ,height = 400, width = 800
+  )
   output$nodetable <- renderDataTable({
-    g_interest_vertice = igraph::as_data_frame(g_interest(), "vertices")
+    g_interest_vertice = g_show_vertice(g_interest())
   })
   output$edgetable <- renderDataTable({
-    g_interest_edge = igraph::as_data_frame(g_interest(), "edges")
+    g_interest_edge = g_show_edge(g_interest())
   })
 }
 
