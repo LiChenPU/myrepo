@@ -4,20 +4,24 @@ library(igraph)
 ## function ####
 g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
 ## Analysis of Specific node ####
-subgraph_specific_node = function(interested_node, g, step = 2)
+g_interest_node = function(interested_node, g, step = 2)
 {
   # interested_node = 1
   interested_node = interested_node
-  
   g_id = g_vertex$ILP_id[g_vertex$ID==interested_node]
   
   # interested_node = as.character(g_id[1])
   g.degree <- degree(g, mode = c("all"))
   g_interest <- make_ego_graph(g, 
-                              step, 
-                              #1,
-                              nodes = as.character(g_id[1]), 
-                              mode = c("all"))[[1]]
+                               step, 
+                               #1,
+                               nodes = as.character(g_id[1]), 
+                               mode = c("all"))[[1]]
+  return(g_interest)
+}
+
+Plot_g_interest = function(g_interest, interested_node)
+{
   vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
   
   # dists = distances(g_interest, g_id)
@@ -63,16 +67,30 @@ ui <- fluidPage(
                label = "Go")
   ),
   mainPanel(
-    plotOutput("graph")
+    plotOutput("graph"),
+    dataTableOutput("nodetable"),
+    dataTableOutput("edgetable")
+    
   )
-  
 )
 
 server <- function(input, output) {
-  observeEvent(input$id_update, {
-    output$graph <- renderPlot({
-      subgraph_specific_node(input$Peak_id, g,1)
-    })
+  
+  g_interest <- reactive({
+    g_interest_node(input$Peak_id, g,1)
+    
+  })
+
+  
+  output$graph <- renderPlot({
+    # g_interest = g_interest_node(input$Peak_id, g,1)
+    Plot_g_interest(g_interest(), input$Peak_id)
+  })
+  output$nodetable <- renderDataTable({
+    g_interest_vertice = igraph::as_data_frame(g_interest(), "vertices")
+  })
+  output$edgetable <- renderDataTable({
+    g_interest_edge = igraph::as_data_frame(g_interest(), "edges")
   })
 }
 
