@@ -121,10 +121,6 @@ ui <- fluidPage(
 
 
 server <- function(input, output) {
-  
-  
-
-  
   # g_interest <- eventReactive(
   #   input$id_update,
   g_interest <- reactive(
@@ -136,7 +132,7 @@ server <- function(input, output) {
 
   
   output$graph <- renderPlot({
-    Plot_g_interest(g_interest(), input$Peak_id)
+    Plot_g_interest(g_interest(), isolate(input$Peak_id))
     # tkplot(g_interest())
   }
   # ,height = 400, width = 800
