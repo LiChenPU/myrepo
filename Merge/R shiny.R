@@ -3,12 +3,29 @@ library(igraph)
 
 ## function ####
 g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
-## Analysis of Specific node ####
-g_interest_node = function(interested_node, g, step = 2)
+## Analysis of Specific node 
+g_interest_node = function(interested_node, g, 
+                           step = 1, 
+                           intensity_low_cutoff=3, intensity_high_cutoff=10
+                           
+                           )
 {
-  # interested_node = 1
+  # interested_node = 122
   interested_node = interested_node
-  g_id = g_vertex$ILP_id[g_vertex$ID==interested_node]
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_edge = igraph::as_data_frame(g, "edges")
+  
+  g_vertex = g_vertex[is.na(g_vertex$intensity) |
+                        g_vertex$intensity > 10^intensity_low_cutoff &
+                        g_vertex$intensity < 10^intensity_high_cutoff,]
+  g_edge = g_edge[g_edge$from %in% g_vertex$name &
+                    g_edge$to %in% g_vertex$name, ]
+  
+  g = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
+  
+  
+  
+  g_id = g_vertex$name[g_vertex$ID==interested_node]
   
   # interested_node = as.character(g_id[1])
   g.degree <- degree(g, mode = c("all"))
@@ -17,8 +34,10 @@ g_interest_node = function(interested_node, g, step = 2)
                                #1,
                                nodes = as.character(g_id[1]), 
                                mode = c("all"))[[1]]
+
   return(g_interest)
 }
+
 
 Plot_g_interest = function(g_interest, interested_node)
 {
@@ -58,7 +77,7 @@ Plot_g_interest = function(g_interest, interested_node)
 g_show_vertice = function(g_interest)
 {
   g_interest_vertice = igraph::as_data_frame(g_interest, "vertices")
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform")
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
   g_interest_vertice = g_interest_vertice[,colname_vertice]
   return(g_interest_vertice)
 }
@@ -72,37 +91,53 @@ g_show_edge = function(g_interest)
   return(g_interest_edge)
 }
 
-## -------- Shiny R --------------------####
+## Shiny R --------------------####
 ui <- fluidPage(
-  wellPanel(
-  numericInput(inputId = "Peak_id", 
-              label = "Enter a peak ID",
-              value = 122
-  ),
-  actionButton(inputId = "id_update", 
-               label = "Go")
+  sidebarPanel(
+    sliderInput(inputId = "Peak_inten_range", 
+                label = "Peak Intensity (log10)",
+                min = 0, max = 10, step = 0.01,
+                value = c(3,10)),
+    numericInput(inputId = "Peak_id", 
+                label = "Enter a peak ID",
+                value = 122
+    ),
+    actionButton(inputId = "id_update", 
+                 label = "Go")
   ),
   mainPanel(
-    plotOutput("graph"
-               , width = "100%"
-               ),
-    dataTableOutput("nodetable"),
-    dataTableOutput("edgetable")
+    tabsetPanel(type = "tabs",
+                tabPanel("Plot",  plotOutput("graph"
+                                             , width = "100%"
+                )),
+                tabPanel("Nodes", dataTableOutput("nodetable")),
+                tabPanel("Edges", dataTableOutput("edgetable"))
+    )
+    
     
   )
 )
 
+
+
 server <- function(input, output) {
   
-  g_interest <- reactive({
-    g_interest_node(input$Peak_id, g,1)
-    
+  
+
+  
+  # g_interest <- eventReactive(
+  #   input$id_update,
+  g_interest <- reactive(
+    {
+    g_interest_node(input$Peak_id, 
+                    g,1,
+                    input$Peak_inten_range[1], input$Peak_inten_range[2])
   })
 
   
   output$graph <- renderPlot({
-    # g_interest = g_interest_node(input$Peak_id, g,1)
     Plot_g_interest(g_interest(), input$Peak_id)
+    # tkplot(g_interest())
   }
   # ,height = 400, width = 800
   )
@@ -115,3 +150,17 @@ server <- function(input, output) {
 }
 
 shinyApp(ui = ui, server = server)
+
+
+
+runExample("01_hello")      # a histogram
+runExample("02_text")       # tables and data frames
+runExample("03_reactivity") # a reactive expression
+runExample("04_mpg")        # global variables
+runExample("05_sliders")    # slider bars
+runExample("06_tabsets")    # tabbed panels
+runExample("07_widgets")    # help text and submit buttons
+runExample("08_html")       # Shiny app built from HTML
+runExample("09_upload")     # file upload wizard
+runExample("10_download")   # file download wizard
+runExample("11_timer")      # an automated timer
