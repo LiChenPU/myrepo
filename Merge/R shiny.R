@@ -1,8 +1,7 @@
 library(shiny)
 library(igraph)
 
-## Read in files
-
+# Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 setwd("./xi_new_neg")
 
@@ -10,14 +9,160 @@ g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F)
 g_edge = read.csv("g_edge.txt", stringsAsFactors = F)
 
 g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
-## function ####
 
-
-
-
-
-
+# function ####
+## search_peak ####
+search_peak = function(g, mz_interest, mz_ppm)
 {
+  # mz_interest = 180.0631
+  # mz_ppm = 5
+  # mz_lb = 0
+  # mz_ub = 1500
+  # rt_lb = 0
+  # rt_ub = 20
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
+  
+  # filter
+  g_vertex = g_vertex[g_vertex$mz<mz_interest*(1+mz_ppm/10^6) & 
+                        g_vertex$mz>mz_interest*(1-mz_ppm/10^6),]
+
+  
+  # ranking
+  g_vertex = g_vertex[with(g_vertex, order(abs(mz-mz_interest)), -ILP_result, abs(cal_mass - mz_interest)),]
+  
+  
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
+  g_vertex = g_vertex[,colname_vertice]
+  
+  return(g_vertex)
+}
+
+## search_formula ####
+search_formula = function(g, peak_id){
+  
+  print(peak_id)
+  
+  if(is.na(peak_id)){return(NULL)}
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  
+  # filter
+  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
+  g_vertex = g_vertex[g_vertex$ID==peak_id,]
+
+  
+  # ranking
+  g_vertex = g_vertex[with(g_vertex, order(-ILP_result, -cplex_score)),]
+  
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
+  g_vertex = g_vertex[,colname_vertice]
+  
+  return(g_vertex)
+  
+}
+
+## filter_graph ####
+filter_graph = function(g, 
+                        intensity_lb, intensity_ub, 
+                        mz_lb, mz_ub, 
+                        rt_lb, rt_ub)
+{
+  
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_edge = igraph::as_data_frame(g, "edges")
+  
+  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
+  g_vertex = g_vertex[is.na(g_vertex$intensity) |
+                        g_vertex$intensity > 10^intensity_lb &
+                        g_vertex$intensity < 10^intensity_ub,]
+  g_vertex = g_vertex[g_vertex$mz>mz_lb & 
+                        g_vertex$mz<mz_ub,]
+  g_vertex = g_vertex[g_vertex$RT>rt_lb & 
+                        g_vertex$RT<rt_ub,]
+  
+  g_edge = g_edge[g_edge$from %in% g_vertex$name &
+                    g_edge$to %in% g_vertex$name, ]
+  
+  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
+  
+  return(g_filter)
+}
+
+## interest_node_graph ####
+interest_node_graph = function(interested_node, g, 
+                               formula_select,
+                           step = 1
+                           )
+{
+  # interested_node = 122
+  interested_node = interested_node
+
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
+  
+  # interested_node = as.character(g_id[1])
+  g.degree <- degree(g, mode = c("all"))
+  g_interest <- make_ego_graph(g, 
+                               step, 
+                               #1,
+                               nodes = as.character(g_id[1]), 
+                               mode = c("all"))[[1]]
+  return(g_interest)
+}
+
+## Plot_g_interest ####
+Plot_g_interest = function(g_interest, interested_node, formula_select)
+{
+  vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
+  
+  # dists = distances(g_interest, g_id)
+  colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
+  
+  plot(g_interest,
+       #vertex.color = 'white',
+       vertex.label = vertex.attributes(g_interest)$formula,
+       #vertex.label = vertex.attributes(g_interest)$medRt,
+       vertex.color = "orange",
+       vertex.label.color = "black",
+       vertex.label.cex = 1,
+       #vertex.label.dist = 2,
+       vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
+       #edge.width = edge.attributes(g_interest)$Confidence*2-2,
+       # edge.color = color_palette[edge.attributes(g_interest)$color],
+       #edge.label = edge.attributes(g_interest)$mz_dif,
+       edge.label = edge.attributes(g_interest)$linktype,
+       edge.label.color = "red",
+       edge.label.cex = 1,
+       edge.arrow.size = 0.5,
+       edge.arrow.width = 1,
+       main = paste("Subnetwork of peak", interested_node, formula_select),
+       layout = layout_nicely(g_interest)
+       #layout = layout_as_tree(g_interest)
+  )
+  # dev.off()
+}
+
+
+## g_show_vertice & g_show_edge####
+g_show_vertice = function(g_interest)
+{
+  g_interest_vertice = igraph::as_data_frame(g_interest, "vertices")
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
+  g_interest_vertice = g_interest_vertice[,colname_vertice]
+  return(g_interest_vertice)
+}
+
+g_show_edge = function(g_interest)
+{
+  g_interest_edge = igraph::as_data_frame(g_interest, "edges")
+  colname_edge = c("node1", "node2", "formula1", "formula2", "linktype")
+  g_interest_edge = g_interest_edge[,colname_edge]
+  return(g_interest_edge)
+}
+
+
+## all_two_nodes_graph####
+
 all_two_nodes_graph = function(g, node1, node2, dist = 3)
 {
   # node1 = 122
@@ -45,6 +190,7 @@ all_two_nodes_graph = function(g, node1, node2, dist = 3)
   return(g_list)
 }
 
+## shortest_two_nodes_graph####
 shortest_two_nodes_graph = function(g, node1, node2)
 {
   # node1 = 122
@@ -73,129 +219,66 @@ shortest_two_nodes_graph = function(g, node1, node2)
 }
 
 
-
-test = all_two_nodes_graph(g, 122,389,3)
-test = shortest_two_nodes_graph(g, 121,389)
-Plot_g_interest(test[[1]],1)
-
-search_peak = function(g, mz_interest, mz_ppm, mz_lb, mz_ub, rt_lb, rt_ub)
+### Debug ####
 {
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_vertex = g_vertex[g_vertex$ILP_result!=0,]
-  
-  g_vertex = g_vertex[g_vertex$mz<mz_interest*(1+mz_ppm/10^6) & 
-                        g_vertex$mz>mz_interest*(1-mz_ppm/10^6),]
-  g_vertex = g_vertex[g_vertex$mz>mz_lb & 
-                        g_vertex$mz<mz_ub,]
-  g_vertex = g_vertex[g_vertex$RT>rt_lb & 
-                        g_vertex$RT<rt_ub,]
-  
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
-  g_vertex = g_vertex[,colname_vertice]
-  return(g_vertex)
-}
+  output = list()
+  input = list()
 
-filter_graph = function(g, intensity_low_cutoff=3, intensity_high_cutoff=10)
-{
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_edge = igraph::as_data_frame(g, "edges")
+  input$mz_interest = 180.0633
+  input$mz_ppm = 5
+  peak_table <- search_peak(g, mz_interest = input$mz_interest, mz_ppm = input$mz_ppm)
+  output$peak_table <- peak_table
   
-  g_vertex = g_vertex[is.na(g_vertex$intensity) |
-                        g_vertex$intensity > 10^intensity_low_cutoff &
-                        g_vertex$intensity < 10^intensity_high_cutoff,]
-  g_edge = g_edge[g_edge$from %in% g_vertex$name &
-                    g_edge$to %in% g_vertex$name, ]
-  
-  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
-  
-  return(g_filter)
-}
-interest_node_graph = function(interested_node, g, 
-                           step = 1
-                           )
-{
-  # interested_node = 122
-  interested_node = interested_node
+  input$Peak_id = peak_table$ID[1]
 
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_id = g_vertex$name[g_vertex$ID==interested_node]
+  x = search_formula(g, input$Peak_id)
+  if (is.null(x)){
+    x <- character(0)
+  } else{
+    x <- x$formula
+  }
   
-  # interested_node = as.character(g_id[1])
-  g.degree <- degree(g, mode = c("all"))
-  g_interest <- make_ego_graph(g, 
-                               step, 
-                               #1,
-                               nodes = as.character(g_id[1]), 
-                               mode = c("all"))[[1]]
-
-  return(g_interest)
-}
-
-
-
-Plot_g_interest = function(g_interest, interested_node)
-{
-  vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
+  input$formula_select = list(choices = x,
+                              selected = head(x, 1))
   
-  # dists = distances(g_interest, g_id)
-  colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
-  # V(g_interest)$color <- colors[dists+1]
-  # png(filename=paste("Subnetwork of node ", interested_node,".png",sep=""),
-  #     width = 2400, height=2400,
-  #     res=300)
+  input$Peak_inten_range = c(3,10)
+  input$mz_range = c(0,1500)
+  input$rt_range = c(0,20)
   
-  plot(g_interest,
-       #vertex.color = 'white',
-       vertex.label = vertex.attributes(g_interest)$formula,
-       #vertex.label = vertex.attributes(g_interest)$medRt,
-       vertex.label.color = "blue",
-       vertex.label.cex = 1,
-       #vertex.label.dist = 2,
-       vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
-       #edge.width = edge.attributes(g_interest)$Confidence*2-2,
-       # edge.color = color_palette[edge.attributes(g_interest)$color],
-       #edge.label = edge.attributes(g_interest)$mz_dif,
-       edge.label = edge.attributes(g_interest)$linktype,
-       edge.label.color = "red",
-       edge.label.cex = 1,
-       edge.arrow.size = 0.5,
-       edge.arrow.width = 1,
-       main = paste("Subnetwork of node", interested_node),
-       layout = layout_nicely(g_interest)
-       #layout = layout_as_tree(g_interest)
-  )
-  # dev.off()
+  g_filter <- filter_graph(g,
+                 input$Peak_inten_range[1], input$Peak_inten_range[2],
+                 mz_lb = input$mz_range[1], mz_ub = input$mz_range[2], 
+                 rt_lb = input$rt_range[1], rt_ub = input$rt_range[2])
+  
+  g_filter_vertex = igraph::as_data_frame(g_filter, "vertice")
+
+  g_interest <- interest_node_graph(input$Peak_id, 
+                        g_filter,
+                        input$formula_select,
+                        1
+                        )
+  
+  
+  
+  output$graph <- Plot_g_interest(g_interest, isolate(input$Peak_id), isolate(input$formula_select$selected))
+  output$nodetable <- g_show_vertice(g_interest)
+  output$edgetable <- g_show_edge(g_interest)
+
+  output$partner_table = 0
+  
+  # test = all_two_nodes_graph(g, 122,389,3)
+  # test = shortest_two_nodes_graph(g, 121,389)
+  # Plot_g_interest(test[[2]],1)
 }
 
 
-g_show_vertice = function(g_interest)
-{
-  g_interest_vertice = igraph::as_data_frame(g_interest, "vertices")
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
-  g_interest_vertice = g_interest_vertice[,colname_vertice]
-  return(g_interest_vertice)
-}
 
-
-g_show_edge = function(g_interest)
-{
-  g_interest_edge = igraph::as_data_frame(g_interest, "edges")
-  colname_edge = c("node1", "node2", "formula1", "formula2", "linktype")
-  g_interest_edge = g_interest_edge[,colname_edge]
-  return(g_interest_edge)
-}
-
-}
-
-## Shiny R --------------------####
+# Shiny R --------------------####
+## ui ####
 ui <- fluidPage(
   sidebarPanel(
     tabsetPanel(type = "tabs",
                 tabPanel("Setting",
-                  sliderInput(inputId = "Peak_inten_range", 
-                              label = "Peak Intensity (log10)",
-                              min = 0, max = 10, step = 0.01,
-                              value = c(3,10)),
                   numericInput(inputId = "mz_interest", 
                                label = "Enter a mz of interest",
                                value = 180.0633
@@ -205,14 +288,22 @@ ui <- fluidPage(
                                value = 5
                   ),
                   numericInput(inputId = "Peak_id", 
-                               label = "Enter a peak ID",
+                               label = "Peak ID",
                                value = 122
-                  )
-                  # actionButton(inputId = "id_update", 
+                  ),
+                  selectInput(inputId = "formula_select",
+                              label = "Formula",
+                              choices = character(0)
+                              )
+                  # actionButton(inputId = "id_update",
                   #              label = "Go")
                   
                 ),
                 tabPanel("Advanced",
+                   sliderInput(inputId = "Peak_inten_range", 
+                               label = "Peak Intensity (log10)",
+                               min = 0, max = 10, step = 0.01,
+                               value = c(3,10)),
                    sliderInput(inputId = "mz_range", 
                                label = "m/z range",
                                min = 0, max = 1500, step = 1,
@@ -223,7 +314,6 @@ ui <- fluidPage(
                                value = c(0,20))
                 )
                 
-
     )
   ),
   mainPanel(
@@ -235,37 +325,67 @@ ui <- fluidPage(
                 tabPanel("Nodes", dataTableOutput("nodetable")),
                 tabPanel("Edges", dataTableOutput("edgetable"))
     )
-    
-    
   )
 )
 
 
-
-server <- function(input, output) {
+## server ####
+server <- function(input, output, session) {
   # g_interest <- eventReactive(
   #   input$id_update,
   
-  output$peak_table <- renderDataTable({
-    search_peak(g, mz_interest = input$mz_interest, mz_ppm = input$mz_ppm,
-                mz_lb = input$mz_range[1], mz_ub = input$mz_range[2], 
-                rt_lb = input$rt_range[1], rt_ub = input$rt_range[2])
   
+  peak_table <- reactive({
+    search_peak(g, mz_interest = input$mz_interest, mz_ppm = input$mz_ppm)
   })
   
-  g_filter <- reactive(
-    {
+  output$peak_table <- renderDataTable(peak_table())
+  
+  observe({
+    x<-peak_table()
+    updateNumericInput(session, "Peak_id",
+                      # label = paste("Select input label", length(x)),
+                      value = peak_table()$ID[1]
+                      
+    )
+  })
+  
+  # formula_select
+  observe({
+    
+    x = search_formula(g, input$Peak_id)
+    if (is.null(x)){
+      x <- character(0)
+    } else{
+      x <- x$formula
+    }
+  
+    # Can also set the label and select items
+    updateSelectInput(session, "formula_select",
+                      # label = paste("Formula", length(x)),
+                      choices = x,
+                      selected = head(x, 1)
+    )
+  })
+
+  
+  
+  g_filter <- reactive({
     filter_graph(g,
-                input$Peak_inten_range[1], input$Peak_inten_range[2])
+                input$Peak_inten_range[1], input$Peak_inten_range[2],
+                mz_lb = input$mz_range[1], mz_ub = input$mz_range[2], 
+                rt_lb = input$rt_range[1], rt_ub = input$rt_range[2])
   })
   g_interest <- reactive({
     interest_node_graph(input$Peak_id, 
-                         g_filter(),1
+                         g_filter(),
+                        input$formula_select,
+                        1
                          )
   })
   
   output$graph <- renderPlot({
-    Plot_g_interest(g_interest(), isolate(input$Peak_id))
+    Plot_g_interest(g_interest(), isolate(input$Peak_id), isolate(input$formula_select))
     # tkplot(g_interest())
   }
   # ,height = 400, width = 800
@@ -278,6 +398,8 @@ server <- function(input, output) {
   })
 }
 
+
+## Run shiny ####
 shinyApp(ui = ui, server = server)
 
 
