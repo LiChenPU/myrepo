@@ -1995,10 +1995,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 {
   formula_list["is_artifact"]=FALSE
   artifact_edgeset = relation_list[relation_list$category!=1,]
-  artifact_nodes = unique(c(artifact_edgeset$node1[artifact_edgeset$direction==-1], 
-                            artifact_edgeset$node2[artifact_edgeset$direction!=-1]))
-  artifact_edgeset =artifact_edgeset[artifact_edgeset$direction==0,]
-  formula_list$is_artifact[artifact_nodes]=TRUE
+  artifact_formula = unique(c(artifact_edgeset$ILP_id1[artifact_edgeset$direction==-1], 
+                            artifact_edgeset$ILP_id2[artifact_edgeset$direction!=-1]))
+  formula_list[formula_list$ILP_id %in% artifact_formula,"is_artifact"]=TRUE
   
 
   
@@ -2008,30 +2007,31 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   formula_list2["is_biotransform"]=FALSE
   biotranform_edgeset = relation_list2[relation_list2$category==1,]
-  test1 = formula_list2[formula_list2$ILP_id %in% c(biotranform_edgeset$ILP_id1, biotranform_edgeset$ILP_id2),]
-  g_bio = graph_from_data_frame(d = biotranform_edgeset, vertices = test1, directed = F)
+
+  g_bio = graph_from_data_frame(d = biotranform_edgeset, 
+                                vertices =  formula_list2[formula_list2$ILP_id %in% 
+                                                      c(biotranform_edgeset$ILP_id1, 
+                                                        biotranform_edgeset$ILP_id2),],
+                                directed = F)
   clu=components(g_bio)
   #subnetwork criteria 
   g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
   test2 = as.data.frame(clu$membership)
-  test3 = test2[as.numeric(row.names(test2))>nrow(Mset$Data),]
+  test3 = test2[as.numeric(row.names(test2))>nrow(unknown_formula),]
   biotranform_nodes_id = c()
   for(i in unique(test3)){
     biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
   }
+  
   #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
   formula_list2[!is.na(formula_list2$formula)& formula_list2$ILP_id %in% biotranform_nodes_id, "is_biotransform"]=TRUE
 
-  # formula_list2["is_metabolite"]=NA
-  # for(i in 1:nrow(formula_list2)){
-  #   if(formula_list2$is_artifact[i]){
-  #     if(formula_list2$is_biotransform[i]){formula_list2$is_metabolite[i]="Maybe"
-  #     }else{formula_list2$is_metabolite[i]="No"}
-  #   }else{
-  #     if(formula_list2$is_biotransform[i]){formula_list2$is_metabolite[i]="Yes"
-  #     }else{formula_list2$is_metabolite[i]=NA}
-  #   }
-  # }
+  formula_list2["is_metabolite"]=NA
+  formula_list2$is_metabolite[formula_list2$is_artifact & formula_list2$is_biotransform] = "Maybe"
+  formula_list2$is_metabolite[formula_list2$is_artifact & !formula_list2$is_biotransform] = "No"
+  formula_list2$is_metabolite[!formula_list2$is_artifact & formula_list2$is_biotransform] = "Yes"
+  formula_list2$is_metabolite[!formula_list2$is_artifact & !formula_list2$is_biotransform] = "NA"
+  
 }
 
 # Graphic analysis ####
@@ -2040,113 +2040,37 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   g_vertex = g_vertex[with(g_vertex, order(ID, -ILP_result)),]
   g_edge = relation_list2
   g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
-  
-  g_vertex2 = igraph::as_data_frame(g, "vertices")
-  
-  ## Analysis of Specific node ####
-  g_interest_node = function(interested_node, g, step = 2)
-  {
-    # interested_node = 1
-    interested_node = interested_node
-    g_id = g_vertex$ILP_id[g_vertex$ID==interested_node]
-  
-    # interested_node = as.character(g_id[1])
-    g.degree <- degree(g, mode = c("all"))
-    g_interest <- make_ego_graph(g, 
-                                step, 
-                                #1,
-                                nodes = as.character(g_id[1]), 
-                                mode = c("all"))[[1]]
-    return(g_interest)
-  }
-  
-  Plot_g_interest = function(g_interest)
-  {
-    vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
-    
-    # dists = distances(g_interest, g_id)
-    colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
-    # V(g_interest)$color <- colors[dists+1]
-    # png(filename=paste("Subnetwork of node ", interested_node,".png",sep=""),
-    #     width = 2400, height=2400,
-    #     res=300)
-    
-    plot(g_interest,
-         #vertex.color = 'white',
-         vertex.label = vertex.attributes(g_interest)$formula,
-         #vertex.label = vertex.attributes(g_interest)$medRt,
-         vertex.label.color = "blue",
-         vertex.label.cex = 1,
-         #vertex.label.dist = 2,
-         vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
-         #edge.width = edge.attributes(g_interest)$Confidence*2-2,
-         # edge.color = color_palette[edge.attributes(g_interest)$color],
-         #edge.label = edge.attributes(g_interest)$mz_dif,
-         edge.label = edge.attributes(g_interest)$linktype,
-         edge.label.color = "red",
-         edge.label.cex = 1,
-         edge.arrow.size = 0.5,
-         edge.arrow.width = 1,
-         main = paste("Subnetwork of node", interested_node),
-         layout = layout_nicely(g_interest)
-         #layout = layout_as_tree(g_interest)
-    )
-    # dev.off()
-  }
-  
-  
-  {
-    peak_id = 122
-    g_interest = g_interest_node(peak_id, g,1)
-    g_interest_edge = igraph::as_data_frame(g_interest, "edges")
-    g_interest_vertice = igraph::as_data_frame(g_interest, "vertices")
-    Plot_g_interest(g_interest)
-    
-    #Subnetwork_analysis(g, member_lb = 4, member_ub = 10)
-  }
-  
-  
-  # 
-  # plot(g,
-  #      vertex.label = NA,
-  #      #edge.color = 'black',
-  #      vertex.size = sqrt(degree(g, mode = c("all"))),
-  #      edge.arrow.size = 0.05,
-  #      layout = layout_nicely(g))
-  # 
-  
-  
-  #Basic graph characteristics, distance, degree, betweeness
-  {
-    #distance
-    farthest_vertices(g_sub) 
-    #degree
-    g.d = degree(g_sub, mode = c("all"))
-    #Closeness
-    #g.c = closeness(g_sub)
-    #Betweenness
-    g.b <- betweenness(g_sub, directed = T)
-    #which.max(g.b)
-  
-    clu=components(g_sub)
-    clu_member = table(clu$membership)
-    #subnetwork criteria 
-    mainnetwork = igraph::groups(clu)[table(clu$membership)>3000]
-    
-    g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
-    g_sub_main_node_list = g_sub_node_list[g_sub_node_list$ID %in% mainnetwork[[1]], ]
-    
-    nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
-    
-    # plot(g_sub,
-    #      vertex.label = NA,
-    #      #edge.color = 'black',
-    #      vertex.size = sqrt(degree(g_sub, mode = c("all"))),
-    #      edge.arrow.size = 0.05,
-    #      layout = layout_nicely(g_sub))
-  }
 }
 
+#Basic graph characteristics, distance, degree, betweeness
+{
+  #distance
+  farthest_vertices(g_sub) 
+  #degree
+  g.d = degree(g_sub, mode = c("all"))
+  #Closeness
+  #g.c = closeness(g_sub)
+  #Betweenness
+  g.b <- betweenness(g_sub, directed = T)
+  #which.max(g.b)
+  
+  clu=components(g_sub)
+  clu_member = table(clu$membership)
+  #subnetwork criteria 
+  mainnetwork = igraph::groups(clu)[table(clu$membership)>3000]
+  
+  g_sub_node_list = merge_node_list[merge_node_list$ID %in% c(merge_edge_list$node1, merge_edge_list$node2),]
+  g_sub_main_node_list = g_sub_node_list[g_sub_node_list$ID %in% mainnetwork[[1]], ]
+  
+  nrow(g_sub_main_node_list[!is.na(g_sub_main_node_list$MF),])
+  
+  # plot(g_sub,
+  #      vertex.label = NA,
+  #      #edge.color = 'black',
+  #      vertex.size = sqrt(degree(g_sub, mode = c("all"))),
+  #      edge.arrow.size = 0.05,
+  #      layout = layout_nicely(g_sub))
+}
 
   # Helper function
 {
