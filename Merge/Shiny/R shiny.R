@@ -1,10 +1,14 @@
 library(shiny)
 library(igraph)
+library(reactlog)
+library(ShinyTester)
 
-options(shiny.reactlog=TRUE) 
+
+
+# options(shiny.reactlog=TRUE) 
 # Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-setwd("./xi_new_neg")
+# setwd("./xi_new_neg")
 
 g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F)
 g_edge = read.csv("g_edge.txt", stringsAsFactors = F)
@@ -53,7 +57,7 @@ search_formula = function(g, peak_id){
   # ranking
   g_vertex = g_vertex[with(g_vertex, order(-ILP_result, -cplex_score)),]
   
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_artifact", "is_biotransform", "is_metabolite")
+  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "intensity", "is_metabolite")
   g_vertex = g_vertex[,colname_vertice]
   
   return(g_vertex)
@@ -209,15 +213,16 @@ g_show_edge = function(g_interest)
 }
 
 
-## all_two_nodes_graph####
+## two_formula_neighbor_graph####
 
-two_formula_all_path_graph = function(g, node1, node2, formula1, formula2, dist = 3)
+two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist = 3)
 {
   # node1 = 178
   # node2 = 2
   # formula1 = "C6H12O6"
   # formula2 = "C16H32O2"
   # dist = 3
+  if(!is_igraph(g)) {return(NULL)}
   
   g_vertex = igraph::as_data_frame(g, "vertices")
   g_id1 = g_vertex$name[g_vertex$ID==node1 & g_vertex$formula==formula1]
@@ -225,15 +230,29 @@ two_formula_all_path_graph = function(g, node1, node2, formula1, formula2, dist 
   
   i = g_id1[1]
   j = g_id2[1]
-
+  
   if(distances(g, i, j, mode = "all") > dist){return(NULL)}
   
-  paths_connect_ij = all_simple_paths(g,i,j, mode = "out")
-  ids.to.keep = sapply(paths_connect_ij, function(i) length(i)<=(dist+1))
-  paths_connect_ij = paths_connect_ij[ids.to.keep]
-  all_names_in_connect_graph = unique(names(unlist(paths_connect_ij)))
-  
-  
+  all_names_in_connect_graph = c()
+  for(count in 0:dist){
+    g_i = make_ego_graph(g, 
+                         count, 
+                         nodes = i, 
+                         mode = c("all"))[[1]]
+    g_j = make_ego_graph(g, 
+                         dist-count, 
+                         nodes = j, 
+                         mode = c("all"))[[1]]
+    
+    g_i_vertex =  igraph::as_data_frame(g_i, "vertices")
+    g_j_vertex =  igraph::as_data_frame(g_j, "vertices")
+    
+    intersect_names = intersect(g_i_vertex$name, g_j_vertex$name)
+    all_names_in_connect_graph = c(all_names_in_connect_graph, intersect_names)
+  }
+
+  all_names_in_connect_graph = unique(all_names_in_connect_graph)
+
   if(length(all_names_in_connect_graph)==0){return(NULL)}
   g_temp_vertex = g_vertex[g_vertex$name %in% all_names_in_connect_graph,]
   g_temp_edge = g_edge[g_edge$from %in% all_names_in_connect_graph & g_edge$to %in% all_names_in_connect_graph,]
@@ -242,7 +261,7 @@ two_formula_all_path_graph = function(g, node1, node2, formula1, formula2, dist 
   return(g_temp)
 }
 
-## shortest_two_nodes_graph####
+## shortest_two_nodes_shortest####
 two_formula_shortest_path_graph = function(g, node1, node2, formula1, formula2)
 {
   # node1 = 178
@@ -250,6 +269,8 @@ two_formula_shortest_path_graph = function(g, node1, node2, formula1, formula2)
   # formula1 = "C6H12O6"
   # formula2 = "C16H32O2"
 
+  if(!is_igraph(g)) {return(NULL)}
+  
   g_vertex = igraph::as_data_frame(g, "vertices")
   g_id1 = g_vertex$name[g_vertex$ID==node1 & g_vertex$formula==formula1]
   g_id2 = g_vertex$name[g_vertex$ID==node2 & g_vertex$formula==formula2]
@@ -304,7 +325,7 @@ ui <- fluidPage(
                   wellPanel(
                     numericInput(inputId = "Partner_level", 
                                  label = "Level of partner",
-                                 value = 1
+                                 value = 2
                     ),
                     numericInput(inputId = "Partner_id", 
                                  label = "Partner ID",
@@ -340,7 +361,7 @@ ui <- fluidPage(
                 
     ),
     actionButton("one_node_graph", "one_node_graph"),
-    actionButton("two_nodes_graph", "two_nodes_graph"),
+    actionButton("two_nodes_shortest", "two_nodes_shortest"),
     actionButton("two_nodes_all_graph", "two_nodes_all_graph")
     
   ),
@@ -480,21 +501,29 @@ server <- function(input, output, session) {
   observeEvent(input$one_node_graph, {
     print("enter g_interest interest_node_graph")
     ### basic graph based on selected peak and formula
-    g_interest$data = interest_node_graph(g_partner(), isolate(input$Peak_id), isolate(input$formula_select), step = 1)
+    g_interest$data = interest_node_graph(g_partner(), 
+                                          isolate(input$Peak_id), 
+                                          isolate(input$formula_select), 
+                                          step = 1)
   })
 
-  observeEvent(input$two_nodes_graph, {
+  observeEvent(input$two_nodes_shortest, {
     print("enter g_interest two_formula_shortest_path_graph")
-    g_interest$data = two_formula_shortest_path_graph(isolate(g_partner()), isolate(input$Peak_id), isolate(input$Partner_id), isolate(input$formula_select), input$Partner_formula)
-    # two_formula_all_path_graph(g_partner(), isolate(input$Peak_id), isolate(input$Partner_id), isolate(input$formula_select), input$Partner_formula, dist = 3)
-    # interest_node_graph(g_partner(), isolate(input$Peak_id), isolate(input$formula_select), step = 1)
+    g_interest$data = two_formula_shortest_path_graph(isolate(g_partner()), 
+                                                      isolate(input$Peak_id), 
+                                                      isolate(input$Partner_id), 
+                                                      isolate(input$formula_select), 
+                                                      input$Partner_formula)
   })
   
   observeEvent(input$two_nodes_all_graph, {
-    print("enter g_interest two_formula_all_path_graph")
-    g_interest$data = two_formula_all_path_graph(isolate(g_partner()), isolate(input$Peak_id), isolate(input$Partner_id), isolate(input$formula_select), input$Partner_formula, dist = 3)
-    # two_formula_all_path_graph(g_partner(), isolate(input$Peak_id), isolate(input$Partner_id), isolate(input$formula_select), input$Partner_formula, dist = 3)
-    # interest_node_graph(g_partner(), isolate(input$Peak_id), isolate(input$formula_select), step = 1)
+    print("enter g_interest two_formula_neighbor_graph")
+    g_interest$data = two_formula_neighbor_graph(isolate(g_partner()), 
+                                                 isolate(input$Peak_id), 
+                                                 isolate(input$Partner_id), 
+                                                 isolate(input$formula_select), 
+                                                 input$Partner_formula, 
+                                                 dist = input$Partner_level)
   })
   
   
@@ -619,17 +648,17 @@ shinyApp(ui = ui, server = server)
 # 
 #   output$partner_table = 0
 # 
-#   test = all_two_nodes_graph(g, 178,2,3)
-#   test = shortest_two_nodes_graph(g, 178,2)
+#   test = all_two_nodes_shortest(g, 178,2,3)
+#   test = shortest_two_nodes_shortest(g, 178,2)
 #   Plot_g_interest(test[[1]],input$Peak_id,input$formula_select$selected)
 # }
 # 
 # 
 # Unused function ####
 
-## all_two_nodes_graph 
+## all_two_nodes_shortest 
 # 
-# all_two_nodes_graph = function(g, node1, node2, dist = 3)
+# all_two_nodes_shortest = function(g, node1, node2, dist = 3)
 # {
 #   # node1 = 122
 #   # node2 = 389
@@ -656,8 +685,8 @@ shinyApp(ui = ui, server = server)
 #   return(g_list)
 # }
 # 
-# ## shortest_two_nodes_graph
-# shortest_two_nodes_graph = function(g, node1, node2)
+# ## shortest_two_nodes_shortest
+# shortest_two_nodes_shortest = function(g, node1, node2)
 # {
 #   # node1 = 178
 #   # node2 = 2
