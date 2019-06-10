@@ -1946,14 +1946,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
-  #CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
+  # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
+  # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
 {
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   #CPLEX_x = result_solution$x
@@ -2040,6 +2040,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   g_vertex = g_vertex[with(g_vertex, order(ID, -ILP_result)),]
   g_edge = relation_list2
   g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
+  
+  write.csv(g_vertex, "g_vertex.txt", row.names = F)
+  write.csv(g_edge, "g_edge.txt", row.names = F)
 }
 
 #Basic graph characteristics, distance, degree, betweeness
