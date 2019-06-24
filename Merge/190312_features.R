@@ -184,12 +184,12 @@ Peak_cleanup = function(Mset,
         next
       }
       
-      s3$medMz[k_min]=mean(s3$medMz[k_min:(k_max-1)])
-      s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)])
-      s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)])
-      s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)])
+      s3$medMz[k_min]=mean(s3$medMz[k_min:(k_max-1)], na.rm=TRUE)
+      s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)], na.rm=TRUE)
+      s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)], na.rm=TRUE)
+      s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)], na.rm=TRUE)
       for (n in 14:ncol(raw)){
-        s3[k_min,n]=max(s3[k_min:(k_max-1),n])
+        s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
       }
     }
   }
@@ -643,9 +643,12 @@ Peak_variance = function(Mset,
       temp_df_raw$time_dif=temp_df_raw$medRt-df_raw$medRt[i]
       temp_df_raw$mz_dif = round(temp_df_raw$medMz-df_raw$medMz[i], digits=5)
       
-      temp_x = t(df_raw[i,Mset$Cohort$sample_names])
-      temp_y = t(temp_df_raw[,Mset$Cohort$sample_names])
-      temp_df_raw$correlation = as.numeric(t(cor(temp_x, temp_y)))
+      
+      temp_df_raw$correlation = 1
+      # Ignore co-variance between peaks
+      # temp_x = t(df_raw[i,Mset$Cohort$sample_names])
+      # temp_y = t(temp_df_raw[,Mset$Cohort$sample_names])
+      # temp_df_raw$correlation = as.numeric(t(cor(temp_x, temp_y)))
       
       # temp_x = c(0.1,1,1.1,1.2)
       # temp_y = c(0.01,0.05,0.02,0.1)
@@ -725,7 +728,7 @@ Peak_variance = function(Mset,
 Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.002, search_ppm_cutoff = 10, read_from_csv=F)
 {
   if(read_from_csv == F){
-    #edge_ls_highcor = EdgeSet$Peak_inten_correlation
+    # edge_ls_highcor = EdgeSet$Peak_inten_correlation
     edge_ls_highcor = Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
     junk_df = Mset$Artifacts
@@ -740,37 +743,44 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     temp_df["mass_dif"]=double()
     
     temp_df = temp_df[0,]
-    
+  
+    mz_dif_edge_ls_highcor = edge_ls_highcor$mz_dif
+    timer = Sys.time()
     while (i <= nrow(edge_ls_highcor)){
-      if(i%%100000==0){print(paste(i, "edges screened."))}
+      if(i%%100000==0){print(paste(i, "edges screened."))
+        print(Sys.time()-timer)}
       
       search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
       
       
-      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
+      if(mz_dif_edge_ls_highcor[i]<(junk_df$mass[j]-search_cutoff)){
         i=i+1
         next
       }
-      if(edge_ls_highcor$mz_dif[i]<(junk_df$mass[j]+search_cutoff)){
+      
+      if(mz_dif_edge_ls_highcor[i]<(junk_df$mass[j]+search_cutoff)){
         temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
                                       as.character(junk_df$Symbol[j]), 
                                       junk_df$Formula[j], 
                                       junk_df$direction[j],
                                       junk_df$rdbe[j],
-                                      (edge_ls_highcor$mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
+                                      (mz_dif_edge_ls_highcor[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
         )
+        
       }
-      if(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
+      if(mz_dif_edge_ls_highcor[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
         temp_ls[[j]]=temp_df
         temp_df = temp_df[0,]
         j=j+1
         if(j>nrow(junk_df)){break}
         #search_cutoff = 10 * initial_FIT$estimate[2]/1000 
-        while(edge_ls_highcor$mz_dif[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
+        while(mz_dif_edge_ls_highcor[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
         next
       }
       i=i+1
     }
+    
+
     
     temp_df_isotope = bind_rows(temp_ls)
     
@@ -786,7 +796,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
       
       nodeset = Mset$NodeSet[Mset$NodeSet$category!=0,]
       
-      temp_edge_ls = data.frame(ratio=edge_ls_highcor$mz_dif/edge_ls_highcor$mz_node1)
+      temp_edge_ls = data.frame(ratio=mz_dif_edge_ls_highcor/edge_ls_highcor$mz_node1)
       temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
       temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
       temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
@@ -798,9 +808,6 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
         temp_mz2 = temp_mz1 + temp_data$mz_dif
         search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*temp_mz2/10^6)
         for(j in 2:10){
-          #if charge data
-          #if(abs(temp_mz1*j-(H_mass-e_mass)*mode*(j-1)-temp_mz2)<temp_mz2*ppm){
-          #if neutral data
           if(abs(temp_mz1*j-temp_mz2)<search_cutoff){
             temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,
                                                       "oligomer",
@@ -890,7 +897,7 @@ Merge_edgeset = function(EdgeSet){
 }
 
 
-## Network_prediction used to connect nodes to library and predict formula ####
+## Network_prediction - used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, 
                               edge_biotransform, 
                               edge_artifact,
@@ -946,6 +953,8 @@ Network_prediction = function(Mset,
     # Handle artifacts
     sub_step = 0
     while(sub_step <= 0.01 * artifact_step){
+      print(paste("sub_step",sub_step,"elapsed="))
+      print((Sys.time()-timer))
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df[all_nodes_df$steps==(step + sub_step)
                                   &all_nodes_df$score>propagation_score_threshold,]
@@ -1246,11 +1255,14 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
                                 raw_edge_list$node2 %in% unknown_nodes$ID,]
     
     pred_formula_ls = list()
+    merge_formula_id=merge_formula$id
     for(n in 1: max(merge_formula$id)){
-      pred_formula_ls[[n]]=merge_formula[merge_formula$id==n,]
+      pred_formula_ls[[n]]=merge_formula[merge_formula_id==n,]
     }
   }
   
+  
+
   ##Core codes
   
   #Construct constraint matrix 
@@ -1282,14 +1294,14 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     timer=Sys.time()
     n=1
     for(n in 1:nrow(edge_list)){
-      
-      #for(n in 1:10000){
+      # for(n in 1:20000){
       if(n%%10000==0){
         print(paste("n=",n,"elapsed="))
         print(Sys.time()-timer)
         
       }
       
+
       temp_edge = edge_list[n,]
       node_1 = temp_edge$node1
       node_2 = temp_edge$node2
@@ -1848,13 +1860,12 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   datapath = ("./Melanie_merge")
   setwd(datapath)
   
-  filename = c("merge.csv")
+  filename = c("merge2.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
 ## Initialise ####
 {
-
   Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
@@ -1865,6 +1876,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 ms_dif_ppm=1/10^6, 
                                 rt_dif_min=0.01,
                                 detection_limit=500)
+  test = Mset$Raw_data
+  any(is.na(Mset$Data$mean_inten))
   
   Mset[["ID"]] = Mset$Data$ID
 }
@@ -1932,10 +1945,10 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  edge_biotransform = EdgeSet$Biotransform, 
                                                  edge_artifact = EdgeSet$Artifacts,
-                                                 biotransform_step = 5,
-                                                 artifact_step = 5,
+                                                 biotransform_step = 3,
+                                                 artifact_step = 3,
                                                  propagation_score_threshold = 0.5,
-                                                 top_n = 50,
+                                                 top_n = 100,
                                                  read_from_csv = read_from_csv)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)
