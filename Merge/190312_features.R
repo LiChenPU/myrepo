@@ -89,6 +89,8 @@ Peak_cleanup = function(Mset,
   ion_mode = Mset$Global_parameter$mode
   raw$medMz = raw$medMz*abs(ion_mode) - (H_mass-e_mass)*ion_mode
   
+  
+  
   #Group MS groups
   {
     s = raw[with(raw, order(medMz, medRt)),]
@@ -201,7 +203,7 @@ Peak_cleanup = function(Mset,
     #                                                         replace=T)
     
     s4["mean_inten"]=NA
-    s4["mean_inten"]=rowMeans(s4[,Mset$Cohort$sample_names])
+    s4["mean_inten"]=rowMeans(s4[,Mset$Cohort$sample_names], na.rm = T)
     s4$flag[s4$mean_inten<detection_limit]=F
   }
   
@@ -210,7 +212,7 @@ Peak_cleanup = function(Mset,
   s5 = s5[with(s5, order(ID)),]
   s5$ID = 1:nrow(s5)
   
-  s5["mean_inten"]=rowMeans(s5[,Mset$Cohort$sample_names])
+  s5["mean_inten"]=rowMeans(s5[,Mset$Cohort$sample_names], na.rm = T)
   s5["log10_inten"]=log10(s5$mean_inten)
   
   return(s5)
@@ -598,7 +600,7 @@ Peak_variance = function(Mset,
                          correlation_cutoff = -1)
 {
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
-  df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names])
+  df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
   df_raw["log10_inten"]=log10(df_raw$mean_inten)
 
   {
@@ -1843,17 +1845,17 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Xi_new_neg")
+  datapath = ("./Melanie_merge")
   setwd(datapath)
   
-  filename = c("Xi_new_neg.csv")
+  filename = c("merge.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
 ## Initialise ####
 {
 
-  Mset[["Global_parameter"]]=  list(mode = -1,
+  Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   print(Mset$Cohort)
@@ -2147,12 +2149,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   WY_NetID = tabyl(merge_result_notbg, feature, is_metabolite)
   WY_NetID_filter = filter(merge_result_notbg, feature == "buffer", is_metabolite == "Yes")
   
-  fea_vs_fea1 = tabyl(merge_result_notbg, feature, feature_1 )
+  fea_vs_fea1 = tabyl(wl_result, feature, feature_1 )
   artifact_vs_fea1 = tabyl(merge_result_notbg, is_artifact, feature_1,is_biotransform )
 }
-
-
-
 
 
 
