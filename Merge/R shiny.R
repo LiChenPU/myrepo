@@ -8,12 +8,15 @@ library(ShinyTester)
 # options(shiny.reactlog=TRUE) 
 # Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-# setwd("./xi_new_neg")
+datapath = ("./Melanie_merge")
+setwd(datapath)
 
 g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F)
 g_edge = read.csv("g_edge.txt", stringsAsFactors = F)
 
 g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
+g_vertex = igraph::as_data_frame(g, "vertices")
+g_edge = igraph::as_data_frame(g, "edges")
 
 # function ####
 ## search_peak ####
