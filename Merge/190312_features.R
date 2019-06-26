@@ -75,10 +75,10 @@ Cohort_Info = function(Mset)
 }
 
 ## Peak_cleanup - Clean up duplicate peaks from peak picking ####
-Peak_cleanup = function(Mset,
+Peak_cleanup = function(Mset, 
                         ms_dif_ppm=1/10^6, 
-                        rt_dif_min=0.02,
-                        detection_limit=2500
+                        rt_dif_min=0.01,
+                        detection_limit=500
                         )
 {
   raw = Mset$Raw_data
@@ -183,13 +183,14 @@ Peak_cleanup = function(Mset,
       if(k_min == k_max-1){
         next
       }
-      
       s3$medMz[k_min]=mean(s3$medMz[k_min:(k_max-1)], na.rm=TRUE)
       s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)], na.rm=TRUE)
-      s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)], na.rm=TRUE)
+      # s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)], na.rm=TRUE)
       s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)], na.rm=TRUE)
       for (n in 14:ncol(raw)){
-        s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
+        if(any(!is.na(s3[k_min:(k_max-1),n]))){
+          s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
+        }
       }
     }
   }
@@ -1860,7 +1861,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   datapath = ("./Melanie_merge")
   setwd(datapath)
   
-  filename = c("merge2.csv")
+  filename = c("merge3.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
@@ -1876,8 +1877,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 ms_dif_ppm=1/10^6, 
                                 rt_dif_min=0.01,
                                 detection_limit=500)
-  test = Mset$Raw_data
-  any(is.na(Mset$Data$mean_inten))
   
   Mset[["ID"]] = Mset$Data$ID
 }
