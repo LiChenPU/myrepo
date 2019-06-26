@@ -604,10 +604,9 @@ Peak_variance = function(Mset,
   df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
   df_raw["log10_inten"]=log10(df_raw$mean_inten)
   
-  df_raw_medRt = df_raw$medRt
-
   {
     df_raw = df_raw[with(df_raw, order(medRt)),]
+    df_raw_medRt = df_raw$medRt
     i = 1
     
     edge_list = list()
@@ -673,8 +672,6 @@ Peak_variance = function(Mset,
     }
   }
   
-  
-  
   edge_ls = bind_rows(edge_list)
   edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
   # edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
@@ -712,6 +709,25 @@ Peak_variance = function(Mset,
     rm(temp_data)
   }
   
+  
+  # Remove duplicated rows
+  {
+    # edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")]),]
+    edge_ls = edge_ls[with(edge_ls, order(node1, node2)),]
+    keep_row = rep(T,nrow(edge_ls))
+    node1 = edge_ls$node1
+    node2 = edge_ls$node2
+    for(i in 2:nrow(edge_ls)){
+      if(node1[i] == node1[i-1]){
+        if(node2[i] == node2[i-1]){
+          keep_row[i]=F
+        }
+      }
+    }
+    edge_ls = edge_ls[keep_row, ]
+  }
+  
+  edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
   edge_ls["mz_node1"] = Mset$NodeSet$mz[edge_ls$node1]
   edge_ls["mz_node2"] = Mset$NodeSet$mz[edge_ls$node2]
   # edge_ls["mz_dif"] = Mset$NodeSet$mz[edge_ls$node2] -Mset$NodeSet$mz[edge_ls$node1]
@@ -719,10 +735,7 @@ Peak_variance = function(Mset,
   # edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
   # edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
   # edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
-  
-  
-  edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
-  edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")]),]
+ 
   print("High correlation peaks identified.")
   return(edge_ls)
 }
@@ -747,37 +760,37 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
     
     temp_df = temp_df[0,]
   
-    mz_dif_edge_ls_highcor = edge_ls_highcor$mz_dif
+    edge_ls_highcor_mz_dif = edge_ls_highcor$mz_dif
     timer = Sys.time()
     while (i <= nrow(edge_ls_highcor)){
-      if(i%%100000==0){print(paste(i, "edges screened."))
+      if(i%%1000000==0){print(paste(i, "edges screened."))
         print(Sys.time()-timer)}
       
       search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
       
       
-      if(mz_dif_edge_ls_highcor[i]<(junk_df$mass[j]-search_cutoff)){
+      if(edge_ls_highcor_mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
         i=i+1
         next
       }
       
-      if(mz_dif_edge_ls_highcor[i]<(junk_df$mass[j]+search_cutoff)){
+      if(edge_ls_highcor_mz_dif[i]<(junk_df$mass[j]+search_cutoff)){
         temp_df[(nrow(temp_df)+1),]=c(edge_ls_highcor[i,],
                                       as.character(junk_df$Symbol[j]), 
                                       junk_df$Formula[j], 
                                       junk_df$direction[j],
                                       junk_df$rdbe[j],
-                                      (mz_dif_edge_ls_highcor[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
+                                      (edge_ls_highcor_mz_dif[i]-junk_df$mass[j])/edge_ls_highcor$mz_node2[i]*10^6
         )
         
       }
-      if(mz_dif_edge_ls_highcor[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
+      if(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
         temp_ls[[j]]=temp_df
         temp_df = temp_df[0,]
         j=j+1
         if(j>nrow(junk_df)){break}
         #search_cutoff = 10 * initial_FIT$estimate[2]/1000 
-        while(mz_dif_edge_ls_highcor[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
+        while(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
         next
       }
       i=i+1
@@ -799,7 +812,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
       
       nodeset = Mset$NodeSet[Mset$NodeSet$category!=0,]
       
-      temp_edge_ls = data.frame(ratio=mz_dif_edge_ls_highcor/edge_ls_highcor$mz_node1)
+      temp_edge_ls = data.frame(ratio=edge_ls_highcor_mz_dif/edge_ls_highcor$mz_node1)
       temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
       temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
       temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
@@ -849,6 +862,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.
 ### Hetero_dimer - Edge_list for hetero_dimer ####
 Hetero_dimer = function(Peak_inten_correlation)
 {
+  # e = EdgeSet$Peak_inten_correlation
   e = Peak_inten_correlation
   e2 = e[e$node1 %in% Mset$Data$ID & e$node2 %in% Mset$Data$ID, ]
   e3 = e2[e2$mz_dif > min(e2$mz_node1) & e2$mz_dif < max(e2$mz_node1),]
@@ -856,7 +870,7 @@ Hetero_dimer = function(Peak_inten_correlation)
   hetero_dimer_ls = list()
   for(i in 1: length(e3_list)){
     temp_e = e3_list[[i]]
-    temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+") 
+    temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+")  # mz_node1 and mz_dif are the same.
     temp_matrix = (temp_matrix - temp_e$mz_node2[1])/temp_e$mz_node2[1] * 10^6
     temp_index = which(abs(temp_matrix) < 5, arr.ind = T)
     if(length(temp_index)>0){
@@ -872,6 +886,8 @@ Hetero_dimer = function(Peak_inten_correlation)
   hetero_dimer_df["direction"]=1
   hetero_dimer_df["rdbe"]=0
   # hetero_dimer_df_duplicate = hetero_dimer_df[duplicated(hetero_dimer_df[,c("node2", "linktype")]) | duplicated(hetero_dimer_df[,c("node2", "linktype")], fromLast = T),]
+  
+  print("Potentail hetero dimer identified.")
   return(hetero_dimer_df)
 }
 
@@ -911,6 +927,7 @@ Network_prediction = function(Mset,
                               read_from_csv = F
                               )
 {
+  gc()
   if(!read_from_csv){
   mnl=Mset$NodeSet
   edge_biotransform = EdgeSet$Biotransform
@@ -1927,7 +1944,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
-                                                      TIC_cutoff = 2e4,
+                                                      TIC_cutoff = 10000,
                                                       correlation_cutoff = -1)
   
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
