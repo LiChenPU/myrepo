@@ -578,7 +578,7 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
   # 
 }
 
-### Scoring edge based on mass accuracy ####
+### Edge_score - Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform){
   #Biotransform = EdgeSet$Biotransform
   if(nrow(Biotransform)>10000){
@@ -597,12 +597,14 @@ Edge_score = function(Biotransform){
 ## Peak_variance - Variance between peaks ####
 Peak_variance = function(Mset, 
                          time_cutoff=0.1,
-                         TIC_cutoff=0,
+                         TIC_cutoff=10000,
                          correlation_cutoff = -1)
 {
   df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
   df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
   df_raw["log10_inten"]=log10(df_raw$mean_inten)
+  
+  df_raw_medRt = df_raw$medRt
 
   {
     df_raw = df_raw[with(df_raw, order(medRt)),]
@@ -621,27 +623,27 @@ Peak_variance = function(Mset,
         next
       }
     
-      temp_t = df_raw$medRt[i]
+      temp_t = df_raw_medRt[i]
       
-      temp_t_start = max(temp_t-time_cutoff, df_raw$medRt[1])
-      temp_t_end = min(temp_t+time_cutoff, df_raw$medRt[nrow(df_raw)])
+      temp_t_start = max(temp_t-time_cutoff, df_raw_medRt[1])
+      temp_t_end = min(temp_t+time_cutoff, df_raw_medRt[nrow(df_raw)])
       
       i_start = i_end = i
       
       
-      while(i_start >= 1 & df_raw$medRt[i_start] > temp_t_start){
+      while(i_start >= 1 & df_raw_medRt[i_start] > temp_t_start){
         i_start = i_start-1
       }
       i_start = i_start+1
       
-      while(i_start <= nrow(df_raw) & df_raw$medRt[i_end] < temp_t_end){
+      while(i_start <= nrow(df_raw) & df_raw_medRt[i_end] < temp_t_end){
         i_end = i_end + 1
       }
       i_end = i_end - 1
       
       temp_df_raw = df_raw[i_start:i_end,]
       
-      temp_df_raw$time_dif=temp_df_raw$medRt-df_raw$medRt[i]
+      temp_df_raw$time_dif=temp_df_raw$medRt-df_raw_medRt[i]
       temp_df_raw$mz_dif = round(temp_df_raw$medMz-df_raw$medMz[i], digits=5)
       
       
@@ -1881,23 +1883,23 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["ID"]] = Mset$Data$ID
 }
 
-## Feature generation ####
-{
-  #Identify peaks with high blanks
-  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-
-  #library_match
-  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-  
-  #Metaboanalyst_Statistic
-  Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-  #Mset[["Metaboanalyst_Statistic"]]=ANOVA_FDR
-
-  # output assigned formula
-  Mset[["Summary"]] = Summary_Mset(Mset)
-  write_csv(Mset$Summary, paste("Mdata_1",filename,sep="_"))
-  save.image()
-}
+# ## Feature generation ####
+# {
+#   #Identify peaks with high blanks
+#   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
+# 
+#   #library_match
+#   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
+#   
+#   #Metaboanalyst_Statistic
+#   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+#   #Mset[["Metaboanalyst_Statistic"]]=ANOVA_FDR
+# 
+#   # output assigned formula
+#   Mset[["Summary"]] = Summary_Mset(Mset)
+#   write_csv(Mset$Summary, paste("Mdata_1",filename,sep="_"))
+#   save.image()
+# }
 
 # Network ####
 {
