@@ -22,6 +22,7 @@
   library(janitor)
   #devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
+  library(profvis)
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
@@ -958,7 +959,6 @@ Network_prediction = function(Mset,
       Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
       sf[[i]]=Initial_formula
     }
-    
   }
   
   #while loop to Predict formula based on known formula and edgelist 
@@ -991,8 +991,13 @@ Network_prediction = function(Mset,
         flag_score = temp_new_node$score
         flag_rdbe = temp_new_node$rdbe
         
-        temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
-                                edge_artifact_sub$node2==flag_id)
+        
+
+        # temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
+        #                         edge_artifact_sub$node2==flag_id)
+        flag_id_in_node1_or_node2 = edge_artifact_sub$node1==flag_id | edge_artifact_sub$node2==flag_id
+        temp_edge_list = edge_artifact_sub[flag_id_in_node1_or_node2,]
+      
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(flag_id <= nrow_experiment){
@@ -1070,7 +1075,11 @@ Network_prediction = function(Mset,
           partner_is_metabolite = F
           
           temp = sf[[partner_id]]
-          temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
+          
+          # temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
+          formula_metabolite_status_matched = temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite
+          temp_subset = temp[formula_metabolite_status_matched,]
+          
           if(nrow(temp_subset)!=0){
             #2. if not much higher scores, then next
             if(partner_score<=(1.2*max(temp_subset$score))){
@@ -1113,8 +1122,10 @@ Network_prediction = function(Mset,
         flag_score = temp_new_node$score
         flag_rdbe = temp_new_node$rdbe
         
-        temp_edge_list=subset(edge_biotransform_sub, edge_biotransform_sub$node1==flag_id |
-                                edge_biotransform_sub$node2==flag_id)
+        # temp_edge_list=subset(edge_biotransform_sub, edge_biotransform_sub$node1==flag_id |
+        #                         edge_biotransform_sub$node2==flag_id)
+        flag_id_in_node1_or_node2 = edge_biotransform_sub$node1==flag_id | edge_biotransform_sub$node2==flag_id
+        temp_edge_list = edge_biotransform_sub[flag_id_in_node1_or_node2,]
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(flag_id <= nrow_experiment){
@@ -1192,7 +1203,11 @@ Network_prediction = function(Mset,
           partner_is_metabolite = T
           
           temp = sf[[partner_id]]
-          temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
+          
+          formula_metabolite_status_matched = temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite
+          temp_subset = temp[formula_metabolite_status_matched,]
+          # temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
+          
           if(nrow(temp_subset)!=0){
             #2. if not much higher scores, then next
             if(partner_score<=(1.2*max(temp_subset$score))){
@@ -1241,10 +1256,11 @@ Network_prediction = function(Mset,
       sf[[n]]=merge_formula[merge_formula$id==n,]
     }
   }
-
+  
   
   return(sf)
 }
+
 
 # Function for CPLEX ####
 ## Prepare_CPLEX parameter ####
@@ -1653,7 +1669,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 }
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj){
-
+  # obj = obj_cplex
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
   
@@ -1670,12 +1686,21 @@ Run_CPLEX = function(CPLEXset, obj){
   ub = CPLEXset$para$ub
   ctype = CPLEXset$para$ctype
   
+
+  
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
   
 
   copyColTypeCPLEX(env, prob, ctype)
+  
+  # Conserve memory true
+  setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+  # setDefaultParmCPLEX(env)
+  # getChgParmCPLEX(env)
+  
   tictoc::tic()
+  
   return_code = mipoptCPLEX(env, prob)
   result_solution=solutionCPLEX(env, prob)
   
@@ -1688,23 +1713,7 @@ Run_CPLEX = function(CPLEXset, obj){
   writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
-  # 
-  # CPLEX_x = result_solution$x
-  # CPLEX_slack = result_solution$slack
-  # 
-  # 
-  # if(write_to_csv){
-  #   write_csv(as.data.frame(result_solution$x),"CPLEX_x.txt")
-  #   write_csv(as.data.frame(result_solution$slack),"CPLEX_slack.txt")
-  # }
-  # 
-  # } else{
-  #   
-  #   CPLEX_x = read.csv("CPLEX_x.txt")
-  #   CPLEX_slack = read.csv("CPLEX_slack.txt")
-  #   if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
-  # }
-  
+
   return(list(obj = obj, result_solution = result_solution))
 }
 ## CPLEX_permutation ####
@@ -1869,24 +1878,24 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 #————————————————————————#####
 # Main Codes ####
+
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  
   Mset = list()
   Mset[["Library"]] = read_library("hmdb_CHNOPS.csv")
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  datapath = ("./Melanie_merge")
-  setwd(datapath)
-  
-  filename = c("merge3.csv")
+  setwd("./Xi_new_neg")
+  filename = c("Xi_new_neg.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = 1,
+  Mset[["Global_parameter"]]=  list(mode = -1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   print(Mset$Cohort)
@@ -1907,14 +1916,14 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 # 
 #   #library_match
 #   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-#   
+# 
 #   #Metaboanalyst_Statistic
 #   Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
 #   #Mset[["Metaboanalyst_Statistic"]]=ANOVA_FDR
 # 
 #   # output assigned formula
 #   Mset[["Summary"]] = Summary_Mset(Mset)
-#   write_csv(Mset$Summary, paste("Mdata_1",filename,sep="_"))
+#   write_csv(Mset$Summary, paste("Mdata",filename,sep="_"))
 #   save.image()
 # }
 
@@ -1960,6 +1969,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
+
+    
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  edge_biotransform = EdgeSet$Biotransform, 
                                                  edge_artifact = EdgeSet$Artifacts,
@@ -1968,7 +1979,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  propagation_score_threshold = 0.5,
                                                  top_n = 100,
                                                  read_from_csv = read_from_csv)
-  
+
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)
 }
 
