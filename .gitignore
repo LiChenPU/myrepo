@@ -3,5 +3,6 @@
 *.RData
 *.Ruserdata
 *.csv
+*.pdf
 .Rproj.user
 prob.lp

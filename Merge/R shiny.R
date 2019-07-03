@@ -8,8 +8,9 @@ library(ShinyTester)
 # options(shiny.reactlog=TRUE) 
 # Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-datapath = ("./Melanie_merge")
+datapath = ("./Melanie_merge/merge3")
 setwd(datapath)
+
 
 g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F)
 g_edge = read.csv("g_edge.txt", stringsAsFactors = F)
@@ -19,11 +20,41 @@ g_vertex = igraph::as_data_frame(g, "vertices")
 g_edge = igraph::as_data_frame(g, "edges")
 
 # function ####
+## filter_graph ####
+filter_graph = function(g, 
+                        intensity_lb = 3, intensity_ub= 7, 
+                        mz_lb = 0, mz_ub = 1500, 
+                        rt_lb = 0, rt_ub = 30,
+                        is_metabolite_group)
+{
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_edge = igraph::as_data_frame(g, "edges")
+  
+  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
+  g_vertex = g_vertex[is.na(g_vertex$intensity) |
+                        g_vertex$intensity > 10^intensity_lb &
+                        g_vertex$intensity < 10^intensity_ub,]
+  g_vertex = g_vertex[g_vertex$mz>mz_lb & 
+                        g_vertex$mz<mz_ub,]
+  g_vertex = g_vertex[g_vertex$RT>rt_lb & 
+                        g_vertex$RT<rt_ub,]
+  
+  is_metabolite_group = unique(g_vertex$is_metabolite)
+  is_metabolite_group[is_metabolite_group==""] = NA
+  g_vertex = g_vertex[g_vertex$is_metabolite %in% is_metabolite_group,]
+  
+  g_edge = g_edge[g_edge$from %in% g_vertex$name &
+                    g_edge$to %in% g_vertex$name, ]
+  
+  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
+  
+  return(g_filter)
+}
 ## search_peak ####
 search_peak = function(g, mz_interest, mz_ppm)
 {
   
-  # mz_interest = 180.0631
+  # mz_interest = 558.51
   # mz_ppm = 5
   # mz_lb = 0
   # mz_ub = 1500
@@ -108,35 +139,7 @@ g_show_vertice_rankIntensity = function(g_interest)
 }
 
 
-## filter_graph ####
-filter_graph = function(g, 
-                        intensity_lb, intensity_ub, 
-                        mz_lb, mz_ub, 
-                        rt_lb, rt_ub,
-                        is_metabolite_group)
-{
-  
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_edge = igraph::as_data_frame(g, "edges")
-  
-  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
-  g_vertex = g_vertex[is.na(g_vertex$intensity) |
-                        g_vertex$intensity > 10^intensity_lb &
-                        g_vertex$intensity < 10^intensity_ub,]
-  g_vertex = g_vertex[g_vertex$mz>mz_lb & 
-                        g_vertex$mz<mz_ub,]
-  g_vertex = g_vertex[g_vertex$RT>rt_lb & 
-                        g_vertex$RT<rt_ub,]
-  
-  g_vertex = g_vertex[g_vertex$is_metabolite %in% is_metabolite_group,]
-  
-  g_edge = g_edge[g_edge$from %in% g_vertex$name &
-                    g_edge$to %in% g_vertex$name, ]
-  
-  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
-  
-  return(g_filter)
-}
+
 
 ## interest_node_graph ####
 interest_node_graph = function(g, peak_id, formula_select, step = 1)
@@ -396,6 +399,7 @@ server <- function(input, output, session) {
   
   ## adjust mz based on ionization and ppm
   mz_interest <- reactive({
+    
     print("enter mz_interest")
     ion_form = input$ion_form
     if(ion_form == "M"){mz_adjust = input$mz_interest}

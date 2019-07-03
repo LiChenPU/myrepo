@@ -1878,7 +1878,6 @@ Trace_step = function(query_id, unknown_node_CPLEX)
 }
 #————————————————————————#####
 # Main Codes ####
-
 ## Read files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -2149,6 +2148,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   }
   merge_node_list["score"] = merge_node_list["Node_score"]+merge_node_list["Edge_score"]
 }
+
+
+
 
 # Evaluate Xi's data from annotation ####
 {
