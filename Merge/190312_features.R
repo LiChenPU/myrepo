@@ -1754,7 +1754,7 @@ CPLEX_screen_edge = function(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1
 
 ## Add_constraint_CPLEX ####
 Add_constraint_CPLEX = function(CPLEXset, obj){
-  obj = obj_cplex
+  # obj = obj_cplex
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
   

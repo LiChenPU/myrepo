@@ -19,6 +19,9 @@ g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
 g_vertex = igraph::as_data_frame(g, "vertices")
 g_edge = igraph::as_data_frame(g, "edges")
 
+# g_vertex_ILP = g_vertex[g_vertex$ILP_result != 0 & !is.na(g_vertex$ILP_result),]
+# write.csv(g_vertex_ILP, "g_vertex_ILP.txt", row.names = F)
+
 # function ####
 ## filter_graph ####
 filter_graph = function(g, 
