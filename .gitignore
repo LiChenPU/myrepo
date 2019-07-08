@@ -4,5 +4,6 @@
 *.Ruserdata
 *.csv
 *.pdf
+*.png
 .Rproj.user
 prob.lp
