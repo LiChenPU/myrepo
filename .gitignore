@@ -5,5 +5,6 @@
 *.csv
 *.pdf
 *.png
+*.xlsx
 .Rproj.user
 prob.lp
