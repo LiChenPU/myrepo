@@ -172,6 +172,8 @@ Peak_cleanup = function(Mset,
       s3$flag[k] = T
     }
     
+    
+    ncol_raw = ncol(raw)
     while (k_max <= nrow(raw)){
       k_min = k_max
       s3$flag[k_min] = T
@@ -188,11 +190,21 @@ Peak_cleanup = function(Mset,
       s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)], na.rm=TRUE)
       # s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)], na.rm=TRUE)
       s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)], na.rm=TRUE)
-      for (n in 14:ncol(raw)){
-        if(any(!is.na(s3[k_min:(k_max-1),n]))){
-          s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
+      temp = s3[k_min:(k_max-1),14:ncol_raw]
+      temp[1,] = apply(temp, 2, function(x){
+        if(any(!is.na(x))){
+          return(max(x, na.rm = T))
+        } else {
+          return(NA)
         }
-      }
+      })
+      s3[k_min, 14:ncol_raw] = temp[1,]
+      # 
+      # for (n in 14:ncol(raw)){
+      #   if(any(!is.na(s3[k_min:(k_max-1),n]))){
+      #     s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
+      #   }
+      # }
     }
   }
   
@@ -1714,7 +1726,7 @@ Run_CPLEX = function(CPLEXset, obj){
   
   tictoc::toc()
   
-  writeProbCPLEX(env, prob, "prob.lp")
+  # writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
 
@@ -1976,9 +1988,9 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 
-  # CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 5, sd_rel_max = 0.2)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
@@ -2046,7 +2058,8 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                 directed = F)
   clu=components(g_bio)
   #subnetwork criteria 
-  g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+  # g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
+  g_bio_subnetwork = igraph::groups(clu)
   test2 = as.data.frame(clu$membership)
   test3 = test2[as.numeric(row.names(test2))>nrow(unknown_formula),]
   biotranform_nodes_id = c()
@@ -2093,9 +2106,13 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   # output assigned formula
   Mset[["Summary"]] = Summary_Mset(Mset)
   
-  ilp_formula = g_vertex[g_vertex$ILP_result !=0,c("ID","formula","ILP_result")]
-  mdata = merge(ilp_formula, Mset$Summary, all.y = T)
-  
+  if(!is.null(g_vertex)){
+    ilp_formula = g_vertex[g_vertex$ILP_result !=0,c("ID","formula","ILP_result")]
+    mdata = merge(ilp_formula, Mset$Summary, all.y = T)
+  } else{
+    mdata = Mset$Summary
+  }
+
   write_csv(mdata, "mdata.csv")
   save.image()
 }
