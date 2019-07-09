@@ -9,6 +9,8 @@ library("stringr")
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 setwd("./2liver_quad_QE+pos")
 
+
+# foldernames = list.files()[!grepl("\\.", list.files())]
 filenames = list.files()[grepl(".csv", list.files())&grepl("Mdata", list.files())]
 
 
@@ -19,7 +21,7 @@ ms_dif_ppm = ms_dif_ppm/10^6
 rt_dif_min=0.2
 
 
-num_of_files = num_of_files = length(filenames)
+num_of_files = length(filenames)
 raw_ls = list()
 for(i in 1:num_of_files){
   filename=filenames[i]
@@ -147,10 +149,7 @@ result_all = merge(s5_formula_spread,result_all, by = c("medMz", "medRt"))
 
 result_all = result_all[with(result_all, order(-sum_log_p)),]
 result_all <- result_all[,colSums(is.na(result_all))<nrow(result_all)]
-
-
 }
-
 
 
 #Output result
