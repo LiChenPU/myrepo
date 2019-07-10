@@ -1339,7 +1339,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     
     
     #Edge list
-    
+    gc()
     temp_i=temp_j=1
     triplet_edge_ls_edge=triplet_edge_ls_node=list()
     edge_info = list()
@@ -1456,7 +1456,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     ##Objective parameter 
     {
       #edge_info_sum = CPLEXset$data$edge_info_sum
-      
+      gc()
       edge_info_sum = bind_rows(edge_info)
       edge_info_sum = rbind(edge_info_sum,edge_info_sum)
       

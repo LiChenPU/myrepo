@@ -1339,7 +1339,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     
     
     #Edge list
-    
+    gc()
     temp_i=temp_j=1
     triplet_edge_ls_edge=triplet_edge_ls_node=list()
     edge_info = list()
@@ -1437,7 +1437,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       } 
     }
     
-    
+
     
     triplet_edge_ls_edge_sum = bind_rows(triplet_edge_ls_edge)
     triplet_edge_ls_edge_sum$i=triplet_edge_ls_edge_sum$i+num_unknown_nodes
@@ -1456,12 +1456,13 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     ##Objective parameter 
     {
       #edge_info_sum = CPLEXset$data$edge_info_sum
+      
       edge_info_sum = bind_rows(edge_info)
+      edge_info_sum = rbind(edge_info_sum,edge_info_sum)
+      
+      gc()
       edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
       test = edge_info_sum
-      
-      
-      
       test1 = test[test$ILP_id2>nrow(unknown_formula)&
                      test$ILP_id1<=nrow(unknown_formula),]
       test2 = test[test$ILP_id1>nrow(unknown_formula)&
@@ -1474,11 +1475,15 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       
       test1 = test1[duplicated(test1[,c("formula1","ILP_id1")]) | 
                       duplicated(test1[,c("formula1","ILP_id1")], fromLast=TRUE),]
+      
       test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
+      
       #test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])
       edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])]]=1e-10
-
+      
     }
+    
+    
     
     # write_csv(triplet_df,"triplet_df.txt")
     # write_csv(edge_info_sum,"edge_info_sum.txt")
@@ -1903,7 +1908,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  setwd("./liver_QE+")
+  setwd("./Xi_new_neg")
   filename = c("raw_data.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
