@@ -46,7 +46,7 @@ rm(df_temp)
   medRt = 0
   delta_mz = 0.001
   delta_rt = 0.1
-  formula = "C5H11N1O1"
+  formula = "C5H9N1O4"
   
   data_select = raw
   if(medMz != 0){
@@ -61,94 +61,56 @@ rm(df_temp)
 }
 
 
-
-lb=1000 # min abs value of flux to be included in the plot
-dblog_trans <- function(){
-  trans_new(name='dblog', transform = function(x) (log10(abs(x)+lb)-log10(lb))*sign(x),
-            inverse = function(x) sign(x)*(10^(abs(x)+log10(lb))-lb))
-}
-plot_bar_scatter_graph = function(plot_data, inde = "Peak", bar_plot = F)
-{
-  oldw <- getOption("warn")
-  options(warn = -1)
-  plot_data = unite(plot_data, "mz_RT", "medMz", "medRt", sep = "@")
+plot_library_bar = function(data_select){
+  data_select$medMz = round(data_select$medMz, 4)
+  data_select$medRt = round(data_select$medRt, 3)
+  data_plot = data_select[,-c(2,4,5,6,7,8,9,12,13)]
+  # data_inten = data_plot[,14:ncol(data_plot)]
+  data_plot = data_plot[,-which(grepl("_inten",colnames(data_plot)))]
+  data_gather = gather(data_plot, key = names, value = number, -formula, -label, -medMz, -medRt)
+  data_gather["cohort"] = stri_replace_last_regex(data_gather$names,'\\d+|_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
+  data_gather = data_gather[complete.cases(data_gather),]
   
-  plot_upper_limit = 10^7
-  if(log10(max(plot_data$Ion_count, na.rm=T))>7){
-    plot_upper_limit = 10^ceiling(log10(max(plot_data$Ion_count, na.rm=T)))
-  }
-  
-  
-  data_df = plot_data
-  data_df_spread = spread(data_df, tissue, Ion_count, drop=T)
-  data_df_spread = data_df_spread[, -3]
-  data_df_old = data_df_spread[data_df_spread$age=="Old",]
-  data_df_young = data_df_spread[data_df_spread$age=="Young",]
-  
-  scatter_data = as.data.frame(matrix(ncol = 8, nrow=length(unique(data_df$tissue))))
-  colnames(scatter_data) = c("id", "tissue", "old", "old_lb", "old_ub", "young", "young_lb", "young_ub")
-  scatter_data$id = data_df$mz_RT[1]
-  scatter_data$tissue = unique(data_df$tissue)
-  scatter_data$old = colMeans(data_df_old[,-c(1,2)], na.rm=T)
-  old_var = sapply(data_df_old[,-c(1,2)], sd, T)
-  scatter_data$old_lb = scatter_data$old - old_var
-  scatter_data$old_ub = scatter_data$old + old_var
-  scatter_data$young = colMeans(data_df_young[,-c(1,2)], na.rm=T)
-  young_var = sapply(data_df_young[,-c(1,2)], sd, T)
-  scatter_data$young_lb = scatter_data$young - young_var
-  scatter_data$young_ub = scatter_data$young + young_var
-  
-  scatter_data$young_lb[scatter_data$young_lb<0]=0
-  scatter_data$old_lb[scatter_data$old_lb<0]=0
-  
-  fancy_scientific <- function(l) {
-    # turn in to character string in scientific notation
-    l <- format(l, scientific = TRUE)
-    # quote the part before the exponent to keep all the digits
-    l <- gsub("^(.*)e", "e", l)
-    # turn the 'e+' into plotmath format
-    l <- gsub("e\\+", "10^", l)
-    # return this as an expression
-    parse(text=l)
-  }
-  
-
+  unique_cohort = unique(data_gather$cohort)
+  data_ls = list(length = length(unique_cohort))
+  select_col = c("label","formula","medMz","medRt","cohort","TIC","sd")
+  for(i in 1:length(unique_cohort)){
+    temp = data_gather[data_gather$cohort==unique_cohort[i],]
+    temp_spread = spread(temp, key = names, value = number)
+    if(ncol(temp_spread) == 6){
+      temp_spread["TIC"] = temp_spread[,6]
+      temp_spread["sd"] = 0
+    } else{
+      temp_spread["TIC"] = apply(temp_spread[,6:(ncol(temp_spread))], 1, mean)
+      temp_spread["sd"] = apply(temp_spread[,6:(ncol(temp_spread)-1)], 1, sd)
+    }
     
-  bar_data = scatter_data
-  bar_data_gather = gather(bar_data, key = statistic_label, value = number, -id, -tissue)
-  bar_data_separate = separate(bar_data_gather, col = "statistic_label", into = c("age", "statistic"), sep = "_" )
-  bar_data_separate$statistic[is.na(bar_data_separate$statistic)] = "TIC"
-  bar_data = spread(bar_data_separate, key = "statistic", value = "number")
+    data_ls[[i]] = temp_spread[, select_col]
+  }
   
+  data_bind = bind_rows(data_ls)
+  # data_bind = unite(data_bind, "label", c(label, cohort))
+  data_bind = unite(data_bind, "title", c(formula, medMz, medRt))
+  data_bind = data_bind[with(data_bind, order(-TIC)),]
   
-  figure_bar <- ggplot(bar_data, aes(x = tissue, y = TIC, fill = age))+
+  figure <- ggplot(data_bind, aes(x = cohort, y = TIC, fill = label))+
     geom_bar(position=position_dodge(),stat='identity', color = "black") +
-    geom_errorbar(aes(ymin=lb, ymax=ub),width = 0.5, position=position_dodge(.9)) +
+    geom_errorbar(aes(ymin=TIC-sd, ymax=TIC+sd),width = 0.5, position=position_dodge(.9)) +
     theme(legend.title=element_blank()) +
-    theme(axis.text.x=element_text(angle=45, hjust=1)) +
-    
-    # facet_wrap(~mz_RT, scales = "free")+
-    # geom_text_repel(aes(label=tissue),colour='red') +
+    facet_wrap(~title, scales = "free")+
     # scale_y_continuous(limits = c(-0.2,1.2),breaks = c(0,0.5,1)) +
-    scale_y_continuous(trans = 'dblog',limit=c(0,plot_upper_limit), 
-                       breaks = c(0,10^4,10^5,10^6,10^7,10^8,10^9), 
-                       label = fancy_scientific)+
+    theme(axis.text.x=element_text(angle=90, hjust=1)) +
     scale_fill_brewer(palette = 'Set3', guide = guide_legend(reverse = TRUE))
-  figure_bar
-  options(warn = oldw)
-  return(figure_bar)
+  
+  return(figure)
 }
 
 
 
-
-
-
-
-
-
-
-
+figure = plot_library_bar(data_select)
+pdf("library.pdf",onefile = TRUE)
+print(figure)
+dev.off()
 
 
 
