@@ -90,6 +90,24 @@
                                                 rdbe=T, step_score=T, iso_penalty_score=F)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
+}
+
+
+## Feature generation ####
+{
+  #Identify peaks with high blanks
+  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
   
+  #library_match
+  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
+  
+  #Metaboanalyst_Statistic
+  if(length(unique(Mset$Cohort$sample_cohort))>1 & 
+     min(table(Mset$Cohort$sample_cohort))>2){
+    Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+  }
+  
+  # output assigned formula
+  Mset[["Summary"]] = Summary_Mset(Mset)
 }
 save.image("final.RData")

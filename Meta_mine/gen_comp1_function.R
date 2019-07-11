@@ -15,7 +15,7 @@
   library(Matrix)
   library(slam)
   # library(cplexAPI)
-  # library(MetaboAnalystR)
+  library(MetaboAnalystR)
   library(pracma)
   library(tictoc)
   # install.packages("janitor")
