@@ -6,14 +6,14 @@
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  setwd("./Test")
+  setwd("./10tissues_pos_mode")
   filename = c("raw_data.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = -1,
+  Mset[["Global_parameter"]]=  list(mode = 1,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   print(Mset$Cohort)
@@ -77,7 +77,7 @@
                                                  biotransform_step = 4,
                                                  artifact_step = 5,
                                                  propagation_score_threshold = 0.5,
-                                                 top_n = 100,
+                                                 top_n = 50,
                                                  read_from_csv = read_from_csv)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)

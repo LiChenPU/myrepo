@@ -354,7 +354,6 @@ Metaboanalyst_Statistic = function(Mset){
   fn <-ANOVA_file
   if (file.exists(fn)) file.remove(fn)
 
-  gc()
   return(ANOVA_FDR)
 }
 
@@ -1908,7 +1907,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  setwd("./Xi_new_neg")
+  setwd("./")
   filename = c("raw_data.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
@@ -1979,7 +1978,7 @@ Trace_step = function(query_id, unknown_node_CPLEX)
                                                  biotransform_step = 4,
                                                  artifact_step = 5,
                                                  propagation_score_threshold = 0.5,
-                                                 top_n = 100,
+                                                 top_n = 50,
                                                  read_from_csv = read_from_csv)
 
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)
