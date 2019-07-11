@@ -1521,7 +1521,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     ind=triplet_df$i-1
     val = triplet_df$v
   }
-  
+  CPX_MAX = -1
   CPLEX_para = list(nc = nc,
                     nr = nr,
                     CPX_MAX = CPX_MAX,
