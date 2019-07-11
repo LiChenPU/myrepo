@@ -1,28 +1,30 @@
 # Main Codes ####
 ## Read files ####
+print(work_dir)
+print(ion_mode)
 {
   Mset = list()
   Mset[["Library"]] = read_library("hmdb_CHNOPS.csv")
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
-  setwd("./10tissues_pos_mode")
+  setwd(work_dir)
   filename = c("raw_data.csv")
   Mset[["Raw_data"]] <- read_csv(filename)
 }
 
 ## Initialise ####
 {
-  Mset[["Global_parameter"]]=  list(mode = 1,
+  Mset[["Global_parameter"]]=  list(mode = ion_mode,
                                     normalized_to_col_median = F)
   Mset[["Cohort"]]=Cohort_Info(Mset)
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=1/10^6, 
-                                rt_dif_min=0.01,
-                                detection_limit=500)
+                                ms_dif_ppm=5/10^6, 
+                                rt_dif_min=0.1,
+                                detection_limit=2500)
   
   Mset[["ID"]] = Mset$Data$ID
 }
