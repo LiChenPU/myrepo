@@ -329,16 +329,16 @@ Metaboanalyst_Statistic = function(Mset){
   # mSet<-FilterVariable(mSet, "iqr", "F", 25)
   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
   mSet<-ANOVA.Anal(mSet, F, 0.5, "fisher")
-  gc()
-  if(ncol(mSet$dataSet$norm) > 15000){
-    mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top15000_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
-  } else{
-    mSet<-PlotHeatMap(mSet, paste(gsub(".csv","", filename),"full_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-  }
-  gc()
-  mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top50_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
-  gc()
-  
+  # gc()
+  # if(ncol(mSet$dataSet$norm) > 15000){
+  #   mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top15000_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
+  # } else{
+  #   mSet<-PlotHeatMap(mSet, paste(gsub(".csv","", filename),"full_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
+  # }
+  # gc()
+  # mSet<-my_PlotSubHeatMap(mSet, paste(gsub(".csv","", filename),"top50_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
+  # gc()
+  # 
   
   ANOVA_file = "anova_posthoc.csv"
   ANOVA_raw <- read_csv(ANOVA_file)
@@ -434,7 +434,9 @@ Summary_Mset = function(Mset){
     ANOVA_FDR$ID = as.numeric(gsub("_.*","", ANOVA_FDR$ID))
     Mdata = merge(ANOVA_FDR,Mdata, all=T)
   } else{
-    ANOVA_FDR = cbind(test[,3], "_log10_FDR" = NA)
+    ID = Mdata$ID
+    log10_FDR = rep(NA, length(ID))
+    ANOVA_FDR = cbind(ID, log10_FDR)
     Mdata = merge(ANOVA_FDR,Mdata, all=T)
   }
   return(Mdata)

@@ -4,7 +4,7 @@ print(work_dir)
 print(ion_mode)
 {
   Mset = list()
-  Mset[["Library"]] = read_library("hmdb_CHNOPS.csv")
+  Mset[["Library"]] = read.csv("HMDB_clean.csv", stringsAsFactors = F)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
   
