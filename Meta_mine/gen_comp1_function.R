@@ -434,7 +434,7 @@ Summary_Mset = function(Mset){
     ANOVA_FDR$ID = as.numeric(gsub("_.*","", ANOVA_FDR$ID))
     Mdata = merge(ANOVA_FDR,Mdata, all=T)
   } else{
-    ANOVA_FDR = cbind(test[,3], "_log10_FDR" = NA)
+    ANOVA_FDR = cbind(Mdata$ID, "_log10_FDR" = NA)
     Mdata = merge(ANOVA_FDR,Mdata, all=T)
   }
   return(Mdata)
