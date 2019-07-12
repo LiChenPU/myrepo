@@ -27,9 +27,9 @@
 }
 
 {
-CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
-# CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
+  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
@@ -54,7 +54,6 @@ CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max 
 
 
 ## determine_is_metabolite - A messy function so far, probably need to clean up
-
 determine_is_metabolite = function(){
   formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
   formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
@@ -74,9 +73,7 @@ determine_is_metabolite = function(){
   
   colors <- c("grey", "white", "red", "yellow", "green")
   formula_list["color"] = colors[formula_list$category+2]
-  
-  
-  
+
   ## Define if formula comes from artifact or biotransform
   {
     formula_list["is_artifact"]=FALSE
@@ -121,6 +118,9 @@ determine_is_metabolite = function(){
   }
   return(list(formula_list2 = formula_list2, relation_list2 = relation_list2))
 }
+g_vertex_edge = determine_is_metabolite()
+formula_list2 = g_vertex_edge$formula_list2
+relation_list2 = g_vertex_edge$relation_list2
 
 g_vertex_edge = determine_is_metabolite()
 formula_list2 = g_vertex_edge$formula_list2
@@ -148,14 +148,3 @@ if(!is.null(g_vertex)){
 
 write_csv(mdata, "mdata.csv")
 save.image("optimized.RData")
-
-# 
-# 
-# 
-# mdata_origin = read.csv("mdata_std.csv", stringsAsFactors = F)
-# mdata_gencomp1 = read.csv("mdata2.csv", stringsAsFactors = F)
-# mdata_lab = read.csv("mdata.csv", stringsAsFactors = F)
-# 
-# test = rbind(mdata_lab, mdata_gencomp1)
-# test2 = test[!(duplicated(test[,c("ID","formula","ILP_result")]) | 
-#                  duplicated(test[,c("ID","formula","ILP_result")], fromLast = T)) ,]

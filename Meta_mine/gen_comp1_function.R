@@ -606,7 +606,7 @@ Edge_score = function(Biotransform){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
   }
   
-  plot(edge_mzdif_FIT)  
+  # plot(edge_mzdif_FIT)  
   summary(edge_mzdif_FIT)
   
   Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
@@ -1477,11 +1477,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       
       test1 = test1[duplicated(test1[,c("formula1","ILP_id1")]) | 
                       duplicated(test1[,c("formula1","ILP_id1")], fromLast=TRUE),]
-      profvis({
-        test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
-        
-        test1 = test1[with(test1, order(formula1, edge_score,decreasing = T)),]
-      })
+      test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
       #test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])
       edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])]]=1e-10
       
