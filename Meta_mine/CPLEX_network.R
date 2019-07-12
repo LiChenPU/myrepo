@@ -122,10 +122,6 @@ g_vertex_edge = determine_is_metabolite()
 formula_list2 = g_vertex_edge$formula_list2
 relation_list2 = g_vertex_edge$relation_list2
 
-g_vertex_edge = determine_is_metabolite()
-formula_list2 = g_vertex_edge$formula_list2
-relation_list2 = g_vertex_edge$relation_list2
-
 # Graphic analysis ####
 {
   g_vertex = formula_list2[!is.na(formula_list2$ILP_id),]
