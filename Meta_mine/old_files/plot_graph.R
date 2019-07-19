@@ -13,6 +13,7 @@ library(pheatmap)
 library(dplyr)
 library(profvis)
 library(RColorBrewer)
+library(janitor)
 
 # function ####
 
@@ -467,13 +468,18 @@ my_PlotSubHeatMap = function (mSetObj = NA, imgName, format = "png", dpi = 72, w
 # main ####
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
 # setwd("./190611 neg")
 # setwd("./10tissues_pos_mode")
-setwd("./2liver_quad_QE+pos")
+# setwd("./2liver_quad_QE+pos")
 project_dir = getwd()
 
 giant_df = read.csv("result.csv")
-
+# giant_df = read.csv("test.csv")
+# giant_df = giant_df[,15:ncol(giant_df)]
+# test = gather(giant_df, key = Sample, value = TIC)
+# test2 = separate(test, "Sample", into = c("Tissue", "Age", "Mice_id", "Time"))
+# tabyl(test2, Age, Time)
 
 # data cleaning
 giant_df = data_clean(giant_df)
@@ -489,23 +495,23 @@ data_statistics = giant_df[,1:which(colnames(giant_df)=="mean_log_p")]
 # Plot scatter graph for top hits in each tissue
 plot_scatter_by_tissue(data_all, data_statistics, top_n = 9, nrow=3, ncol=3)
 
-# Plot scatter graph for top hits found in > 5 tissue
+# Plot scatter graph for top hits found in > 5 tissue 
 plot_scatter_by_tissue_num(data_all, data_statistics, signif_counts = 2, signif_level = 0.05)
 
 # Plot scatter graph with given mz and RT
 {
   medMz = 131.09462
   medRt = 5.606
-  plot_data = data_raw[abs(data_raw$medMz - medMz) <0.001 &
-                         abs(data_raw$medRt - medRt) < 0.1,]
+  plot_data = data_all[abs(data_all$medMz - medMz) <0.001 &
+                         abs(data_all$medRt - medRt) < 0.1,]
   figure_select = plot_bar_scatter_graph(plot_data = plot_data, bar_plot = T)
   figure_select
 }
 
 
-# prepare Metaboanalst file
-signif_level = 0.05
-signif_counts = 10
+
+signif_level = 0.1
+signif_counts = 5
 signif_level = -log10(signif_level)
 data_statistics["signif_counts"] = apply(data_statistics, 1, function(x) {
   x = as.numeric(x[13:22])
@@ -524,7 +530,6 @@ for(j in 1:length(tissue)){
   data_select = data_select[1:top_n,]
   data_list[[length(data_list)+1]] = data_select[!is.na(data_select[paste(tissue[j],"_y",sep="")]),]
 }
-
 data_select = bind_rows(data_list)
 data_select = rbind(data_select, data_signif_counts)
 data_select = data_select[!duplicated(data_select),]
@@ -534,8 +539,8 @@ data_select = data_select[!duplicated(data_select),]
 
 g_vertex_ILP = read.csv("g_vertex_ILP.txt", stringsAsFactors = F)
 
-Mdata = normalization_each_tissue(data_all)
-# Mdata = data_raw
+# Mdata = normalization_each_tissue(data_all)
+Mdata = data_raw
 Mdata_mz = Mdata$medMz
 Mdata_RT = Mdata$medRt
 row_id = numeric(length = nrow(data_select))
@@ -546,23 +551,26 @@ for(i in 1:nrow(data_select)){
   temp_mz = which(Mdata_mz == medMz)
   temp_RT = which(Mdata_RT == medRT)
   row_id[i] = intersect(temp_mz, temp_RT)
-  # temp_formula = g_vertex_ILP$formula[abs(g_vertex_ILP$mz - medMz) <0.001 &
-  #                                       abs(g_vertex_ILP$RT - medRT) < 0.1]
-  # if(length(temp_formula)==1){formula_id[i] = temp_formula}
-  
+  temp_formula = g_vertex_ILP$formula[abs(g_vertex_ILP$mz - medMz) <0.001 &
+                                        abs(g_vertex_ILP$RT - medRT) < 0.1]
+  if(length(temp_formula)==1){formula_id[i] = temp_formula}
 }
 
-data_signif = Mdata[row_id,]
-# data_signif = Mdata
-sample_names = colnames(data_signif)[3:length(colnames(data_signif))]
-sample_cohort = stri_replace_last_regex(sample_names,'_\\d+|-\\d+', '',stri_opts_regex(case_insensitive=T))
-data_signif["formula"] = formula_id
-data_signif["Merge_ID"] = with(data_signif, paste(formula, medMz, medRt, sep="_" ))
-data_signif["Merge_ID"] = with(data_signif, paste(medMz, medRt, sep="_" ))
-MA_output = data_signif[,c("Merge_ID",sample_names)]
-MA_output = rbind(c("cohort",sample_cohort),MA_output)
 
-write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
+{
+  data_signif = Mdata[row_id,]
+  # data_signif = Mdata
+  sample_names = colnames(data_signif)[3:length(colnames(data_signif))]
+  sample_cohort = stri_replace_last_regex(sample_names,'_\\d+|-\\d+', '',stri_opts_regex(case_insensitive=T))
+  data_signif["formula"] = formula_id
+  data_signif["Merge_ID"] = with(data_signif, paste(formula, medMz, medRt, sep="_" ))
+  data_signif["Merge_ID"] = with(data_signif, paste(medMz, medRt, sep="_" ))
+  MA_output = data_signif[,c("Merge_ID",sample_names)]
+  MA_output = rbind(c("cohort",sample_cohort),MA_output)
+  
+  write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
+}
+
 
 # profvis::profvis(for(i in 1:100){}) ####
 
