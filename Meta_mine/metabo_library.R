@@ -127,7 +127,7 @@ data_impute = function(pre_impute,
 
 # Normalize ####
 data_normalize = function(pre_norm, 
-                          nor_method = "row_median", 
+                          nor_method = "row_mean", 
                           sample_name = "", 
                           cohort_name = "")
 {
@@ -263,6 +263,153 @@ correlated_peaks = function(mdata = raw_ls[[1]],
                             figure = figure_bottom)
   ))
 }
+## my_plot_heatmap ####
+my_plot_heatmap = function(mdata_clean,
+                           cohort,
+                           imgName = "Test", 
+                           format = "png", # pdf
+                           dpi = 72,
+                           width = NA, # define output graph width
+                           palette = "RdBu",  # RdBu, gbr, heat, topo, rainbow
+                           viewOpt = "overview", # Detail
+                           rowV = T, colV = T, # cluster by row/column
+                           border = T, # border for each pixel
+                           grp.ave = F, # group average
+                           scale_ub = 3, scale_lb = -3 # heatmap scale
+)
+{
+  raw_data = t(mdata_clean)
+  
+  
+  printtime = Sys.time()
+  matches <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+  imgName = paste(imgName, "_","dpi", dpi,"_", matches, ".", format, sep = "")
+  hc.dat <- as.matrix(raw_data)
+  colnames(hc.dat) <- substr(colnames(hc.dat), 1, 32)
+  hc.cls <- cohort
+  
+  if (grp.ave) {
+    lvs <- levels(hc.cls)
+    my.mns <- matrix(ncol = ncol(hc.dat), nrow = length(lvs))
+    for (i in 1:length(lvs)) {
+      inx <- hc.cls == lvs[i]
+      my.mns[i, ] <- apply(hc.dat[inx, ], 2, mean)
+    }
+    rownames(my.mns) <- lvs
+    colnames(my.mns) <- colnames(hc.dat)
+    hc.dat <- my.mns
+    hc.cls <- as.factor(lvs)
+  }
+  if (palette == "gbr") {
+    colors <- colorRampPalette(c("green", "black", "red"),
+                               space = "rgb")(256)
+  } else if (palette == "rainbow") {
+    colors <- rainbow(256)
+  } else if (palette == "heat") {
+    colors <- heat.colors(256)
+  } else if (palette == "topo") {
+    colors <- topo.colors(256)
+  } else if (palette == "gray") {
+    colors <- colorRampPalette(c("grey90", "grey10"), space = "rgb")(256)
+  } else {
+    colors <- rev(colorRampPalette(RColorBrewer::brewer.pal(10, 
+                                                            "RdBu"))(256))
+  }
+  
+  if (is.na(width)) {
+    minW <- 630
+    myW <- nrow(hc.dat) * 18 + 150
+    if (myW < minW) {
+      myW <- minW
+    }
+    w <- round(myW/72, 2)
+  } else if (width == 0) {
+    w <- 7.2
+  } else {
+    w <- 7.2
+  }
+  
+  myH <- ncol(hc.dat) * 18 + 150
+  h <- round(myH/72, 2)
+  if (viewOpt == "overview") {
+    if (is.na(width)) {
+      if (w > 9) {
+        w <- 9
+      }
+    }
+    else if (width == 0) {
+      if (w > 7.2) {
+        w <- 7.2
+      }
+    }
+    else {
+      w <- 7.2
+    }
+    if (h > w) {
+      h <- w
+    }
+  }
+  if (grp.ave) {
+    w <- nrow(hc.dat) * 25 + 300
+    w <- round(w/72, 2)
+  }
+  if (border) {
+    border.col <- "grey60"
+  } else {
+    border.col <- NA
+  }
+  if (format == "pdf") {
+    pdf(file = imgName, width = w, height = h, bg = "white", 
+        onefile = FALSE)
+  } else {
+    # will error if h is too large (due to large row number)
+    Cairo::Cairo(file = imgName, 
+                 unit = "in",
+                 dpi = dpi,
+                 width = w, height = h,
+                 type = format, bg = "white"
+    )
+  }
+  
+  annotation <- data.frame(class = hc.cls)
+  rownames(annotation) <- rownames(hc.dat)
+  
+  if(length(unique(cohort)) < 9){
+    pal9 = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
+             "#FFFF33", "#A65628", "#F781BF", "#999999")
+    dist.cols = pal9[1:length(unique(cohort))]
+  } else {
+    pal12 = c("#A6CEE3", "#1F78B4", "#B2DF8A", "#33A02C", "#FB9A99",
+              "#E31A1C", "#FDBF6F", "#FF7F00", "#CAB2D6", "#6A3D9A",
+              "#FFFF99", "#B15928")
+    dist.cols <- colorRampPalette(pal12)(length(unique(cohort)))
+  }
+  # barplot(rep(1,length(dist.cols)), col=dist.cols)
+  cols = dist.cols[as.numeric(hc.cls)]
+  uniq.cols <- unique(cols)
+  cls <- hc.cls
+  # names(uniq.cols) <- unique(as.character((cls)))
+  names(uniq.cols) <- unique(as.character(sort(cls)))
+  ann_colors <- list(class = uniq.cols)
+  
+  
+  breaksList = seq(scale_lb, scale_ub, by =(scale_ub-scale_lb)/length(colors))
+  pheatmap::pheatmap(t(hc.dat), annotation = annotation, 
+                     fontsize = 8, 
+                     fontsize_row = 8, 
+                     # clustering_distance_rows = smplDist, 
+                     # clustering_distance_cols = smplDist, 
+                     # clustering_method = clstDist, 
+                     border_color = border.col, 
+                     cluster_rows = rowV, 
+                     cluster_cols = colV, 
+                     # scale = scaleOpt, 
+                     color = colors, 
+                     annotation_colors = ann_colors,
+                     breaks = breaksList)
+  
+  dev.off()
+}
 # legacy_code ####
 {
   # Test row_mean and col_median effect ####
@@ -317,12 +464,8 @@ correlated_peaks = function(mdata = raw_ls[[1]],
 }
 # Main ####
 
-# filenames = list.files(recursive = T)[grepl(".csv", list.files(recursive = T)) &
-#                                       grepl("mdata", list.files(recursive = T))]
-
 # Read files
 {
-  
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   setwd("./library")
   filenames = list.files(list.dirs(recursive = F), pattern = "mdata.csv", full.names = T)
@@ -343,15 +486,15 @@ correlated_peaks = function(mdata = raw_ls[[1]],
 
 # Search peak of interest based on medMz, medRt or formula
 data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C5H9N1O4")
-lapply(data_select_ls, View)
+# lapply(data_select_ls, View)
 lapply(data_select_ls, row.names)
 fig_ls = lapply(data_select_ls, plot_library_bar)
-print(fig_ls)
+# print(fig_ls)
 
 
 
 tissues = correlated_peaks(mdata = raw_ls[[1]],
-                        target_id = 4971,
+                        target_id = 12550,
                         impute_options = c("threshold", "percentile"),
                         impute_options2 = c(T,F), # fill with random(T) or fixed(F)
                         normalize_options = c("row_mean"),
@@ -361,3 +504,62 @@ tissues = correlated_peaks(mdata = raw_ls[[1]],
                         )
 
 
+
+mdata = raw_ls[[1]]
+mdata_row_name = paste(mdata$formula, mdata$medMz, mdata$medRt, sep="_")
+row.names(mdata) = mdata_row_name
+
+mdata_pre_clean = mdata[,14:(ncol(mdata)-2)]
+all_names = colnames(mdata_pre_clean)
+if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
+  sample_names=all_names[-grep("blank|blk", all_names, ignore.case = T)]
+} else {
+  sample_names=all_names
+}
+cohort = stri_replace_last_regex(sample_names,'_\\d+|-\\d+', '',
+                                 stri_opts_regex(case_insensitive=T))
+cohort = as.factor(cohort)
+mdata_pre_clean = mdata_pre_clean[,sample_names]
+mdata_clean = mdata_pre_clean %>% 
+  data_impute(impute_method = "threshold", random = F) %>%
+  data_normalize(nor_method = "") %>%
+  data_transform(transform_method = "log10") %>%
+  data_scale(scale_method = "")
+
+
+
+
+data_topn_tissues = read.csv("../old_files/data_topn_tissues.csv", stringsAsFactors = F)
+data_signif_counts = read.csv("../old_files/data_signif_counts.csv", stringsAsFactors = F)
+data_topn_tissues = data_topn_tissues[!duplicated(data_topn_tissues),]
+
+
+temp_ls = list()
+for(i in 1:nrow(data_topn_tissues)){
+  medMz = data_topn_tissues$medMz[i]
+  medRt = data_topn_tissues$medRt[i]
+  plot_data = filter_data(mdata, 
+                          medMz = medMz,
+                          medRt = medRt, 
+                          formula = ""
+                          )
+  temp_ls[[length(temp_ls)+1]] = row.names(plot_data)[1]
+}
+topn_select = unlist(temp_ls)
+
+
+my_plot_heatmap(mdata = mdata_clean[topn_select,],
+                           cohort = cohort,
+                           imgName = "Test", 
+                           format = "png", # pdf
+                           dpi = 72,
+                           width = NA, # define output graph width
+                           palette = "topo",  # RdBu, gbr, heat, topo
+                           viewOpt = "overview", # Detail
+                           rowV = F, colV = F, # cluster by row/column
+                           border = T, # border for each pixel
+                           grp.ave = T, # group average
+                           scale_ub = 8, scale_lb = 3 # heatmap scale
+)
+
+write.csv(mdata[topn_select,], "mdata_top.csv", row.names = F)
