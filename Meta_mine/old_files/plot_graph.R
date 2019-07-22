@@ -194,11 +194,6 @@ plot_scatter_by_tissue = function(data_all, data_statistics, top_n = 9, nrow=3, 
   
   ml_list = list()
   for(j in 1:length(tissue)){
-    # mainDir = project_dir
-    # subDir = tissue[j]
-    # dir.create(file.path(mainDir, subDir),showWarnings=F)
-    # setwd(file.path(mainDir, subDir))
-    
     data_select = data_statistics[with(data_statistics, order(-eval(parse(text = paste(tissue[j],"_y",sep=""))))),]
     data_select = data_select[1:top_n,]
     data_select = data_select[!is.na(data_select[paste(tissue[j],"_y",sep="")]),]
@@ -469,17 +464,10 @@ my_PlotSubHeatMap = function (mSetObj = NA, imgName, format = "png", dpi = 72, w
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
-# setwd("./190611 neg")
-# setwd("./10tissues_pos_mode")
 # setwd("./2liver_quad_QE+pos")
 project_dir = getwd()
 
 giant_df = read.csv("result.csv")
-# giant_df = read.csv("test.csv")
-# giant_df = giant_df[,15:ncol(giant_df)]
-# test = gather(giant_df, key = Sample, value = TIC)
-# test2 = separate(test, "Sample", into = c("Tissue", "Age", "Mice_id", "Time"))
-# tabyl(test2, Age, Time)
 
 # data cleaning
 giant_df = data_clean(giant_df)
@@ -493,49 +481,55 @@ data_all = intensity_dataframe(giant_df)
 data_statistics = giant_df[,1:which(colnames(giant_df)=="mean_log_p")]
 
 # Plot scatter graph for top hits in each tissue
-plot_scatter_by_tissue(data_all, data_statistics, top_n = 9, nrow=3, ncol=3)
+# plot_scatter_by_tissue(data_all, data_statistics, top_n = 9, nrow=3, ncol=3)
 
 # Plot scatter graph for top hits found in > 5 tissue 
-plot_scatter_by_tissue_num(data_all, data_statistics, signif_counts = 2, signif_level = 0.05)
+# plot_scatter_by_tissue_num(data_all, data_statistics, signif_counts = 2, signif_level = 0.05)
 
-# Plot scatter graph with given mz and RT
+# Select peaks
 {
-  medMz = 131.09462
-  medRt = 5.606
-  plot_data = data_all[abs(data_all$medMz - medMz) <0.001 &
-                         abs(data_all$medRt - medRt) < 0.1,]
-  figure_select = plot_bar_scatter_graph(plot_data = plot_data, bar_plot = T)
-  figure_select
+  
+  signif_level = 0.1
+  signif_counts = 5
+  signif_level = -log10(signif_level)
+  data_statistics["signif_counts"] = apply(data_statistics, 1, function(x) {
+    x = as.numeric(x[13:22])
+    non_na = !is.na(x)
+    signif = sum(x[non_na]>signif_level, na.rm = T)
+    return(signif)
+  })
+  data_signif_counts = data_statistics[with(data_statistics, order(-signif_counts, -sum_log_p)),]
+  data_signif_counts = data_signif_counts[data_signif_counts$signif_counts>=signif_counts,]
+  
+  top_n = 5
+  tissue = levels(data_all$tissue)
+  data_list = list()
+  for(j in 1:length(tissue)){
+    data_select = data_statistics[with(data_statistics, order(-eval(parse(text = paste(tissue[j],"_y",sep=""))))),]
+    data_select = data_select[1:top_n,]
+    data_list[[length(data_list)+1]] = data_select[!is.na(data_select[paste(tissue[j],"_y",sep="")]),]
+  }
+  data_select = bind_rows(data_list)
+  data_select = rbind(data_select, data_signif_counts)
+  data_select = data_select[!duplicated(data_select),]
+  
+  figure_list = list()
+  for(i in 1:nrow(data_select)){
+    medMz = data_select$medMz[i]
+    medRt = data_select$medRt[i]
+    plot_data = data_all[data_all$medMz == medMz & data_all$medRt == medRt,]
+    figure_list[[length(figure_list)+1]] = plot_bar_scatter_graph(plot_data = plot_data, bar_plot = T)
+  }
+  
+  ml_ls = list()
+  for(i in 1:length(figure_list)){
+    ml_ls[[i]] = marrangeGrob(figure_list[[i]], nrow = 2, ncol = 2)
+  }
+  
+  pdf("mdata_select.pdf",width = 6.5, height = 5)
+  print(ml_ls)
+  dev.off()
 }
-
-
-
-signif_level = 0.1
-signif_counts = 5
-signif_level = -log10(signif_level)
-data_statistics["signif_counts"] = apply(data_statistics, 1, function(x) {
-  x = as.numeric(x[13:22])
-  non_na = !is.na(x)
-  signif = sum(x[non_na]>signif_level, na.rm = T)
-  return(signif)
-})
-data_signif_counts = data_statistics[with(data_statistics, order(-signif_counts, -sum_log_p)),]
-data_signif_counts = data_signif_counts[data_signif_counts$signif_counts>=signif_counts,]
-
-top_n = 5
-tissue = levels(data_all$tissue)
-data_list = list()
-for(j in 1:length(tissue)){
-  data_select = data_statistics[with(data_statistics, order(-eval(parse(text = paste(tissue[j],"_y",sep=""))))),]
-  data_select = data_select[1:top_n,]
-  data_list[[length(data_list)+1]] = data_select[!is.na(data_select[paste(tissue[j],"_y",sep="")]),]
-}
-data_select = bind_rows(data_list)
-data_select = rbind(data_select, data_signif_counts)
-data_select = data_select[!duplicated(data_select),]
-
-
-# test = data_all[data_all[,1:2]%in%data_select[,1:2], ]
 
 g_vertex_ILP = read.csv("g_vertex_ILP.txt", stringsAsFactors = F)
 
@@ -556,7 +550,6 @@ for(i in 1:nrow(data_select)){
   if(length(temp_formula)==1){formula_id[i] = temp_formula}
 }
 
-
 {
   data_signif = Mdata[row_id,]
   # data_signif = Mdata
@@ -571,7 +564,16 @@ for(i in 1:nrow(data_select)){
   write.csv(MA_output, file="MetaboAnalyst_file.csv", row.names=F)
 }
 
-
+# Legacy code ####
+# # Plot scatter graph with given mz and RT
+# {
+#   medMz = 131.09462
+#   medRt = 5.606
+#   plot_data = data_all[abs(data_all$medMz - medMz) <0.001 &
+#                          abs(data_all$medRt - medRt) < 0.1,]
+#   figure_select = plot_bar_scatter_graph(plot_data = plot_data, bar_plot = T)
+#   figure_select
+# }
 # profvis::profvis(for(i in 1:100){}) ####
 
 ## My_plot_heatmap ####
@@ -586,7 +588,7 @@ raw_data = mSet$dataSet$norm
 cohort = mSet$dataSet$cls
 
 
-my_plot_heatmap(raw_data, cohort )
+my_plot_heatmap(raw_data, cohort)
   
   
 ## Volcano plot
@@ -789,25 +791,3 @@ function (mSetObj = NA, paired = FALSE, fcthresh, cmpType, percent.thresh,
 
 
 
-# Original metaboanalyst code ####
-# {
-#   mSet <- InitDataObjects("pktable", "stat", FALSE)
-#   mSet<-Read.TextData(mSet, "MetaboAnalyst_file.csv", "colu", "disc")
-#   mSet<-SanityCheckData(mSet)
-#   mSet<-ReplaceMin(mSet);
-#   mSet<-PreparePrenormData(mSet)
-#   mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", ratio=FALSE, ratioNum=20)
-#   # mSet<-FilterVariable(mSet, "iqr", "F", 25)
-#   # mSet<-Normalization(mSet, "MedianNorm", "LogNorm", "AutoNorm", "a11", ratio=FALSE, ratioNum=20)
-#   # mSet<-ANOVA.Anal(mSet, F, 0.5, "fisher")
-#   gc()
-#   if(ncol(mSet$dataSet$norm) > 15000){
-#     mSet<-my_PlotSubHeatMap(mSet, paste("top15000_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 15000, "overview", T, T, T, F)
-#   } else{
-#     mSet<-PlotHeatMap(mSet, paste("full_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-#   }
-#   gc()
-#   mSet<-my_PlotSubHeatMap(mSet, paste("top50_"), "png", 600, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
-#   gc()
-# }
-  
