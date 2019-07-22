@@ -1,6 +1,4 @@
 
-
-
 {
   library(readr)
   library(igraph)
@@ -23,13 +21,14 @@
   library(profvis)
   
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  
   setwd(work_dir)
 }
 
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
@@ -135,12 +134,12 @@ relation_list2 = g_vertex_edge$relation_list2
 
 Mset[["Summary"]] = Summary_Mset(Mset)
 
+mdata = Mset$Summary
+mdata = data.frame(ID=mdata[,1],formula=NA, ILP_result=NA,mdata[2:ncol(mdata)])
 if(!is.null(g_vertex)){
   ilp_formula = g_vertex[g_vertex$ILP_result !=0,c("ID","formula","ILP_result")]
   mdata = merge(ilp_formula, Mset$Summary, all.y = T)
-} else{
-  mdata = Mset$Summary
-}
+} 
 
 write_csv(mdata, "mdata.csv")
 save.image("optimized.RData")
