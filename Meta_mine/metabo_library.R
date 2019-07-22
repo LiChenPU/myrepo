@@ -200,6 +200,7 @@ maxmin_n <- function(m, n, option="max") {
 # correlated_peaks ####
 correlated_peaks = function(mdata = raw_ls[[1]],
                             target_id = 75,
+                            top_n = 3,
                             impute_options = c("threshold", "percentile"),
                             impute_options2 = c(T,F), # fill with random(T) or fixed(F)
                             normalize_options = c("row_mean"),
@@ -225,8 +226,8 @@ correlated_peaks = function(mdata = raw_ls[[1]],
             target = mdata_clean[target_id,]
             mdata_clean = mdata_clean[!is.na(mdata$library_match_name),]
             target_cor = cor(t(mdata_clean), t(target))
-            topn_list[[length(topn_list)+1]]=maxmin_n(target_cor, 12, "max")
-            bottomn_list[[length(bottomn_list)+1]] = maxmin_n(target_cor, 12, "min")
+            topn_list[[length(topn_list)+1]]=maxmin_n(target_cor, top_n, "max")
+            bottomn_list[[length(bottomn_list)+1]] = maxmin_n(target_cor, top_n, "min")
           }
         }
       }
@@ -485,16 +486,20 @@ my_plot_heatmap = function(mdata_clean,
 }
 
 # Search peak of interest based on medMz, medRt or formula
-data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C5H9N1O4")
+data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
 # lapply(data_select_ls, View)
 lapply(data_select_ls, row.names)
 fig_ls = lapply(data_select_ls, plot_library_bar)
-# print(fig_ls)
+pdf("C6H13N1O1.pdf",onefile = TRUE, w = 20, h = 10)
+print(fig_ls[[1]])
+dev.off()
+
 
 
 
 tissues = correlated_peaks(mdata = raw_ls[[1]],
-                        target_id = 12550,
+                        target_id = 19977,
+                        top_n = 3,
                         impute_options = c("threshold", "percentile"),
                         impute_options2 = c(T,F), # fill with random(T) or fixed(F)
                         normalize_options = c("row_mean"),
@@ -502,7 +507,9 @@ tissues = correlated_peaks(mdata = raw_ls[[1]],
                         scale_options = c("mean_center"),
                         print_pdf = F
                         )
-
+pdf("C3H9N1O1_correlated.pdf",onefile = TRUE, w = 20, h = 10)
+print(tissues$top$figure)
+dev.off()
 
 
 mdata = raw_ls[[1]]
