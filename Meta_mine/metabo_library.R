@@ -22,7 +22,7 @@
 # plot_library_bar ####
 plot_library_bar = function(data_select){
   if(nrow(data_select) ==0){return(NULL)}
-  # data_select = data_select_topn
+  # data_select = data_select_ls[[3]]
   data_plot = data_select[,-c(2,4,5,6,7,8,9,12,13)]
   data_plot = data_plot[,-which(grepl("_inten",colnames(data_plot)))]
   data_gather = gather(data_plot, key = names, value = number, -formula, -label, -medMz, -medRt)
@@ -99,7 +99,7 @@ filter_data = function(data,  medMz = 0,
   return (data_select)
 }
 
-# Substitute low signal and NA into small number ####
+# data_impute - Substitute low signal and NA into small number ####
 data_impute = function(pre_impute, 
                        impute_method = "threshold", # "min", "percentile"
                        random = F, # replacement is a fixed numberr or a random between 0 to threshold
@@ -152,7 +152,7 @@ data_normalize = function(pre_norm,
     post_norm = sweep(pre_norm, 2, norm_factor, "/")
     return(pre_norm)
   } else {
-    # print("incorrect input, nor_method options include row_median, row_mean, sample, cohort")
+    print("Warnings: no normalize")
     return(pre_norm)
   }
   
@@ -168,6 +168,7 @@ data_transform = function(pre_trsf, transform_method = "log10")
   } else if(transform_method == "log2"){
     post_trsf = log2(pre_trsf)
   } else {
+    print("Warnings: no transfrom")
     return(pre_trsf)
   }
   return(post_trsf)
@@ -180,11 +181,12 @@ data_scale = function(pre_scale, scale_method = "mean_center"){
   
   if(scale_method == "mean_center"){
     post_scale = sweep(pre_scale, 1, row_mean, "-")
-  } else if(scale_method == "mean_center_then_sd"){
+  } else if(scale_method == "auto"){
     post_scale = sweep(pre_scale, 1, row_mean, "-")
     row_sd = apply(pre_scale, 1, sd, na.rm = T)
     post_scale = sweep(pre_scale, 1, row_sd, "/")
   } else {
+    print("Warnings: no scaling.")
     return(pre_scale)
   }
   return(post_scale)
@@ -395,6 +397,7 @@ my_plot_heatmap = function(mdata_clean,
   
   
   breaksList = seq(scale_lb, scale_ub, by =(scale_ub-scale_lb)/length(colors))
+  if(scale_ub ==  scale_lb){breaksList = NA}
   pheatmap::pheatmap(t(hc.dat), annotation = annotation, 
                      fontsize = 8, 
                      fontsize_row = 8, 
@@ -490,8 +493,8 @@ data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
 # lapply(data_select_ls, View)
 lapply(data_select_ls, row.names)
 fig_ls = lapply(data_select_ls, plot_library_bar)
-pdf("C6H13N1O1.pdf",onefile = TRUE, w = 20, h = 10)
-print(fig_ls[[1]])
+pdf("C3H9N1O1_short.pdf",onefile = TRUE, w = 20, h = 4)
+print(fig_ls)
 dev.off()
 
 
@@ -512,8 +515,14 @@ print(tissues$top$figure)
 dev.off()
 
 
-mdata = raw_ls[[3]]
-mdata_row_name = paste(mdata$library_match_formula, mdata$medMz, mdata$medRt, sep="_")
+mdata = raw_ls[[1]]
+# mdata = mdata[!is.na(mdata$library_match_name),]
+mdata = mdata[!duplicated(mdata$ID),]
+# mdata = mdata[mdata$log10_inten>4.5,]
+# mdata = mdata[mdata$`_log10_FDR`>200,]
+# mdata_row_name = paste(mdata$library_match_formula, mdata$medMz, mdata$medRt, sep="_")
+mdata_row_name = paste(mdata$library_match_formula, mdata$library_match_name, mdata$ID, sep="_")
+mdata_row_name = 1:nrow(mdata)
 row.names(mdata) = mdata_row_name
 
 mdata_pre_clean = mdata[,14:(ncol(mdata)-2)]
@@ -523,13 +532,13 @@ if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
 } else {
   sample_names=all_names
 }
-cohort = stri_replace_last_regex(sample_names,'_\\d+|-\\d+', '',
+cohort = stri_replace_last_regex(sample_names,'_\\d+|-\\d+|\\d+', '',
                                  stri_opts_regex(case_insensitive=T))
 cohort = as.factor(cohort)
 mdata_pre_clean = mdata_pre_clean[,sample_names]
 mdata_clean = mdata_pre_clean %>% 
   data_impute(impute_method = "threshold", random = F) %>%
-  data_normalize(nor_method = "row_mean") %>%
+  data_normalize(nor_method = "") %>%
   data_transform(transform_method = "log10") %>%
   data_scale(scale_method = "mean_center")
 
@@ -566,7 +575,7 @@ my_plot_heatmap(mdata_clean = mdata_clean,
                            rowV = T, colV = T, # cluster by row/column
                            border = T, # border for each pixel
                            grp.ave = T, # group average
-                           scale_ub = 3, scale_lb = -3 # heatmap scale
+                           scale_ub = 4, scale_lb = -4 # heatmap scale
 )
 
 write.csv(mdata[topn_select,], "mdata_top.csv", row.names = F)
