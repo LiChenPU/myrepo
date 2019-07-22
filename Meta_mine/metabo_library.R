@@ -512,8 +512,8 @@ print(tissues$top$figure)
 dev.off()
 
 
-mdata = raw_ls[[1]]
-mdata_row_name = paste(mdata$formula, mdata$medMz, mdata$medRt, sep="_")
+mdata = raw_ls[[3]]
+mdata_row_name = paste(mdata$library_match_formula, mdata$medMz, mdata$medRt, sep="_")
 row.names(mdata) = mdata_row_name
 
 mdata_pre_clean = mdata[,14:(ncol(mdata)-2)]
@@ -529,9 +529,9 @@ cohort = as.factor(cohort)
 mdata_pre_clean = mdata_pre_clean[,sample_names]
 mdata_clean = mdata_pre_clean %>% 
   data_impute(impute_method = "threshold", random = F) %>%
-  data_normalize(nor_method = "") %>%
+  data_normalize(nor_method = "row_mean") %>%
   data_transform(transform_method = "log10") %>%
-  data_scale(scale_method = "")
+  data_scale(scale_method = "mean_center")
 
 
 
@@ -555,18 +555,18 @@ for(i in 1:nrow(data_topn_tissues)){
 topn_select = unlist(temp_ls)
 
 
-my_plot_heatmap(mdata = mdata_clean[topn_select,],
+my_plot_heatmap(mdata_clean = mdata_clean,
                            cohort = cohort,
                            imgName = "Test", 
-                           format = "png", # pdf
+                           format = "pdf", # pdf
                            dpi = 72,
                            width = NA, # define output graph width
-                           palette = "topo",  # RdBu, gbr, heat, topo
+                           palette = "RdBu",  # RdBu, gbr, heat, topo
                            viewOpt = "overview", # Detail
-                           rowV = F, colV = F, # cluster by row/column
+                           rowV = T, colV = T, # cluster by row/column
                            border = T, # border for each pixel
                            grp.ave = T, # group average
-                           scale_ub = 8, scale_lb = 3 # heatmap scale
+                           scale_ub = 3, scale_lb = -3 # heatmap scale
 )
 
 write.csv(mdata[topn_select,], "mdata_top.csv", row.names = F)
