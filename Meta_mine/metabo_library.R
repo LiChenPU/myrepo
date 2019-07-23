@@ -22,11 +22,11 @@
 }
 
 # Search peak of interest based on medMz, medRt or formula
-data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
+data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C7H15N1O1")
 # lapply(data_select_ls, View)
 lapply(data_select_ls, row.names)
 fig_ls = lapply(data_select_ls, plot_library_bar)
-pdf("C3H9N1O1_short.pdf",onefile = TRUE, w = 20, h = 4)
+pdf("C7H15N1O1.pdf",onefile = TRUE, w = 20, h = 10)
 print(fig_ls)
 dev.off()
 
@@ -34,31 +34,33 @@ dev.off()
 
 
 tissues = correlated_peaks(mdata = raw_ls[[1]],
-                        target_id = 19977,
-                        top_n = 3,
+                        target_id = 490,
+                        top_n = 10,
                         impute_options = c("threshold", "percentile"),
                         impute_options2 = c(T,F), # fill with random(T) or fixed(F)
                         normalize_options = c("row_mean"),
                         transform_options = c("log10",""),
                         scale_options = c("mean_center"),
+                        limit_to_library = F,
                         print_pdf = F
                         )
-pdf("C3H9N1O1_correlated.pdf",onefile = TRUE, w = 20, h = 10)
+pdf("C3H9N1O1_correlated2.pdf",onefile = TRUE, w = 20, h = 10)
 print(tissues$top$figure)
 dev.off()
 
 
-mdata = raw_ls[[1]]
+mdata = raw_ls[[2]]
 # mdata = mdata[!is.na(mdata$library_match_name),]
 mdata = mdata[!duplicated(mdata$ID),]
 # mdata = mdata[mdata$log10_inten>4.5,]
 # mdata = mdata[mdata$`_log10_FDR`>200,]
 # mdata_row_name = paste(mdata$library_match_formula, mdata$medMz, mdata$medRt, sep="_")
-mdata_row_name = paste(mdata$library_match_formula, mdata$library_match_name, mdata$ID, sep="_")
+# mdata_row_name = paste(mdata$library_match_formula, mdata$library_match_name, mdata$ID, sep="_")
 mdata_row_name = 1:nrow(mdata)
 row.names(mdata) = mdata_row_name
 
 mdata_pre_clean = mdata[,14:(ncol(mdata)-2)]
+# mdata_pre_clean = mdata[,grepl("Kidney", colnames(mdata))]
 all_names = colnames(mdata_pre_clean)
 if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
   sample_names=all_names[-grep("blank|blk", all_names, ignore.case = T)]
@@ -99,7 +101,7 @@ topn_select = unlist(temp_ls)
 
 my_plot_heatmap(mdata_clean = mdata_clean,
                            cohort = cohort,
-                           imgName = "Test", 
+                           imgName = "Plot", 
                            format = "pdf", # pdf
                            dpi = 72,
                            width = NA, # define output graph width
@@ -107,8 +109,8 @@ my_plot_heatmap(mdata_clean = mdata_clean,
                            viewOpt = "overview", # Detail
                            rowV = T, colV = T, # cluster by row/column
                            border = T, # border for each pixel
-                           grp.ave = T, # group average
-                           scale_ub = 4, scale_lb = -4 # heatmap scale
+                           grp.ave = F, # group average
+                           scale_ub = 3, scale_lb = 3 # heatmap scale
 )
 
 write.csv(mdata[topn_select,], "mdata_top.csv", row.names = F)

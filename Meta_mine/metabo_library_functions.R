@@ -1,6 +1,3 @@
-# 显示中文
-# Sys.setlocale(category = "LC_ALL", locale = "Chinese")
-# !diagnostics off
 
 # Import library ####
 {
@@ -208,6 +205,7 @@ correlated_peaks = function(mdata = raw_ls[[1]],
                             normalize_options = c("row_mean"),
                             transform_options = c("log10",""),
                             scale_options = c("mean_center"),
+                            limit_to_library = T,
                             print_pdf = F
 )
 {
@@ -226,7 +224,9 @@ correlated_peaks = function(mdata = raw_ls[[1]],
               data_transform(transform_method = transform_method) %>%
               data_scale(scale_method = scale_method)
             target = mdata_clean[target_id,]
-            mdata_clean = mdata_clean[!is.na(mdata$library_match_name),]
+            if(limit_to_library){
+              mdata_clean = mdata_clean[!is.na(mdata$library_match_name),]
+            }
             target_cor = cor(t(mdata_clean), t(target))
             topn_list[[length(topn_list)+1]]=maxmin_n(target_cor, top_n, "max")
             bottomn_list[[length(bottomn_list)+1]] = maxmin_n(target_cor, top_n, "min")
@@ -235,8 +235,12 @@ correlated_peaks = function(mdata = raw_ls[[1]],
       }
     }
   }
+  if(limit_to_library){
+    mdata_in_library = mdata[!is.na(mdata$library_match_name),]
+  } else {
+    mdata_in_library = mdata
+  }
   
-  mdata_in_library = mdata[!is.na(mdata$library_match_name),]
   
   topn_summary = bind_rows(topn_list)
   topn_summary = topn_summary[with(topn_summary, order(-values)),]
