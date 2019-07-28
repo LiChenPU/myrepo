@@ -20,9 +20,6 @@
   library(lc8)
   library(profvis)
   
-  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  
-  setwd(work_dir)
 }
 
 {

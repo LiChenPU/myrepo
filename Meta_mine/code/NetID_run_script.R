@@ -4,9 +4,9 @@ print(work_dir)
 print(ion_mode)
 {
   Mset = list()
-  Mset[["Library"]] = read.csv("HMDB_clean.csv", stringsAsFactors = F)
-  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "biotransform.csv")
-  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "artifacts.csv")
+  Mset[["Library"]] = read.csv("./code/dependent/HMDB_clean.csv", stringsAsFactors = F)
+  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "./code/dependent/biotransform.csv")
+  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "./code/dependent/artifacts.csv")
   
   setwd(work_dir)
   filename = c("raw_data.csv")
@@ -87,7 +87,7 @@ print(ion_mode)
 
 # Run CPLEX ####
 {
-  save.image("temp.RData")
+  # save.image("temp.RData")
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
                                                 rdbe=T, step_score=T, iso_penalty_score=F)
   edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
