@@ -1,10 +1,11 @@
 
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-work_dir = getwd()
+# This code creates folder for each csv file using the csv name
+# copy the csv to the new folder
+# Rename the csv to raw_data for NetID processing
 
-filenames = list.files(patter = ".csv")
+setwd(work_dir)
+filenames = list.files(pattern = ".csv")
 foldernames = sub("\\.csv", "", filenames)
-
 
 for(i in 1:length(filenames)){
   setwd(work_dir)

@@ -1,4 +1,6 @@
 
+# This code batch run NetID_CPLEX code 
+# cd to the main folder, i.e. Meta_mine
 
 main_dir = getwd()
 
