@@ -54,7 +54,7 @@
 
 # Plot heatmap
 {
-  mdata = raw_ls[[1]]
+  mdata = raw_ls[[3]]
   # mdata = mdata[!is.na(mdata$library_match_name),]
   mdata = mdata[!duplicated(mdata$ID),]
   # mdata = mdata[mdata$log10_inten>4.5,]
@@ -109,7 +109,9 @@
 # Sample correlation matrix plot
 {
   cormat <- cor(mdata_clean)
-  cormat <- as.matrix(dist(t(mdata_clean), method = "euclidean"))
+  # cormat <- as.matrix(dist(t(mdata_clean), method = "minkowski", p = .5))
+  # cormat <- as.matrix(dist(t(mdata_clean), method = "euclidean"))
+  # cormat <- as.matrix(dist(t(mdata_clean), method = "manhattan"))
   rownames(cormat) <- colnames(cormat) <- colnames(mdata_clean)
   
   annotation <- data.frame(class = cohort)
@@ -138,4 +140,17 @@
   pheatmap(cormat, annotation = annotation,
            annotation_color = ann_colors)
 }
+
+
+# tsne
+{
+  library(tsne)
+  ecb = function(x,y){ plot(x,t='n'); text(x,labels=cohort, col=cols) }
+  tsne_run = tsne(mdata_clean[1:150,], 
+                  k=2,
+                   epoch_callback = ecb,
+                   perplexity=50) 
+}
+
+
 
