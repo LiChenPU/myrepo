@@ -7,5 +7,7 @@
 *.png
 *.xlsx
 *.txt
+*.out
+*.sh
 .Rproj.user
 prob.lp

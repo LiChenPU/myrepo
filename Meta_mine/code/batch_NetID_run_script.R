@@ -11,18 +11,34 @@ while(basename(main_dir)!="Meta_mine"){
 
 foldernames = list.dirs()
 
+batch_run_script = c()
 for(i in 1:length(foldernames)){
   if(!any(list.files(foldernames[i]) == "final.RData") & any(list.files(foldernames[i]) == "raw_data.csv")){
     print(foldernames[i])
-    work_dir = foldernames[i]
-    source("./code/NetID_function.R")
-    if(grepl("pos",foldernames[i])) {
-      ion_mode = 1
-    } else if(grepl("neg",foldernames[i])) {
-      ion_mode = -1
-    }
-    source("./code/NetID_run_script.R")
+    batch_run_script = c(batch_run_script, foldernames[i])
   }
   setwd(main_dir)
 }
+
+select_run_script = batch_run_script
+
+library(foreach)
+
+cl <- parallel::makeCluster(4)
+doParallel::registerDoParallel(cl)
+
+foreach(i = 1:length(select_run_script)) %dopar%{
+  work_dir = select_run_script[i]
+  source("./code/NetID_function.R")
+  if(grepl("pos",select_run_script[i])) {
+    ion_mode = 1
+  } else if(grepl("neg",select_run_script[i])) {
+    ion_mode = -1
+  }
+  print(select_run_script[i])
+  # source("./code/NetID_run_script.R")
+}
+
+parallel::stopCluster(cl)
+
 
