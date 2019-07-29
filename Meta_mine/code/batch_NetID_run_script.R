@@ -4,6 +4,10 @@
 # cd to the main folder, i.e. Meta_mine
 
 main_dir = getwd()
+while(basename(main_dir)!="Meta_mine"){
+  setwd("..")
+  main_dir = getwd()
+}
 
 foldernames = list.dirs()
 
@@ -11,7 +15,6 @@ for(i in 1:length(foldernames)){
   if(!any(list.files(foldernames[i]) == "final.RData") & any(list.files(foldernames[i]) == "raw_data.csv")){
     print(foldernames[i])
     work_dir = foldernames[i]
-    
     source("./code/NetID_function.R")
     if(grepl("pos",foldernames[i])) {
       ion_mode = 1

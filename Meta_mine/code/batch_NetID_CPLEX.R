@@ -3,6 +3,10 @@
 # cd to the main folder, i.e. Meta_mine
 
 main_dir = getwd()
+while(basename(main_dir)!="Meta_mine"){
+  setwd("..")
+  main_dir = getwd()
+}
 
 foldernames_batch_CPLEX = list.dirs()
 
