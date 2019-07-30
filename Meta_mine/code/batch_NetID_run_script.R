@@ -22,13 +22,9 @@ for(i in 1:length(foldernames)){
 
 select_run_script = batch_run_script
 
-library(foreach)
-
-cl <- parallel::makeCluster(4)
-doParallel::registerDoParallel(cl)
-
-foreach(i = 1:length(select_run_script)) %dopar%{
+for(i in 1:length(select_run_script)){
   work_dir = select_run_script[i]
+
   source("./code/NetID_function.R")
   if(grepl("pos",select_run_script[i])) {
     ion_mode = 1
@@ -36,9 +32,10 @@ foreach(i = 1:length(select_run_script)) %dopar%{
     ion_mode = -1
   }
   print(select_run_script[i])
-  # source("./code/NetID_run_script.R")
+  source("./code/NetID_run_script_test.R", local = T)
+  setwd(main_dir)
 }
 
-parallel::stopCluster(cl)
+
 
 
