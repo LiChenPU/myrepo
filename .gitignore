@@ -9,5 +9,6 @@
 *.txt
 *.out
 *.sh
+*.ffs_db
 .Rproj.user
 prob.lp

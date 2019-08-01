@@ -23,7 +23,7 @@ for(i in 1:length(foldernames_batch_CPLEX)){
 }
 
 print(batch_CPLEX)
-select_batch_CPLEX = batch_CPLEX[2]
+select_batch_CPLEX = batch_CPLEX
 print(select_batch_CPLEX)
 
 for(i in 1:length(select_batch_CPLEX)){
@@ -37,7 +37,3 @@ for(i in 1:length(select_batch_CPLEX)){
   source(paste(main_dir, "/code/NetID_CPLEX.R", sep=""))
   setwd(main_dir)
 }
-
-
-
-
