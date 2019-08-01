@@ -5,8 +5,9 @@
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   setwd("./library")
-  filenames = list.files(list.dirs(recursive = F), pattern = "mdata.csv", full.names = T)
+  filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
   filenames = filenames[grepl("pos", filenames)]
+  filenames = filenames[!grepl("yeast", filenames)]
   
   num_of_files = length(filenames)
   raw_ls = list()
@@ -21,13 +22,31 @@
   rm(df_temp)
 }
 
+# Cluster dataset to see if LC condition are similar
+{
+  dt1 = raw_ls[[2]] # liver in QE+
+  dt2 = raw_ls[[11]] # liver QE2
+  dt3 = raw_ls[[12]] # quad QE2
+  
+  select_col = c("label", "ID", "medMz", "medRt")
+  dt1 = dt1[,select_col]
+  dt1 = dt1[!duplicated(dt1$ID),]
+  
+  
+}
+
+
+
+
 # Search peak of interest based on medMz, medRt or formula
 {
-  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C7H15N1O1")
+  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H7N1O1")
   # lapply(data_select_ls, View)
   lapply(data_select_ls, row.names)
   fig_ls = lapply(data_select_ls, plot_library_bar)
-  pdf("C7H15N1O1.pdf",onefile = TRUE, w = 20, h = 10)
+  printtime = Sys.time()
+  timestamp <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+  pdf(paste("C3H7N1O1","_",timestamp, ".pdf",sep=""),onefile = TRUE, w = 20, h = 10)
   print(fig_ls)
   dev.off()
 }
@@ -151,6 +170,3 @@
                    epoch_callback = ecb,
                    perplexity=50) 
 }
-
-
-
