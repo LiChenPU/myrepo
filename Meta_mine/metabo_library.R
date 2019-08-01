@@ -1,13 +1,23 @@
 
+
+
 # Main ####
 
+
+# Related functions
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+source('~/GitHub/myrepo/Meta_mine/metabo_library_functions.R')
+
+
 # Read files
+
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   setwd("./library")
   filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
   filenames = filenames[grepl("pos", filenames)]
   filenames = filenames[!grepl("yeast", filenames)]
+  # filenames = filenames[grepl("pig", filenames)]
   
   num_of_files = length(filenames)
   raw_ls = list()
@@ -23,16 +33,98 @@
 }
 
 # Cluster dataset to see if LC condition are similar
+DatasetDist = function(dt1, dt2)
 {
-  dt1 = raw_ls[[2]] # liver in QE+
-  dt2 = raw_ls[[11]] # liver QE2
-  dt3 = raw_ls[[12]] # quad QE2
+  # dt1 = raw_ls[[2]] # liver in QE+
+  # dt2 = raw_ls[[11]] # liver QE2
+  # dt3 = raw_ls[[12]] # quad QE2
   
-  select_col = c("label", "ID", "medMz", "medRt")
-  dt1 = dt1[,select_col]
-  dt1 = dt1[!duplicated(dt1$ID),]
+  if(identical(dt1, dt2)){return(0)}
   
   
+  dt1_clean = dt1 %>%
+    select(label, ID, medMz, medRt, log10_inten) %>%
+    filter(!duplicated(ID)) %>%
+    filter(log10_inten > 5.5) %>%
+    arrange(medMz)
+  
+  
+  dt2_clean = dt2 %>%
+    select(label, ID, medMz, medRt, log10_inten) %>%
+    filter(!duplicated(ID)) %>%
+    filter(log10_inten > 5.5) %>%
+    arrange(medMz)
+  
+  tol_ppm = 3
+  dt1_clean_medMz = dt1_clean$medMz
+  nrow_dt1_clean = nrow(dt1_clean)
+  
+  
+  i = 1
+  count = 1
+  dt1_clean_ls = list()
+  while(i<=nrow_dt1_clean){
+    temp_mz = dt1_clean_medMz[i]
+    i_max = i
+    while(i_max < nrow_dt1_clean){
+      if(dt1_clean_medMz[i_max+1] - dt1_clean_medMz[i_max] <= dt1_clean_medMz[i_max] * tol_ppm/1E6){
+        i_max = i_max+1
+      } else {
+        break
+      }
+    }
+    temp_dt1 = dt1_clean[i:i_max,]
+    temp_df2_filter = dt2_clean$medMz>dt1_clean_medMz[i]*(1-tol_ppm/1E6) & dt2_clean$medMz<dt1_clean_medMz[i_max]*(1+tol_ppm/1E6)
+    temp_dt2 = dt2_clean[temp_df2_filter,]
+    
+
+    dt1_clean_ls[[count]] = list(dt1 = temp_dt1, dt2 = temp_dt2)
+
+    i = i_max+1
+    count = count+1
+  }
+  
+  library(rdist)
+  library(clue)
+  test = unlist(lapply(dt1_clean_ls, function(dt_clean){
+    # temp_dt1 = as.matrix(dt_clean$dt1[,4:5])
+    # temp_dt2 = as.matrix(dt_clean$dt2[,4:5])
+    temp_dt1 = as.matrix(dt_clean$dt1$medRt)
+    temp_dt2 = as.matrix(dt_clean$dt2$medRt)
+    if(nrow(temp_dt2)==0){return(NA)}
+    
+    x=cdist(temp_dt1, temp_dt2)
+    if(ncol(x)<nrow(x)){x = t(x)}
+    y=solve_LSAP(x)
+    all_dist = x[cbind(seq_along(y), y)]
+    # all_dist = 1
+    return(median(all_dist))
+  }))
+  
+  return(median(test, na.rm = T))
+  
+}
+
+{
+  dataset_dist_mtrx = matrix(0,
+                             nrow = length(filenames), 
+                             ncol = length(filenames)
+  )
+  rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
+  
+  for(i in 1:length(filenames)){
+    for(j in 1:length(filenames)){
+      print(Sys.time())
+      dataset_dist_mtrx[i,j] = DatasetDist(raw_ls[[i]], raw_ls[[j]])
+      
+    }
+  }
+  
+  
+  dataset_dist_mtrx = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
+  pdf("dataset_dist_mtrx_rt_log10.pdf")
+  pheatmap(dataset_dist_mtrx)
+  dev.off()
 }
 
 
