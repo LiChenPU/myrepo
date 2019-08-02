@@ -5,7 +5,11 @@
 
 main_dir = getwd()
 while(basename(main_dir)!="Meta_mine"){
-  setwd("..")
+  if(!grepl("Meta_mine", main_dir)){
+    setwd("./Meta_mine")
+  } else {
+    setwd("..")
+  }
   main_dir = getwd()
 }
 
