@@ -4,7 +4,11 @@
 
 main_dir = getwd()
 while(basename(main_dir)!="Meta_mine"){
-  setwd("..")
+  if(!grepl("Meta_mine", main_dir)){
+    setwd("./Meta_mine")
+  } else {
+    setwd("..")
+  }
   main_dir = getwd()
 }
 
@@ -14,10 +18,7 @@ batch_CPLEX = c()
 for(i in 1:length(foldernames_batch_CPLEX)){
   setwd(foldernames_batch_CPLEX[i])
   if(!any(list.files() == "mdata.csv") & any(list.files() == "final.RData")){
-    
     batch_CPLEX = c(batch_CPLEX, foldernames_batch_CPLEX[i])
-    # load("final.RData")
-    # source(paste(main_dir, "/code/NetID_CPLEX.R", sep=""))
   }
   setwd(main_dir)
 }

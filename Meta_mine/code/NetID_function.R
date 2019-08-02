@@ -2,6 +2,15 @@
 
 # Import library ####
 {
+  # install.packages(c("igraph", "fitdistrplus", "enviPat", "stringi", "matrixStats","Matrix",
+  #                    "slam", "pracma", "janitor"))
+  # 
+  # install.packages("pacman")
+  # library(pacman)
+  # pacman::p_load(Rserve, ellipse, scatterplot3d, Cairo, randomForest, caTools, e1071, som, impute, pcaMethods, RJSONIO, ROCR, globaltest, GlobalAncova, Rgraphviz, preprocessCore, genefilter, pheatmap, SSPA, sva, Rcpp, pROC, data.table, limma, car, fitdistrplus, lars, Hmisc, magrittr, methods, xtable, pls, caret, lattice, igraph, gplots, KEGGgraph, reshape, RColorBrewer, tibble, siggenes, plotly, xcms, CAMERA, fgsea, MSnbase)
+  # devtools::install_github("xia-lab/MetaboAnalystR")
+  # devtools::install_github("LiChenPU/Formula_manipulation")
+  library(MetaboAnalystR)
   library(readr)
   library(igraph)
   library(fitdistrplus)
@@ -13,12 +22,11 @@
   library(Matrix)
   library(slam)
   # library(cplexAPI)
-  library(MetaboAnalystR)
+  
   library(pracma)
   library(tictoc)
-  # install.packages("janitor")
   library(janitor)
-  #devtools::install_github("LiChenPU/Formula_manipulation")
+  
   library(lc8)
   library(profvis)
   
