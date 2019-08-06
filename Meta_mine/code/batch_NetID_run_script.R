@@ -36,7 +36,7 @@ for(i in 1:length(select_run_script)){
     ion_mode = -1
   }
   print(select_run_script[i])
-  source("./code/NetID_run_script_test.R", local = T)
+  source("./code/NetID_run_script.R", local = T)
   setwd(main_dir)
 }
 
