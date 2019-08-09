@@ -5,7 +5,10 @@ library(enviPat)
 library(jsonlite)
 library(stringr)
 
-setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Positive_Mode-json")
+
+# setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Positive_Mode-json")
+print(work_dir)
+setwd(work_dir)
 json_file = "MoNA-export-LC-MS-MS_Positive_Mode.json"
 # jsonlite_data <- jsonlite::fromJSON(json_file, simplifyDataFrame = T, simplifyVector = F, simplifyMatrix = T)
 jsonlite_data = readRDS("jsonlite_data.rds")
