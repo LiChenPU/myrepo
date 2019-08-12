@@ -12,5 +12,7 @@
 *.ffs_db
 *.rds
 *.json
+*.xml
+*.sdf
 .Rproj.user
 prob.lp
