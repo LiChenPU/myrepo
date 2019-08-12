@@ -6,11 +6,12 @@ library(jsonlite)
 library(stringr)
 
 
-# setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Positive_Mode-json")
-print(work_dir)
-setwd(work_dir)
-json_file = "MoNA-export-LC-MS-MS_Positive_Mode.json"
-# jsonlite_data <- jsonlite::fromJSON(json_file, simplifyDataFrame = T, simplifyVector = F, simplifyMatrix = T)
+setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Negative_Mode-json")
+# print(work_dir)
+# setwd(work_dir)
+json_file = "MoNA-export-LC-MS-MS_Negative_Mode.json"
+jsonlite_data <- jsonlite::fromJSON(json_file, simplifyDataFrame = T, simplifyVector = F, simplifyMatrix = T)
+saveRDS(jsonlite_data, "jsonlite_data.rds")
 jsonlite_data = readRDS("jsonlite_data.rds")
 
 spec_ls = list()
