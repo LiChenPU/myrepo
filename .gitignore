@@ -14,5 +14,6 @@
 *.json
 *.xml
 *.sdf
+*.tsv
 .Rproj.user
 prob.lp
