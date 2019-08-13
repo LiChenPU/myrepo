@@ -1,22 +1,21 @@
-
-
-
 library(enviPat)
 library(jsonlite)
 library(stringr)
+library(dplyr)
 
-
-setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Negative_Mode-json")
-# print(work_dir)
-# setwd(work_dir)
-json_file = "MoNA-export-LC-MS-MS_Negative_Mode.json"
-jsonlite_data <- jsonlite::fromJSON(json_file, simplifyDataFrame = T, simplifyVector = F, simplifyMatrix = T)
-saveRDS(jsonlite_data, "jsonlite_data.rds")
+# setwd("C:/Users/lc8/Downloads/MoNA-export-LC-MS-MS_Negative_Mode-json")
+setwd(work_dir)
+print(getwd())
+# json_file = "MoNA-export-LC-MS-MS_Negative_Mode.json"
+# jsonlite_data <- jsonlite::fromJSON(json_file, simplifyDataFrame = T, simplifyVector = F, simplifyMatrix = T)
+# saveRDS(jsonlite_data, "jsonlite_data.rds")
+# setwd("C:/Users/lc8/Documents/GitHub/myrepo/xcms_ms2/library/MoNA_MS2_Positive")
 jsonlite_data = readRDS("jsonlite_data.rds")
 
 spec_ls = list()
 i=1
 data("isotopes")
+
 
 for(i in 1:nrow(jsonlite_data)){
   # for(i in 1:19){
@@ -31,10 +30,15 @@ for(i in 1:nrow(jsonlite_data)){
   spectrum_spl = str_split(spectrum, " ")[[1]]
   spectrum_spl2 = str_split(spectrum_spl, ":")
   spec_df = matrix(as.numeric(unlist(spectrum_spl2)), nrow=2)
-  spec_df[2,] = spec_df[2,]/100
+  spec_df[2,] = spec_df[2,]/max(spec_df[2,])
   spec_df = t(spec_df)
   colnames(spec_df) = c("mz", "inten")
-  
+  spec_df = as.data.frame(spec_df)
+  spec_df = spec_df %>%
+    arrange(desc(inten)) %>%
+    top_n(100, inten)
+  spec_df = spec_df[1,]
+  spec_df = as.matrix(spec_df)
   
   temp_json_compound_metaData = temp_json$compound[[1]]$metaData[[1]]
   if(length(temp_json_compound_metaData)!=0){
@@ -76,10 +80,6 @@ for(i in 1:nrow(jsonlite_data)){
                      prcursor_type = prcursor_type,
                      polarity = polarity)
 }
-
-
-
-
 
 saveRDS(spec_ls, "MoNA_MS2_pos.rds")
 
