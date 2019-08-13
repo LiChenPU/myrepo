@@ -10,6 +10,9 @@ library(ggrepel)
 library(gridExtra)
 library(lc8)
 library(mzR)
+library(ChemmineR)
+library(ChemmineOB)
+
 
 library(microbenchmark)
 # library(readr)
@@ -98,44 +101,43 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
 ## plot_MS2_spec ####
 plot_MS2_spec = function(targetMS2Spectra,
                          show_mz_formula = "formula",
-                         fileNames = fileNames, 
+                         fn = fileNames, 
                          top_n_peaks = 10
                          )
 {
-  fig_ls = list()
-  for(i in 1:length(targetMS2Spectra)){
-    
-    temp_spec = targetMS2Spectra[[i]]
-    temp_mzs = round(mz(temp_spec),5)
-    temp_intens = intensity(temp_spec)
-    
-    df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
-    df = df %>%
-      filter(inten > max(inten)*.05 & inten >5E3) %>%
-      arrange(-inten) %>%
-      top_n(top_n_peaks, inten)
-    
-    if(show_mz_formula == "formula"){
-      ion_mode = polarity(temp_spec)
-      df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
-      ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
-        geom_linerange() + 
-        ggtitle(paste(fileNames[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3))) + 
-        # geom_text_repel(aes(label=mz),colour='red') +
-        geom_text_repel(aes(label=pred_formula),colour='blue') +
-        xlim(50, ceiling(max(df$mz)/50)*50)
-    } else {
-      ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
-        geom_linerange() + 
-        ggtitle(paste(fileNames[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3))) + 
-        geom_text_repel(aes(label=mz),colour='red') +
-        # geom_text_repel(aes(label=pred_formula),colour='blue') +
-        xlim(50, ceiling(max(df$mz)/50)*50)
-    }
-    
-    fig_ls[[length(fig_ls)+1]] = ms2Plot
+  # targetMS2Spectra = testMs2Spectra[[1]]
+  temp_spec = targetMS2Spectra
+  temp_mzs = round(mz(temp_spec),5)
+  temp_intens = intensity(temp_spec)
+  
+  temp_legend = paste(fn[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3))
+  
+  df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
+  df = df %>%
+    filter(inten > max(inten)*.05 & inten >5E3) %>%
+    arrange(-inten) %>%
+    top_n(top_n_peaks, inten)
+  
+  if(show_mz_formula == "formula"){
+    ion_mode = polarity(temp_spec)
+    df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
+    ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
+      geom_linerange() + 
+      ggtitle(temp_legend) + 
+      # geom_text_repel(aes(label=mz),colour='red') +
+      geom_text_repel(aes(label=pred_formula),colour='blue') +
+      xlim(50, ceiling(max(df$mz)/50)*50)
+  } else {
+    ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
+      geom_linerange() + 
+      ggtitle() + 
+      geom_text_repel(aes(label=mz),colour='red') +
+      # geom_text_repel(aes(label=pred_formula),colour='blue') +
+      xlim(50, ceiling(max(df$mz)/50)*50)
   }
-  return(fig_ls)
+  
+
+  return(ms2Plot)
 }
 
 ## print_MS2_spec ####
@@ -169,6 +171,30 @@ print_MS2_spec = function(plotsMS2Spectra_ls,
   dev.off()
 }
 
+## Update precursorIntensity ####
+updatePrecursorIntensity = function(MS2ScanData, spec_all, targetMzError = 10E-6){
+  # Previous precusorIntensity is calculated by 
+  # 1) go to previous full scan
+  # 2) look for mz fall within precusorMz and 2 mass unit error
+  # 3) take the maximum intensity number
+  # Here the precusorIntensity is updated by 
+  # 1) go into the exact MS2 scan spectrum
+  # 2) look for mz fall within precusorMz and ~ 10ppm error
+  # 3) take the intensity number (generally there is only one peak within 10ppm)
+  targetMS2Spectra = spec_all[MS2ScanData$spectrum]
+  mzs_targetMz_position = lapply(targetMS2Spectra, function(x){
+    targetMz = x@precursorMz
+    mzs = mz(x)
+    which(abs(mzs - targetMz) < targetMzError*targetMz & min(abs(mzs - targetMz)))
+  })  
+  intens = lapply(targetMS2Spectra, intensity)
+  intens_targetMz = mapply(function(X,Y){
+    if(length(Y)==0){return(0)}
+    X[Y]
+  }, X=intens, Y=mzs_targetMz_position)
+  MS2ScanData$precursorIntensity = intens_targetMz
+  return(MS2ScanData)
+}
 ## calculate MS2 spec similarity ####
 spec2mzIntensity = function(spec, top_n_peaks=10){
   mz1 = mz(spec)
@@ -183,12 +209,16 @@ spec2mzIntensity = function(spec, top_n_peaks=10){
 }
 
 mergeMzIntensity = function(spec1_df, spec2_df, ppmTol = 10E-6){
-  mz1 = spec1_df$mz
-  mz2 = spec2_df$mz
+  
+  # spec1_df = MoNA_MS2_pos_spectra[[i]]
+  # spec2_df = spec_df_test
+  # true_merge = merge(as.data.frame(spec1_df),spec2_df, by="mz", all=T)
+  mz1 = spec1_df[,1]
+  mz2 = spec2_df[,1]
   mzs = c(mz1, mz2)
   mzs = sort(mzs)
-  inten1 = spec1_df$inten
-  inten2 = spec2_df$inten
+  inten1 = spec1_df[,2]
+  inten2 = spec2_df[,2]
   keeps = c(1)
   count = 1
   MS_group = rep(1,(length(mzs)))
@@ -234,41 +264,39 @@ mergeMzIntensity = function(spec1_df, spec2_df, ppmTol = 10E-6){
   intens_mat[,1] = mz_result
   return(intens_mat)
 }
-
-# mergeMzIntensity_deprec = function(spec1_df, spec2_df, ppmTol = 10E-6){
-#   # if(identical(spec1_df, spec2_df))
-#   colnames(spec1_df)[2] = "inten1"
-#   colnames(spec2_df)[2] = "inten2"
-#   spec_df = merge(spec1_df, spec2_df, all=T, by = "mz")
-#   
-#   MS_group = rep(1,(nrow(spec_df)))
-#   mzs = spec_df$mz
-#   keeps = c(1)
-#   count = 1
-#   for(i in 2:length(mzs)){
-#     if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol){
-#       count = count+1
-#       keeps=c(keeps,i)
-#     }
-#     MS_group[i]=count
-#   }
-#   spec_df[is.na(spec_df)]=0
-#   
-#   k_max=k_min=1
-#   while (k_max <= length(MS_group)){
-#     k_min = k_max
-#     while (MS_group[k_min] == MS_group[k_max]){
-#       k_max = k_max+1
-#       if(k_max > length(MS_group)){break}
-#     }
-#     # spec_df$mz[k_min]=max(spec_df$mz[k_min:(k_max-1)], na.rm = T)
-#     spec_df$inten1[k_min]=max(spec_df$inten1[k_min:(k_max-1)], na.rm = T)
-#     spec_df$inten2[k_min]=max(spec_df$inten2[k_min:(k_max-1)], na.rm = T)
-#   }
-#   spec_df = spec_df[keeps,]
-#   return(spec_df)
-# }
-
+mergeMzIntensity_backup = function(spec1_df, spec2_df, ppmTol = 10E-6){
+  # if(identical(spec1_df, spec2_df))
+  colnames(spec1_df)[2] = "inten1"
+  colnames(spec2_df)[2] = "inten2"
+  spec_df = merge(spec1_df, spec2_df, all=T, by = "mz")
+  
+  MS_group = rep(1,(nrow(spec_df)))
+  mzs = spec_df$mz
+  keeps = c(1)
+  count = 1
+  for(i in 2:length(mzs)){
+    if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol){
+      count = count+1
+      keeps=c(keeps,i)
+    }
+    MS_group[i]=count
+  }
+  spec_df[is.na(spec_df)]=0
+  
+  k_max=k_min=1
+  while (k_max <= length(MS_group)){
+    k_min = k_max
+    while (MS_group[k_min] == MS_group[k_max]){
+      k_max = k_max+1
+      if(k_max > length(MS_group)){break}
+    }
+    # spec_df$mz[k_min]=max(spec_df$mz[k_min:(k_max-1)], na.rm = T)
+    spec_df$inten1[k_min]=max(spec_df$inten1[k_min:(k_max-1)], na.rm = T)
+    spec_df$inten2[k_min]=max(spec_df$inten2[k_min:(k_max-1)], na.rm = T)
+  }
+  spec_df = spec_df[keeps,]
+  return(spec_df)
+}
 DotProduct = function(a, b){
   DP = a%*%b / sqrt(a%*%a * b%*%b)
   return(as.numeric(DP))
@@ -295,6 +323,11 @@ else{
 }
 return(hclust(d, method = method))
 }
+## my_SMILES2structure ####
+my_SMILES2structure =function(SMILES){
+  SDF = smiles2sdf(SMILES)
+  ChemmineR::plotStruc(SDF[[1]], regenCoords=T)
+}
 # Main ####
 ## Read files ####
 {
@@ -310,6 +343,7 @@ return(hclust(d, method = method))
                    stringsAsFactors = FALSE)
   raw_data <- readMSData(files = mzXML, pdata = new("NAnnotatedDataFrame", pd),
                          mode = "onDisk")
+  fileNames = raw_data@phenoData@data$sample_name
 }
 
 ## Extract spectra and MS2 data #### 
@@ -320,36 +354,11 @@ return(hclust(d, method = method))
     filter(msLevel==2) %>%
     filter(totIonCurrent>1E5) 
   unique(MS2ScanData$precursorMZ)
- 
-  # Update precursorIntensity ###W
-  # Previous precusorIntensity is calculated by 
-  # 1) go to previous full scan
-  # 2) look for mz fall within precusorMz and 2 mass unit error
-  # 3) take the maximum intensity number
-  # Here the precusorIntensity is updated by 
-  # 1) go into the exact MS2 scan spectrum
-  # 2) look for mz fall within precusorMz and ~ 10ppm error
-  # 3) take the intensity number (generally there is only one peak within 10ppm)
   
-  targetMS2Spectra = spec_all[MS2ScanData$spectrum]
-  targetMzError = 10E-6
-  
-  mzs_targetMz_position = lapply(targetMS2Spectra, function(x){
-    targetMz = x@precursorMz
-    mzs = mz(x)
-    which(abs(mzs - targetMz) < targetMzError*targetMz & min(abs(mzs - targetMz)))
-  })  
-  intens = lapply(targetMS2Spectra, intensity)
-  intens_targetMz = mapply(function(X,Y){
-    if(length(Y)==0){return(0)}
-    X[Y]
-  }, X=intens, Y=mzs_targetMz_position)
-  MS2ScanData$precursorIntensity = intens_targetMz
+  MS2ScanData = updatePrecursorIntensity(MS2ScanData,
+                                         spec_all,
+                                         targetMzError = 10E-6)
 }
-
-
-fileNames = raw_data@phenoData@data$sample_name
-
 
 ## Examine all MS2 data in one file ####
 {
@@ -389,23 +398,25 @@ fileNames = raw_data@phenoData@data$sample_name
 ## Run functions ####
 {
   # filter MS2 based on peak_list
+  # for each peak in peak_list, store a list of MS2 from all sapmles within mz and rt error
   targetMS2Spectra_ls = filter_MS2_Spec(MS2ScanData, 
                                         peak_list,
                                         spec_all,
                                         targetMzError = 10E-6,
-                                        targetRtError = 0.3
-  )
+                                        targetRtError = 0.3)
+  # saveRDS(targetMS2Spectra_ls, paste(basename(getwd()), "EXPMS2.rds",sep="_"))
+  targetMS2Spectra_ls = readRDS("190731 Melanie young old mice MS2_EXPMS2.rds")
+  
   # Plot MS2 spectra, select whether to lable mz or formula on spectra
-  plotsMS2Spectra_ls = lapply(targetMS2Spectra_ls, plot_MS2_spec, 
-                              show_mz_formula = "mz",
-                              fileNames = fileNames, 
-                              top_n_peaks = 10)
   
-  plotsMS2Spectra_ls = lapply(targetMS2Spectra_ls, plot_MS2_spec,
-                              show_mz_formula = "formula",
-                              fileNames = fileNames,
-                              top_n_peaks = 10)
-  
+  plotsMS2Spectra_ls = list()
+  for(i in 1:length(targetMS2Spectra_ls)){
+    plotsMS2Spectra_ls[[i]] = lapply(targetMS2Spectra_ls[[i]], plot_MS2_spec, 
+                                     show_mz_formula = "mz",
+                                     fn = fileNames, 
+                                     top_n_peaks = 10)
+  }
+  names(plotsMS2Spectra_ls) = names(targetMS2Spectra_ls)
   # Print out plots
   print_MS2_spec(plotsMS2Spectra_ls, 
                  nrow = 4,
@@ -419,100 +430,189 @@ fileNames = raw_data@phenoData@data$sample_name
   spec_DP_matrix = matrix(1, nrow = length(spec_df_ls), ncol = length(spec_df_ls))
   for(i in 1:length(spec_df_ls)){
     for(j in 1:length(spec_df_ls)){
+
       spec_merge_df = mergeMzIntensity(spec_df_ls[[i]], spec_df_ls[[j]], ppmTol = 10E-6)
       spec_DP_matrix[i,j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
     }
   }
-  
-  spec_DP_matrix_sym = 0.5 *(spec_DP_matrix + t(spec_DP_matrix))
-  pheatmap::pheatmap(spec_DP_matrix_sym, clustering_method = "average")
-  
-  
-  hc.cls = factor(rep(names(targetMS2Spectra_ls), lapply(targetMS2Spectra_ls, length)))
-  annotation <- data.frame(class = hc.cls)
-  rownames(annotation) <- unlist(lapply(targetMS2Spectra_ls, names))
-  colnames(spec_DP_matrix_sym) = rownames(spec_DP_matrix_sym) = unlist(lapply(targetMS2Spectra_ls, names))
 
-  if(length(unique(hc.cls)) < 9){
-    pal9 = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
-             "#FFFF33", "#A65628", "#F781BF", "#999999")
-    dist.cols = pal9[1:length(unique(hc.cls))]
-  } else {
-    pal12 = c("#A6CEE3", "#1F78B4", "#B2DF8A", "#33A02C", "#FB9A99",
-              "#E31A1C", "#FDBF6F", "#FF7F00", "#CAB2D6", "#6A3D9A",
-              "#FFFF99", "#B15928")
-    dist.cols <- colorRampPalette(pal12)(length(unique(hc.cls)))
+  # Plot heatmap for spectra distance
+  {
+    spec_DP_matrix_sym = 0.5 *(spec_DP_matrix + t(spec_DP_matrix))
+    pheatmap::pheatmap(spec_DP_matrix_sym, clustering_method = "average")
+    
+    
+    hc.cls = factor(rep(names(targetMS2Spectra_ls), lapply(targetMS2Spectra_ls, length)))
+    annotation <- data.frame(class = hc.cls)
+    rownames(annotation) <- unlist(lapply(targetMS2Spectra_ls, names))
+    colnames(spec_DP_matrix_sym) = rownames(spec_DP_matrix_sym) = unlist(lapply(targetMS2Spectra_ls, names))
+    
+    if(length(unique(hc.cls)) < 9){
+      pal9 = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
+               "#FFFF33", "#A65628", "#F781BF", "#999999")
+      dist.cols = pal9[1:length(unique(hc.cls))]
+    } else {
+      pal12 = c("#A6CEE3", "#1F78B4", "#B2DF8A", "#33A02C", "#FB9A99",
+                "#E31A1C", "#FDBF6F", "#FF7F00", "#CAB2D6", "#6A3D9A",
+                "#FFFF99", "#B15928")
+      dist.cols <- colorRampPalette(pal12)(length(unique(hc.cls)))
+    }
+    # barplot(rep(1,length(dist.cols)), col=dist.cols)
+    cols = dist.cols[as.numeric(hc.cls)]
+    uniq.cols <- unique(cols)
+    cls <- hc.cls
+    # names(uniq.cols) <- unique(as.character((cls)))
+    names(uniq.cols) <- unique(as.character(sort(cls)))
+    ann_colors <- list(class = uniq.cols)
+    
+    test = cluster_mat(spec_DP_matrix_sym, "euclidean", "complete")
+    
+    spec_DP_matrix_cls = spec_DP_matrix_sym[test$order, test$order]
+    
+    pheatmap::pheatmap(spec_DP_matrix_cls, 
+                       annotation = annotation, 
+                       # fontsize = 8, 
+                       # fontsize_row = 8, 
+                       # clustering_distance_rows = smplDist,
+                       # clustering_distance_cols = smplDist, 
+                       # clustering_method = clstDist, 
+                       # border_color = border.col, 
+                       # cluster_rows = T,
+                       # cluster_cols = T,
+                       # scale = scaleOpt, 
+                       # color = colors,
+                       annotation_colors = ann_colors)
   }
-  # barplot(rep(1,length(dist.cols)), col=dist.cols)
-  cols = dist.cols[as.numeric(hc.cls)]
-  uniq.cols <- unique(cols)
-  cls <- hc.cls
-  # names(uniq.cols) <- unique(as.character((cls)))
-  names(uniq.cols) <- unique(as.character(sort(cls)))
-  ann_colors <- list(class = uniq.cols)
   
-  test = cluster_mat(spec_DP_matrix_sym, "euclidean", "complete")
   
-  spec_DP_matrix_cls = spec_DP_matrix_sym[test$order, test$order]
+}
+
+
+# Search library for target spectra ####
+{
+  library_dir = "C:/Users/lc8/Documents/GitHub/myrepo/xcms_ms2/library/"
+  library_files_path = list.files(path = library_dir, 
+                                 pattern = "MS2.*rds", 
+                                 recursive = T)
+  library_files_path = paste0(library_dir, library_files_path)
+  library_files = lapply(library_files_path, readRDS)
   
-  pheatmap::pheatmap(spec_DP_matrix_cls, 
-                     annotation = annotation, 
-                     # fontsize = 8, 
-                     # fontsize_row = 8, 
-                     # clustering_distance_rows = smplDist,
-                     # clustering_distance_cols = smplDist, 
-                     # clustering_method = clstDist, 
-                     # border_color = border.col, 
-                     # cluster_rows = T,
-                     # cluster_cols = T,
-                     # scale = scaleOpt, 
-                     # color = colors,
-                     annotation_colors = ann_colors)
+  HMDB_pred_pos = readRDS(library_files_path[3])
+
+  # ms2_rel_inten_cutoff = 0.01
+  # x = MoNA_MS2_pos_spectra[[2]]
+  # test = lapply(MoNA_MS2_pos_spectra, function(x){
+  #   x = x[order(x[,2]),]
+  #   return(x)
+  # })
+  # MoNA_MS2_pos_spectra2 = lapply(MoNA_MS2_pos_spectra, function(x){
+  #   y = x[x[,2]>ms2_rel_inten_cutoff,]
+  #   if(!is.matrix(y)){
+  #     z = x[order(-x[,2]),]
+  #     if(!is.matrix(z)){return(x)}
+  #     return (z[1:min(nrow(z), 20),])
+  #   }
+  #   y = y[order(-y[,2]),]
+  #   return(y[1:min(nrow(y), 20),])
+  # })
   
+  HMDB_pred_pos_spectra = lapply(HMDB_pred_pos, "[[", "spectrum")
+  
+  
+  testMs2Spectra = unlist(targetMS2Spectra_ls)
+  testMs2Spectra = testMs2Spectra[[13]]
+  
+  
+  spec_df_test = spec2mzIntensity(testMs2Spectra, top_n_peaks = 10)
+  
+  test_score = rep(0,length(HMDB_pred_pos_spectra))
+
+  
+  error_message = c()
+  for(i in 1:length(HMDB_pred_pos_spectra)){
+    if(i%%1000 ==0){print(i); print(Sys.time())}
+    spec_merge_df = try(mergeMzIntensity(HMDB_pred_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6), silent = T)
+    if(inherits(spec_merge_df, "try-error")){
+      error_message=c(error_message,i)
+      spec_merge_df = mergeMzIntensity_backup(HMDB_pred_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6)
+    }
+    test_score[i] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
+  }
+  
+  
+  fileNames = 1:30
+  
+  plot_MS2_spec(testMs2Spectra,
+                fn = fileNames,
+                show_mz_formula = "mz")
+  my_SMILES2structure(HMDB_pred_pos[[44503]]$SMILES)
+  
+  
+}
+
+temp_df = MoNA_MS2_pos[[20904]]$spectrum
+  colnames(temp_df) = c("mz", "intensity")
+  s = temp_df
+  
+s_centroid = my_centroid(s)
+my_centroid = function(s, topn = 20, ms_dif_ppm=10, ms2report_cutoff=0.001){
+  if(!is.data.frame(s)){
+    s = as.data.frame(s)
+  }
+  s = s[s$inten>ms2report_cutoff,]
+  
+  
+  ms_dif_ppm=ms_dif_ppm/10^6
+  mzs = s$mz
+  
+  count = 1
+  MS_group = rep(1,(length(mzs)))
+  
+  for(i in 2:length(mzs)){
+    if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol){
+      count = count+1
+    }
+    MS_group[i]=count
+  }
+  s["merge_group"]=MS_group
+  
+  
+  s["Centroid_intensity"] = NA
+  s["Centroid_mz"] = NA
+  
+  for(i in 1:max(s$merge_group)){
+    temp = s[s$merge_group==i,]
+    s$Centroid_intensity[s$merge_group==i] = max(temp$inten)
+    s$Centroid_mz[s$merge_group==i] = round(sum((temp$mz*temp$inten)/sum(temp$inten)), digits = 5)
+  }
+  
+  s2 = s[s$Centroid_intensity> ms2report_cutoff * max(s$Centroid_intensity), c("Centroid_mz", "Centroid_intensity")]
+  s2 = s2[!duplicated(s2),]
+  s2 = s2[with(s2, order(-Centroid_intensity)),]
+  s2 = s2[1:min(topn,nrow(s2)),]
+  colnames(s2) = c("mz", "inten")
+  return(s2)
 }
 
 
 
 
-
-
-
-
-targetMS2Spectra[[row.names(spec_DP_matrix_cls)[1]]]
-  
-check_identical = matrix(nrow=105, ncol=20)
-i=7
-system.time(
-for(i in 1:length(spec_df_ls)){
-  for(j in 1:20){
-    spec1_df = spec_df_ls[[j]]
-    spec2_df = spec_df_ls[[i]]
-    spec_df1 = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6)
-    # spec_df2 = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
-    
-    
-    check_identical[i,j] = (all(identical(spec_df1[,1], spec_df2[,1]),
-                                identical(spec_df1[,2], spec_df2[,2]),
-                                identical(spec_df1[,3], spec_df2[,3])))
-  }
-}
-)
-
-
-profvis::profvis({for(repeating in 1:100){
-  spec_df1 = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6)
-  spec_df2 = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
-}})
-mbm = microbenchmark(
-  "m1" = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6),
-  "m2" = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
-)
-
-autoplot(mbm)
-
-
-
-
+# 
+# spec1_df = MoNA_MS2_pos_spectra[[6]]
+# mbm = microbenchmark(
+#   "m1" = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6),
+#   "m2" = mergeMzIntensity_deprec(spec1_df, spec2_df, ppmTol = 10E-6),
+#   "m3" ={
+#     error_message=1
+#     test_try = try(mergeMzIntensity(MoNA_MS2_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6), silent = T)
+#     if(inherits(test_try, "try-error")){
+#       error_message=error_message+1
+#       test_try = mergeMzIntensity_deprec(MoNA_MS2_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6)
+#     }
+#   }
+# )
+# 
+# autoplot(mbm)
 
 
 
@@ -533,3 +633,37 @@ autoplot(mbm)
 # raw = filterFile(raw_data, file = 2)
 # mzs = mzs_by_file[[2]]
 # intens = intens_by_file[[2]]
+
+# evaluate function efficiency
+
+# targetMS2Spectra[[row.names(spec_DP_matrix_cls)[1]]]
+#   
+# check_identical = matrix(nrow=105, ncol=20)
+# i=7
+# system.time(
+# for(i in 1:length(spec_df_ls)){
+#   for(j in 1:20){
+#     spec1_df = spec_df_ls[[j]]
+#     spec2_df = spec_df_ls[[i]]
+#     spec_df1 = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6)
+#     # spec_df2 = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
+#     
+#     
+#     check_identical[i,j] = (all(identical(spec_df1[,1], spec_df2[,1]),
+#                                 identical(spec_df1[,2], spec_df2[,2]),
+#                                 identical(spec_df1[,3], spec_df2[,3])))
+#   }
+# }
+# )
+# 
+# 
+# profvis::profvis({for(repeating in 1:100){
+#   spec_df1 = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6)
+#   spec_df2 = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
+# }})
+# mbm = microbenchmark(
+#   "m1" = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6),
+#   "m2" = mergeMzIntensity2(spec1_df, spec2_df, ppmTol = 10E-6)
+# )
+# 
+# autoplot(mbm)
