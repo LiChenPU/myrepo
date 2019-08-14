@@ -37,7 +37,6 @@ for(i in 1:nrow(jsonlite_data)){
   spec_df = spec_df %>%
     arrange(desc(inten)) %>%
     top_n(100, inten)
-  spec_df = spec_df[1,]
   spec_df = as.matrix(spec_df)
   
   temp_json_compound_metaData = temp_json$compound[[1]]$metaData[[1]]
