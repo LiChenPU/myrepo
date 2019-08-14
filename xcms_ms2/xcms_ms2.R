@@ -8,6 +8,8 @@ library(dplyr)
 library(ggplot2)
 library(ggrepel)
 library(gridExtra)
+library(cowplot)
+library(gridGraphics)
 library(lc8)
 library(mzR)
 library(ChemmineR)
@@ -97,43 +99,52 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
 }
 
 ## plot_MS2_spec ####
-plot_MS2_spec = function(targetMS2Spectra,
+plot_MS2_spec = function(Ms2Spectra,
                          show_mz_formula = "formula",
-                         fn = fileNames, 
-                         top_n_peaks = 10
-                         )
+                         top_n_peaks = 10,
+                         ion_mode = 0
+)
 {
-  # targetMS2Spectra = testMs2Spectra[[1]]
-  temp_spec = targetMS2Spectra
-  temp_mzs = round(mz(temp_spec),5)
-  temp_intens = intensity(temp_spec)
-  
-  temp_legend = paste(fn[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3))
-  
+  # Ms2Spectra = HMDB_pred_pos[[4403]]
+  # Ms2Spectra = testMs2Spectra
+  if(class(Ms2Spectra) == "Spectrum2"){
+    temp_spec = Ms2Spectra
+    temp_mzs = round(mz(temp_spec),5)
+    temp_intens = intensity(temp_spec)
+    temp_caption = paste(temp_spec@fromFile, "RT =", round(temp_spec@rt/60,3))
+    ion_mode = polarity(temp_spec)
+  }
+  if(class(Ms2Spectra) == "list"){
+    temp_mzs = round(Ms2Spectra$spectrum[,1],5)
+    temp_intens = Ms2Spectra$spectrum[,2]
+    if(is.data.frame(Ms2Spectra$external_id)){
+      temp_id = paste0(Ms2Spectra$external_id[1,], collapse = ":")
+    } else{
+      temp_id = Ms2Spectra$external_id
+    }
+    temp_caption = paste(temp_id, Ms2Spectra$formula)
+  }
   df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
   df = df %>%
-    filter(inten > max(inten)*.05 & inten >5E3) %>%
     arrange(-inten) %>%
     top_n(top_n_peaks, inten)
   
   if(show_mz_formula == "formula"){
-    ion_mode = polarity(temp_spec)
     df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
-      ggtitle(temp_legend) + 
+      ggtitle(temp_caption) + 
       # geom_text_repel(aes(label=mz),colour='red') +
       geom_text_repel(aes(label=pred_formula),colour='blue') +
       xlim(50, ceiling(max(df$mz)/50)*50)
   } else {
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
-      ggtitle() + 
+      ggtitle(temp_caption) + 
       geom_text_repel(aes(label=mz),colour='red') +
       # geom_text_repel(aes(label=pred_formula),colour='blue') +
       xlim(50, ceiling(max(df$mz)/50)*50)
   }
-  
 
   return(ms2Plot)
 }
@@ -205,7 +216,6 @@ spec2mzIntensity = function(spec, top_n_peaks=10){
     arrange(mz)
   return(spec_df)
 }
-
 mergeMzIntensity = function(spec1_df, spec2_df, ppmTol = 10E-6){
   
   # spec1_df = MoNA_MS2_pos_spectra[[i]]
@@ -300,6 +310,32 @@ DotProduct = function(a, b){
   return(as.numeric(DP))
 }
 
+## search_MS2_library ####
+search_MS2_library = function(MS2_library_spectra,
+                              target_spectrum_df,
+                              top_n_spectra = 100)
+{
+  test_score = rep(0,length(MS2_library_spectra))
+  error_message = c()
+  for(i in 1:length(MS2_library_spectra)){
+    if(i%%10000 ==0){print(i); print(Sys.time())}
+    spec_merge_df = try(mergeMzIntensity(MS2_library_spectra[[i]], target_spectrum_df, ppmTol = 10E-6), silent = T)
+    if(inherits(spec_merge_df, "try-error")){
+      error_message=c(error_message,i)
+      spec_merge_df = mergeMzIntensity_backup(MS2_library_spectra[[i]], target_spectrum_df, ppmTol = 10E-6)
+    }
+    test_score[i] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
+  }
+  
+  whichpartrev <- function(x, n=30) {
+    which(x >= -sort(-x, partial=n)[n])
+  }
+  
+  id = whichpartrev(test_score, top_n_spectra)
+  score = test_score[id]
+  
+  return(data.frame(id = id, score =score))
+}
 ## cluster_mat ####
 cluster_mat = function(mat, distance = "euclidean", method = "complete"){
 if(!(method %in% c("ward.D", "ward.D2", "ward", "single", "complete", "average", "mcquitty", "median", "centroid"))){
@@ -321,10 +357,11 @@ else{
 }
 return(hclust(d, method = method))
 }
+
 ## my_SMILES2structure ####
 my_SMILES2structure =function(SMILES){
   SDF = smiles2sdf(SMILES)
-  ChemmineR::plotStruc(SDF[[1]], regenCoords=T)
+  ChemmineR::plotStruc(SDF[[1]])
 }
 # Main ####
 ## Read files ####
@@ -409,10 +446,16 @@ my_SMILES2structure =function(SMILES){
   
   plotsMS2Spectra_ls = list()
   for(i in 1:length(targetMS2Spectra_ls)){
-    plotsMS2Spectra_ls[[i]] = lapply(targetMS2Spectra_ls[[i]], plot_MS2_spec, 
-                                     show_mz_formula = "mz",
-                                     fn = fileNames, 
-                                     top_n_peaks = 10)
+    targetMS2Spectra = targetMS2Spectra_ls[[i]]
+    fig_ls = list()
+    for(j in 1:length(targetMS2Spectra)){
+      temp_spec = targetMS2Spectra[[j]]
+      fig_ls[[j]] = plot_MS2_spec(MS2Spectra = temp_spec, 
+                                  top_n_peaks = 10,
+                                  show_mz_formula = "formula")
+      
+    }
+    plotsMS2Spectra_ls[[i]] = fig_ls
   }
   names(plotsMS2Spectra_ls) = names(targetMS2Spectra_ls)
   # Print out plots
@@ -428,7 +471,6 @@ my_SMILES2structure =function(SMILES){
   spec_DP_matrix = matrix(1, nrow = length(spec_df_ls), ncol = length(spec_df_ls))
   for(i in 1:length(spec_df_ls)){
     for(j in 1:length(spec_df_ls)){
-
       spec_merge_df = mergeMzIntensity(spec_df_ls[[i]], spec_df_ls[[j]], ppmTol = 10E-6)
       spec_DP_matrix[i,j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
     }
@@ -486,8 +528,8 @@ my_SMILES2structure =function(SMILES){
 }
 
 
-# Search library for target spectra ####
 {
+  # load MS2 library #
   library_dir = "C:/Users/lc8/Documents/GitHub/myrepo/xcms_ms2/library/"
   library_files_path = list.files(path = library_dir, 
                                  pattern = "MS2.*rds", 
@@ -495,108 +537,49 @@ my_SMILES2structure =function(SMILES){
   library_files_path = paste0(library_dir, library_files_path)
   library_files = lapply(library_files_path, readRDS)
   
-  HMDB_pred_pos = readRDS(library_files_path[3])
-
-  # ms2_rel_inten_cutoff = 0.01
-  # x = MoNA_MS2_pos_spectra[[2]]
-  # test = lapply(MoNA_MS2_pos_spectra, function(x){
-  #   x = x[order(x[,2]),]
-  #   return(x)
-  # })
-  # MoNA_MS2_pos_spectra2 = lapply(MoNA_MS2_pos_spectra, function(x){
-  #   y = x[x[,2]>ms2_rel_inten_cutoff,]
-  #   if(!is.matrix(y)){
-  #     z = x[order(-x[,2]),]
-  #     if(!is.matrix(z)){return(x)}
-  #     return (z[1:min(nrow(z), 20),])
-  #   }
-  #   y = y[order(-y[,2]),]
-  #   return(y[1:min(nrow(y), 20),])
-  # })
-  
-  HMDB_pred_pos_spectra = lapply(HMDB_pred_pos, "[[", "spectrum")
-  
-  
+  # select target spectrum and library
+  temp_MS2_library = library_files[[5]]
+  temp_MS2_library_spectra = lapply(temp_MS2_library, "[[", "spectrum")
   testMs2Spectra = unlist(targetMS2Spectra_ls)
   testMs2Spectra = testMs2Spectra[[13]]
-  
-  
   spec_df_test = spec2mzIntensity(testMs2Spectra, top_n_peaks = 10)
   
-  test_score = rep(0,length(HMDB_pred_pos_spectra))
+  
+  MS2_similar_result = search_MS2_library(MS2_library_spectra = temp_MS2_library_spectra,
+                                      target_spectrum_df = spec_df_test,
+                                      top_n_spectra = 50)
+  MS2_similar_result["smiles"] = unlist(lapply(temp_MS2_library, "[[", "SMILES"))[MS2_similar_result$id]
+  MS2_similar_result = MS2_similar_result%>%
+    arrange(desc(score)) %>%
+    distinct(smiles, .keep_all=T)
+  
+  fig_ls = list()
+  for(i in 1:nrow(MS2_similar_result)){
+    temp_spec = temp_MS2_library[[MS2_similar_result$id[i]]]
+    ms2plot = plot_MS2_spec(temp_spec,
+                  show_mz_formula = "mz", 
+                  top_n_peaks = 10,
+                  ion_mode = 1)
+    p2 = ms2plot
+    my_SMILES2structure(temp_spec$SMILES)
+    p1 = recordPlot()
+    fig_ls[[i]] = plot_grid(p1, p2,rel_widths = c(1,1.5), rel_heights = c(.6, 1))
+  }
+  
+  ml <- marrangeGrob(fig_ls, nrow=4, ncol=1, 
+                     top = "test")
 
-  
-  error_message = c()
-  for(i in 1:length(HMDB_pred_pos_spectra)){
-    if(i%%1000 ==0){print(i); print(Sys.time())}
-    spec_merge_df = try(mergeMzIntensity(HMDB_pred_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6), silent = T)
-    if(inherits(spec_merge_df, "try-error")){
-      error_message=c(error_message,i)
-      spec_merge_df = mergeMzIntensity_backup(HMDB_pred_pos_spectra[[i]], spec_df_test, ppmTol = 10E-6)
-    }
-    test_score[i] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
-  }
-  
-  
-  fileNames = 1:30
-  
-  plot_MS2_spec(testMs2Spectra,
-                fn = fileNames,
-                show_mz_formula = "mz")
-  my_SMILES2structure(HMDB_pred_pos[[44503]]$SMILES)
-  
-  
-}
-
-temp_df = MoNA_MS2_pos[[20904]]$spectrum
-  colnames(temp_df) = c("mz", "intensity")
-  s = temp_df
-  
-s_centroid = my_centroid(s)
-my_centroid = function(s, topn = 20, ms_dif_ppm=10, ms2report_cutoff=0.001){
-  if(!is.data.frame(s)){
-    s = as.data.frame(s)
-  }
-  s = s[s$inten>ms2report_cutoff,]
-  
-  
-  ms_dif_ppm=ms_dif_ppm/10^6
-  mzs = s$mz
-  
-  count = 1
-  MS_group = rep(1,(length(mzs)))
-  
-  for(i in 2:length(mzs)){
-    if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol){
-      count = count+1
-    }
-    MS_group[i]=count
-  }
-  s["merge_group"]=MS_group
-  
-  
-  s["Centroid_intensity"] = NA
-  s["Centroid_mz"] = NA
-  
-  for(i in 1:max(s$merge_group)){
-    temp = s[s$merge_group==i,]
-    s$Centroid_intensity[s$merge_group==i] = max(temp$inten)
-    s$Centroid_mz[s$merge_group==i] = round(sum((temp$mz*temp$inten)/sum(temp$inten)), digits = 5)
-  }
-  
-  s2 = s[s$Centroid_intensity> ms2report_cutoff * max(s$Centroid_intensity), c("Centroid_mz", "Centroid_intensity")]
-  s2 = s2[!duplicated(s2),]
-  s2 = s2[with(s2, order(-Centroid_intensity)),]
-  s2 = s2[1:min(topn,nrow(s2)),]
-  colnames(s2) = c("mz", "inten")
-  return(s2)
+  pdf("testpdf.pdf",      
+      width = 6.5,
+      height = 10.5,
+      onefile = TRUE)
+  print(ml)
+  dev.off()
 }
 
 
 
-
-# 
-# spec1_df = MoNA_MS2_pos_spectra[[6]]
+# Benchmark
 # mbm = microbenchmark(
 #   "m1" = mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6),
 #   "m2" = mergeMzIntensity_deprec(spec1_df, spec2_df, ppmTol = 10E-6),
