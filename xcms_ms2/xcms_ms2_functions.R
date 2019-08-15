@@ -102,21 +102,27 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
 plot_MS2_spec = function(MS2Spectra,
                          show_mz_formula = "formula",
                          top_n_peaks = 10,
-                         ion_mode = 0)
+                         exp_inten_cutoff = 5000,
+                         ion_mode = 1)
 {
   # MS2Spectra = library_files[[2]][[4403]]
-  # MS2Spectra =expMS2Spectra[[1]]
+  MS2Spectra =expMS2Spectra[[1]]
   if(class(MS2Spectra) == "Spectrum2"){
     temp_spec = MS2Spectra
-    temp_mzs = round(mz(temp_spec),5)
+    temp_mzs = round(mz(temp_spec),4)
     temp_intens = intensity(temp_spec)
     
     temp_caption = try(paste(fns[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3)),T)
     if(inherits(temp_caption, "try-error")){temp_caption = paste(temp_spec@fromFile, "RT =", round(temp_spec@rt/60,3))}
     ion_mode = polarity(temp_spec)
+    df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
+    df = df %>%
+      arrange(-inten) %>%
+      top_n(top_n_peaks, inten) %>% 
+      filter(inten > exp_inten_cutoff)
   }
   if(class(MS2Spectra) == "list"){
-    temp_mzs = round(MS2Spectra$spectrum[,1],5)
+    temp_mzs = round(MS2Spectra$spectrum[,1],4)
     temp_intens = MS2Spectra$spectrum[,2]
     if(is.data.frame(MS2Spectra$external_id)){
       temp_id = paste0(MS2Spectra$external_id[1,], collapse = ":")
@@ -124,25 +130,31 @@ plot_MS2_spec = function(MS2Spectra,
       temp_id = MS2Spectra$external_id
     }
     temp_caption = paste(temp_id, MS2Spectra$formula)
+    df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
+    df = df %>%
+      arrange(-inten) %>%
+      top_n(top_n_peaks, inten)
   }
-  df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
-  df = df %>%
-    arrange(-inten) %>%
-    top_n(top_n_peaks, inten)
+
   
   if(show_mz_formula == "formula"){
+    
     df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
       ggtitle(temp_caption) + 
       # geom_text_repel(aes(label=mz),colour='red') +
-      geom_text_repel(aes(label=pred_formula),colour='blue') +
+      geom_text_repel(aes(label= pred_formula),
+                      colour='blue', 
+                      box.padding = 0.3, size = 3) +
       xlim(50, ceiling(max(df$mz)/50)*50)
   } else {
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
       ggtitle(temp_caption) + 
-      geom_text_repel(aes(label=mz),colour='red') +
+      geom_text_repel(aes(label=mz),
+                      colour='red',
+                      box.padding = 0.3, size = 3) +
       # geom_text_repel(aes(label=pred_formula),colour='blue') +
       xlim(50, ceiling(max(df$mz)/50)*50)
   }

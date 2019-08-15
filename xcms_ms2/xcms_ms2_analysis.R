@@ -4,11 +4,10 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("xcms_ms2_functions.R")
 
 
-
 # MS2 analysis ####
 {
   # load MS2 library #
-  library_dir = "C:/Users/lc8/Documents/GitHub/myrepo/xcms_ms2/library/"
+  library_dir = "C:/Users/lc8/Documents/myrepo/xcms_ms2/library/"
   library_files_name = list.files(path = library_dir, 
                                   pattern = "MS2.*rds", 
                                   recursive = T)
@@ -18,6 +17,7 @@ source("xcms_ms2_functions.R")
   library_files = library_files_all[grepl("pos", names(library_files_all))]
   
   # load experiment ms2 files
+  setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
   load("190731 Melanie young old mice MS2_EXPMS2.RData")
   
 }
@@ -34,6 +34,7 @@ source("xcms_ms2_functions.R")
       fig_ls[[j]] = plot_MS2_spec(MS2Spectra = temp_spec, 
                                   top_n_peaks = 10,
                                   show_mz_formula = show_mz_formula, 
+                                  exp_inten_cutoff = 5000,
                                   ion_mode = 1)
       
     }
