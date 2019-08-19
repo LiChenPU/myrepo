@@ -58,7 +58,7 @@ determine_is_metabolite = function(){
   
   formula_list["ILP_id"]=NA
   formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
-  
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   
   relation_list = edge_info_sum[edge_info_sum$ILP_result!=0,]
@@ -134,7 +134,7 @@ Mset[["Summary"]] = Summary_Mset(Mset)
 mdata = Mset$Summary
 mdata = data.frame(ID=mdata[,1],formula=NA, ILP_result=NA,mdata[2:ncol(mdata)])
 if(!is.null(g_vertex)){
-  ilp_formula = g_vertex[g_vertex$ILP_result !=0,c("ID","formula","ILP_result")]
+  ilp_formula = g_vertex[g_vertex$ILP_result !=0,c("ID","formula","ILP_result", "is_metabolite")]
   mdata = merge(ilp_formula, Mset$Summary, all.y = T)
 } 
 
