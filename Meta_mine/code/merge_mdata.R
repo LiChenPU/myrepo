@@ -78,7 +78,7 @@ DatasetDist = function(dt1, dt2,
   return(median(test, na.rm = T))
   
 }
-## Clean up preliminary merge of different mdata file #### s
+## Clean up preliminary merge of different mdata file #### 
 cleanUp = function(raw)
 {
   ##Group MS groups
@@ -153,11 +153,11 @@ cleanUp = function(raw)
 ## load files and set parameters ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  setwd("../library/pig_blood")
+  setwd("../library/pig_blood_pos")
   
   filenames = list.files(recursive = T, pattern = "mdata.csv")
   filenames = filenames[grepl("\\/", filenames)]
-  filenames = filenames[grepl("pos", filenames)]
+  
   
   #Consider two groups have the same m/z if difference is below threshold
   ms_dif_ppm= 5
@@ -191,7 +191,7 @@ cleanUp = function(raw)
 ## Cluster dataset to see if LC condition are similar ####
 {
   # dataset_dist_mtrx = matrix(0,
-  #                            nrow = length(filenames), 
+  #                            nrow = length(filenames),
   #                            ncol = length(filenames)
   # )
   # rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
@@ -206,9 +206,9 @@ cleanUp = function(raw)
   #   }
   # }
   # dataset_dist_mtrx_sym = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
-  # # pdf("dataset_dist_mtrx_rt_log10_all.pdf")
+  # pdf("median_RT_shift_between_dataset.pdf")
   # pheatmap::pheatmap(dataset_dist_mtrx_sym)
-  # # dev.off()
+  # dev.off()
 }
 
 ###### Don't need to change from here #####
@@ -261,15 +261,13 @@ cleanUp = function(raw)
   # cohortTable
   sample_names = colnames(intenTable)[-1]
   blank_names = sample_names[grepl("blank|blk", sample_names, ignore.case = T)]
+  
   test = str_split(sample_names, "_")
   n.obs <- sapply(test, length)
   seq.max <- seq_len(max(n.obs))
   mat <- t(sapply(test, "[", i = seq.max))
   
-  
-  cohortTable = as.data.frame(str_split(sample_names, "_"))
-  cohortTable = t(cohortTable)
-  cohortTable = as.data.frame(cohortTable, stringsAsFactors =F)
+  cohortTable = as.data.frame(mat, stringsAsFactors =F)
   rownames(cohortTable) = sample_names
   cohortTable[grepl("blank|blk", rownames(cohortTable), ignore.case = T),] = "blank"
 }

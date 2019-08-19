@@ -107,8 +107,19 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
 )
 {
   data_df = plot_data %>% gather(na.rm = T)
-  data_df["cohort1"] = cohortTable[data_df$key, cohort1]
-  data_df["cohort2"] = cohortTable[data_df$key, cohort2]
+  
+  if(length(cohort1)>1){
+    data_df["cohort1"] = apply(cohortTable[data_df$key, cohort1], 1, paste, collapse = ".")
+  } else {
+    data_df["cohort1"] = cohortTable[data_df$key, cohort1]
+  }
+  
+  if(length(cohort2)>1){
+    data_df["cohort2"] = apply(cohortTable[data_df$key, cohort2], 1, paste, collapse = ".")
+  } else {
+    data_df["cohort2"] = cohortTable[data_df$key, cohort2]
+  }
+  
   # data_df = data_df %>% filter(cohort1!="blank")
   cohort1Level = unique(data_df$cohort1)
   cohort2Level = unique(data_df$cohort2)
@@ -329,7 +340,7 @@ my_plot_heatmap = function(raw_data,
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   source("../metabo_library_functions.R")
-  setwd("../library/10tissues_pos_mode")
+  setwd("../library/pig_blood_pos")
   load("merge_mdata.RData")
   
   summaryTable_ls = split(summaryTable, summaryTable$MZRT_group)
@@ -344,20 +355,24 @@ my_plot_heatmap = function(raw_data,
   sample_names = colnames(intenTable)[-1]
   blank_names = sample_names[grepl("blank|blk", sample_names, ignore.case = T)]
   
-  cohortTable = as.data.frame(str_split(sample_names, "_"))
-  cohortTable = t(cohortTable)
-  cohortTable = as.data.frame(cohortTable, stringsAsFactors =F)
+  test = str_split(sample_names, "_")
+  n.obs <- sapply(test, length)
+  seq.max <- seq_len(max(n.obs))
+  mat <- t(sapply(test, "[", i = seq.max))
+  
+  cohortTable = as.data.frame(mat, stringsAsFactors =F)
   rownames(cohortTable) = sample_names
   cohortTable[grepl("blank|blk", rownames(cohortTable), ignore.case = T),] = "blank"
 }
 
 ## Sample plot ####
 {
-  medMz = 129.07889
+  medMz = 545.9192
   medRt = 5.128
+  
+  
  
-  targetMZRTGroupID = data_statistics$MZRT_group[abs(data_statistics$medMz - medMz) <0.001 &
-                                                  abs(data_statistics$medRt - medRt) < 0.1]
+  targetMZRTGroupID = unique(filter_data(summaryTable, medMz = medMz, formula="")$MZRT_group)
   
   plot_data = intenTable[intenTable$MZRT_group==targetMZRTGroupID,-1]
   metaData_select = data_statistics[data_statistics$MZRT_group==targetMZRTGroupID,]
@@ -369,8 +384,8 @@ my_plot_heatmap = function(raw_data,
   sample_scatter_plot = scatter_plot(plot_data = plot_data,
                cohortTable = cohortTable,
                cohort1 = 1, #first column in cohortTable, each one is a dot in scatter
-               cohort2 = 2, #second column in cohortTable, used in x or y axis
-               xaxis = "WT", yaxis = "KO", #select which factor as x or y axis
+               cohort2 = 4, #second column in cohortTable, used in x or y axis
+               xaxis = "draw1", yaxis = "draw2", #select which factor as x or y axis
                fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_")
   )
   
@@ -378,7 +393,7 @@ my_plot_heatmap = function(raw_data,
   sample_bar_plot = bar_plot(plot_data = plot_data, #expect 1 row of intensity and each column is a sample
            cohortTable = cohortTable, #expect dataframe of cohort, each column is a cohort, at least 2 column
            cohort1 = 1, #first column in cohortTable, each factor is a group of bars
-           cohort2 = 2, #second column in cohortTable, each factor is a bar in group
+           cohort2 = c(3,4), #second column in cohortTable, each factor is a bar in group
            xaxis = "Tissues", yaxis = "TIC", #Set xaxis and yaxis label
            log_scale = F,
            fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_")
@@ -420,17 +435,26 @@ my_plot_heatmap = function(raw_data,
     temp_mz = round(metaData_select$medMz[i],4)
     temp_rt = metaData_select$medRt[i]
     potential_formula = paste(unique(as.character(metaData_select[i,grepl("formula", colnames(metaData_select))])), collapse = "/")
-    figure_list[[i]] = scatter_plot(plot_data = plot_data,
-                                    cohortTable = cohortTable,
-                                    cohort1 = 1, #first column in cohortTable, each one is a dot in scatter
-                                    cohort2 = 2, #second column in cohortTable, used in x or y axis
-                                    xaxis = "WT", yaxis = "KO", #select which factor as x or y axis
-                                    fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_")
+    # figure_list[[i]] = scatter_plot(plot_data = plot_data,
+    #                                 cohortTable = cohortTable,
+    #                                 cohort1 = 1, #first column in cohortTable, each one is a dot in scatter
+    #                                 cohort2 = 4, #second column in cohortTable, used in x or y axis
+    #                                 xaxis = "draw1", yaxis = "draw2", #select which factor as x or y axis
+    #                                 fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_"))
+    # 
+    ## Bar plot
+    figure_list[[i]] = bar_plot(plot_data = plot_data, #expect 1 row of intensity and each column is a sample
+                               cohortTable = cohortTable, #expect dataframe of cohort, each column is a cohort, at least 2 column
+                               cohort1 = c(3,4), #first column in cohortTable, each factor is a group of bars
+                               cohort2 = 1, #second column in cohortTable, each factor is a bar in group
+                               xaxis = "pig_draw", yaxis = "TIC", #Set xaxis and yaxis label
+                               log_scale = F,
+                               fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_")
     )
   }
   
   # print
-  ml = marrangeGrob(figure_list, nrow=3, ncol=2, 
+  ml = marrangeGrob(figure_list, nrow=4, ncol=1, 
                     top = paste("Top", topn_sum_logP, "significant peaks."))
   pdf(paste("topn_sum_logP.pdf"), onefile = TRUE, width=10, height = 15)
   print(ml)

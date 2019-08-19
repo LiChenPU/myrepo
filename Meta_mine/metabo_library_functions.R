@@ -84,7 +84,7 @@ filter_data = function(data,  medMz = 0,
                        medRt = 0,
                        delta_mz = 0.001,
                        delta_rt = 0.1,
-                       formula = "C5H9N1O4")
+                       formula = "")
 {
   data_select = data
   if(medMz != 0){
