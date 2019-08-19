@@ -150,7 +150,7 @@ data_normalize = function(pre_norm,
     col_median = col_median/mean(col_median)
     norm_factor = col_median
     post_norm = sweep(pre_norm, 2, norm_factor, "/")
-    return(pre_norm)
+    return(post_norm)
   } else {
     print("Warnings: no normalize")
     return(pre_norm)

@@ -6,7 +6,7 @@
 
 # Related functions
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-source('~/GitHub/myrepo/Meta_mine/metabo_library_functions.R')
+source('~/myrepo/Meta_mine/metabo_library_functions.R')
 
 
 # Read files
