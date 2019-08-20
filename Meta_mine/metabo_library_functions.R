@@ -19,21 +19,34 @@
 }
 
 # Function ####
+# Timestamp ####
+timestamp = function(){
+  printtime = Sys.time()
+  timestamp <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+  return(timestamp)
+}
+
 # plot_library_bar ####
 plot_library_bar = function(data_select){
   if(nrow(data_select) ==0){return(NULL)}
-  # data_select = data_select_ls[[3]]
-  data_plot = data_select[,-c(2,4,5,6,7,8,9,12,13)]
-  data_plot = data_plot[,-which(grepl("_inten",colnames(data_plot)))]
-  data_gather = gather(data_plot, key = names, value = number, -formula, -label, -medMz, -medRt)
-  data_gather["cohort"] = stri_replace_last_regex(data_gather$names,'\\d+|_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
-  data_gather = data_gather[complete.cases(data_gather),]
+  # data_select = data_select_ls[[9]]
   
-  unique_cohort = unique(data_gather$cohort)
+  delColNames = c("ID","ILP_result","is_metabolite","log10_FDR","library_match_formula",
+                  "library_match_name","high_blank","goodPeakCount","maxQuality","parent",
+                  "mean_inten","log10_inten")
+  
+  data_plot = data_select %>%
+    select(-delColNames) %>%
+    gather(key = names, value = number, -formula, -label, -medMz, -medRt) %>%
+    mutate(cohort = stri_replace_last_regex(names,'\\d+|_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))) %>%
+    filter(complete.cases(.))
+  
+  
+  unique_cohort = unique(data_plot$cohort)
   data_ls = list(length = length(unique_cohort))
   select_col = c("label","formula","medMz","medRt","cohort","TIC","sd")
   for(i in 1:length(unique_cohort)){
-    temp = data_gather[data_gather$cohort==unique_cohort[i],]
+    temp = data_plot[data_plot$cohort==unique_cohort[i],]
     temp_spread = spread(temp, key = names, value = number)
     if(ncol(temp_spread) == 6){
       temp_spread["TIC"] = temp_spread[,6]
@@ -68,6 +81,7 @@ plot_library_bar = function(data_select){
   figure <- ggplot(data_bind, aes(x = cohort, y = TIC, fill = cohort))+
     geom_bar(position=position_dodge(),stat='identity', color = "black") +
     geom_errorbar(aes(ymin=TIC-sd, ymax=TIC+sd),width = 0.5, position=position_dodge(.9)) +
+    ggtitle(data_select$label) +
     theme(legend.title=element_blank()) +
     facet_wrap(~title, scales = "free_y")+
     # scale_y_continuous(limits = c(-0.2,1.2),breaks = c(0,0.5,1)) +
@@ -442,30 +456,33 @@ cluster_mat = function(mat, distance, method){
   }
   return(hclust(d, method = method))
 }
-# Cluster dataset to see if LC condition are similar ####
-DatasetDist = function(dt1, dt2)
+## Cluster dataset to see if LC condition are similar ####
+DatasetDist = function(dt1, dt2, 
+                       log10_inten_cutoff = 4,  # only compare peaks with intensity above the threshold
+                       merge_group_ppm_tol = 3 # mz within ppm_tol will merge into one mz group
+)
 {
-  # dt1 = raw_ls[[2]] # liver in QE+
-  # dt2 = raw_ls[[11]] # liver QE2
+  # dt1 = raw_ls[[1]] # liver in QE+
+  # dt2 = raw_ls[[2]] # liver QE2
   # dt3 = raw_ls[[12]] # quad QE2
   
   if(identical(dt1, dt2)){return(0)}
   
   
   dt1_clean = dt1 %>%
-    select(label, ID, medMz, medRt, log10_inten) %>%
+    dplyr::select(ID, medMz, medRt, log10_inten) %>%
     filter(!duplicated(ID)) %>%
-    filter(log10_inten > 5.5) %>%
+    filter(log10_inten > log10_inten_cutoff) %>%
     arrange(medMz)
   
   
   dt2_clean = dt2 %>%
-    select(label, ID, medMz, medRt, log10_inten) %>%
+    dplyr::select(ID, medMz, medRt, log10_inten) %>%
     filter(!duplicated(ID)) %>%
-    filter(log10_inten > 5.5) %>%
+    filter(log10_inten > log10_inten_cutoff) %>%
     arrange(medMz)
   
-  tol_ppm = 3
+  
   dt1_clean_medMz = dt1_clean$medMz
   nrow_dt1_clean = nrow(dt1_clean)
   
@@ -477,19 +494,17 @@ DatasetDist = function(dt1, dt2)
     temp_mz = dt1_clean_medMz[i]
     i_max = i
     while(i_max < nrow_dt1_clean){
-      if(dt1_clean_medMz[i_max+1] - dt1_clean_medMz[i_max] <= dt1_clean_medMz[i_max] * tol_ppm/1E6){
+      if(dt1_clean_medMz[i_max+1] - dt1_clean_medMz[i_max] <= dt1_clean_medMz[i_max] * merge_group_ppm_tol/1E6){
         i_max = i_max+1
       } else {
         break
       }
     }
     temp_dt1 = dt1_clean[i:i_max,]
-    temp_df2_filter = dt2_clean$medMz>dt1_clean_medMz[i]*(1-tol_ppm/1E6) & dt2_clean$medMz<dt1_clean_medMz[i_max]*(1+tol_ppm/1E6)
+    temp_df2_filter = dt2_clean$medMz>dt1_clean_medMz[i]*(1-merge_group_ppm_tol/1E6) & 
+      dt2_clean$medMz<dt1_clean_medMz[i_max]*(1+merge_group_ppm_tol/1E6)
     temp_dt2 = dt2_clean[temp_df2_filter,]
-    
-    
     dt1_clean_ls[[count]] = list(dt1 = temp_dt1, dt2 = temp_dt2)
-    
     i = i_max+1
     count = count+1
   }

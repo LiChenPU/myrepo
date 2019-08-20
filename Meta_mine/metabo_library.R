@@ -15,7 +15,8 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   setwd("./library")
   filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
-  filenames = filenames[grepl("neg", filenames)]
+  filenames = filenames[!grepl("merge_mdata.csv", filenames)]
+  filenames = filenames[grepl("pos", filenames)]
   # filenames = filenames[!grepl("yeast", filenames)]
   filenames = filenames[grepl("pig", filenames)]
   
@@ -33,41 +34,55 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
   rm(df_temp)
 }
 
-# Cluster dataset to see if LC condition are similar
+## Cluster dataset to see if LC condition are similar ####
 {
-  dataset_dist_mtrx = matrix(0,
-                             nrow = length(filenames), 
-                             ncol = length(filenames)
-  )
-  rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
-  
-  for(i in 1:length(filenames)){
-    for(j in 1:length(filenames)){
-      print(Sys.time())
-      dataset_dist_mtrx[i,j] = DatasetDist(raw_ls[[i]], raw_ls[[j]])
-      
-    }
-  }
-  
-  
-  dataset_dist_mtrx_sym = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
-  # pdf("dataset_dist_mtrx_rt_log10_all.pdf")
-  pheatmap(dataset_dist_mtrx_sym, clustering_method = "average")
+  # dataset_dist_mtrx = matrix(0,
+  #                            nrow = length(filenames),
+  #                            ncol = length(filenames)
+  # )
+  # rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
+  # 
+  # for(i in 1:length(filenames)){
+  #   print(Sys.time())
+  #   for(j in 1:length(filenames)){
+  #     dataset_dist_mtrx[i,j] = DatasetDist(raw_ls[[i]], raw_ls[[j]],
+  #                                          log10_inten_cutoff = 5,  # only compare peaks with intensity above the threshold
+  #                                          merge_group_ppm_tol = 3 # mz within ppm_tol will merge into one mz group
+  #     )
+  #   }
+  # }
+  # dataset_dist_mtrx_sym = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
+  # pdf("median_RT_shift_between_dataset.pdf")
+  # pheatmap::pheatmap(dataset_dist_mtrx_sym)
   # dev.off()
 }
 
 
 
-
 # Search peak of interest based on medMz, medRt or formula
 {
-  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H7N1O1")
+  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
   # lapply(data_select_ls, View)
   lapply(data_select_ls, row.names)
   fig_ls = lapply(data_select_ls, plot_library_bar)
-  printtime = Sys.time()
-  timestamp <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
-  pdf(paste("C3H7N1O1","_",timestamp, ".pdf",sep=""),onefile = TRUE, w = 20, h = 10)
+  pdf(paste("C3H7N1O1","_",timestamp(), ".pdf",sep=""),onefile = TRUE, w = 20, h = 10)
+  print(fig_ls)
+  dev.off()
+}
+
+
+# Search peak of interest based on peak list
+{
+  
+  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
+  # lapply(data_select_ls, View)
+  
+  fig_ls = lapply(data_select_ls, plot_library_bar)
+  
+  setwd("C:/study/data/exactive/190731 Melanie young old mice MS2")
+  peak_list = 
+  potential_formula
+  pdf(paste("C3H9N1O1","_",timestamp(), ".pdf",sep=""),onefile = TRUE, w = 20, h = 10)
   print(fig_ls)
   dev.off()
 }
