@@ -288,13 +288,14 @@ correlated_peaks = function(mdata = raw_ls[[1]],
   ))
 }
 ## my_plot_heatmap ####
-my_plot_heatmap = function(mdata_clean,
+## my_plot_heatmap ####
+my_plot_heatmap = function(raw_data,
                            cohort,
                            imgName = "Test", 
-                           format = "png", # pdf
+                           format = "pdf", # pdf, png, or jpeg
                            dpi = 72,
                            width = NA, # define output graph width
-                           palette = "RdBu",  # RdBu, gbr, heat, topo, rainbow
+                           palette = "RdBu",  # RdBu, gbr, heat, topo
                            viewOpt = "overview", # Detail
                            rowV = T, colV = T, # cluster by row/column
                            border = T, # border for each pixel
@@ -302,14 +303,27 @@ my_plot_heatmap = function(mdata_clean,
                            scale_ub = 3, scale_lb = -3 # heatmap scale
 )
 {
-  raw_data = t(mdata_clean)
   
+  # imgName = "Test" 
+  # format = "png" # pdf
+  # dpi = 72
+  # width = NA # define output graph width
+  # palette = "RdBu"  # RdBu gbr heat topo
+  # viewOpt = "overview" # Detail
+  # rowV = T 
+  # colV = T # cluster by row/column
+  # border = T # border for each pixel
+  # grp.ave = F # group average
+  # scale_ub = 3 
+  # scale_lb = -3 # heatmap scale
+  # 
   
   printtime = Sys.time()
   matches <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
   imgName = paste(imgName, "_","dpi", dpi,"_", matches, ".", format, sep = "")
   hc.dat <- as.matrix(raw_data)
   colnames(hc.dat) <- substr(colnames(hc.dat), 1, 32)
+  if(!is.factor(cohort)){cohort = as.factor(cohort)}
   hc.cls <- cohort
   
   if (grp.ave) {
@@ -317,7 +331,7 @@ my_plot_heatmap = function(mdata_clean,
     my.mns <- matrix(ncol = ncol(hc.dat), nrow = length(lvs))
     for (i in 1:length(lvs)) {
       inx <- hc.cls == lvs[i]
-      my.mns[i, ] <- apply(hc.dat[inx, ], 2, mean)
+      my.mns[i, ] <- apply(hc.dat[,inx], 1, mean)
     }
     rownames(my.mns) <- lvs
     colnames(my.mns) <- colnames(hc.dat)
@@ -327,8 +341,6 @@ my_plot_heatmap = function(mdata_clean,
   if (palette == "gbr") {
     colors <- colorRampPalette(c("green", "black", "red"),
                                space = "rgb")(256)
-  } else if (palette == "rainbow") {
-    colors <- rainbow(256)
   } else if (palette == "heat") {
     colors <- heat.colors(256)
   } else if (palette == "topo") {
@@ -342,7 +354,7 @@ my_plot_heatmap = function(mdata_clean,
   
   if (is.na(width)) {
     minW <- 630
-    myW <- nrow(hc.dat) * 18 + 150
+    myW <- ncol(hc.dat) * 18 + 150
     if (myW < minW) {
       myW <- minW
     }
@@ -353,7 +365,7 @@ my_plot_heatmap = function(mdata_clean,
     w <- 7.2
   }
   
-  myH <- ncol(hc.dat) * 18 + 150
+  myH <- nrow(hc.dat) * 18 + 150
   h <- round(myH/72, 2)
   if (viewOpt == "overview") {
     if (is.na(width)) {
@@ -374,7 +386,7 @@ my_plot_heatmap = function(mdata_clean,
     }
   }
   if (grp.ave) {
-    w <- nrow(hc.dat) * 25 + 300
+    w <- ncol(hc.dat) * 25 + 300
     w <- round(w/72, 2)
   }
   if (border) {
@@ -396,7 +408,7 @@ my_plot_heatmap = function(mdata_clean,
   }
   
   annotation <- data.frame(class = hc.cls)
-  rownames(annotation) <- rownames(hc.dat)
+  rownames(annotation) <- colnames(hc.dat)
   
   if(length(unique(cohort)) < 9){
     pal9 = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
@@ -416,10 +428,10 @@ my_plot_heatmap = function(mdata_clean,
   names(uniq.cols) <- unique(as.character(sort(cls)))
   ann_colors <- list(class = uniq.cols)
   
-  
-  breaksList = seq(scale_lb, scale_ub, by =(scale_ub-scale_lb)/length(colors))
   if(scale_ub ==  scale_lb){breaksList = NA}
-  pheatmap::pheatmap(t(hc.dat), annotation = annotation, 
+  breaksList = seq(scale_lb, scale_ub, by =(scale_ub-scale_lb)/length(colors))
+  pheatmap::pheatmap(hc.dat, 
+                     annotation = annotation, 
                      fontsize = 8, 
                      fontsize_row = 8, 
                      # clustering_distance_rows = smplDist, 
