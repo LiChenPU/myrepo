@@ -32,6 +32,8 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
     raw_ls[[i]]= df_temp
   }
   rm(df_temp)
+  
+
 }
 
 ## Cluster dataset to see if LC condition are similar ####
@@ -73,20 +75,26 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 
 # Search peak of interest based on peak list
 {
-  
-  data_select_ls = lapply(raw_ls, filter_data, medMz = 0, formula = "C3H9N1O1")
-  # lapply(data_select_ls, View)
-  
-  fig_ls = lapply(data_select_ls, plot_library_bar)
-  
   setwd("C:/study/data/exactive/190731 Melanie young old mice MS2")
-  peak_list = 
-  potential_formula
-  pdf(paste("C3H9N1O1","_",timestamp(), ".pdf",sep=""),onefile = TRUE, w = 20, h = 10)
-  print(fig_ls)
-  dev.off()
+  peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
+  dir.create("library_plots", showWarnings=F)
+  setwd("./library_plots")
+  ion_mode = 1
+  
+  for(i in 1: nrow(peak_list)){
+    medMz = peak_list$medMz[i] - 1.007276 * ion_mode
+    potential_formula = peak_list$formula[i]
+    data_select_ls = lapply(raw_ls, filter_data, medMz = medMz, formula = "")
+    if(max(sapply(data_select_ls,nrow))==0){next}
+    test = lapply(data_select_ls, colnames)
+    fig_ls = lapply(data_select_ls, plot_library_bar)
+    
+    pdf(paste(potential_formula,"_",timestamp(), ".pdf",sep=""),onefile = TRUE, w = 21, h = 14)
+    print(fig_ls)
+    dev.off()
+  }
+  setwd("..")
 }
-
 
 # find correlation peaks
 {
@@ -105,7 +113,6 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
   print(tissues$top$figure)
   dev.off()
 }
-
 
 # Plot heatmap
 {
@@ -189,7 +196,6 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
   # names(uniq.cols) <- unique(as.character((cls)))
   names(uniq.cols) <- unique(as.character(sort(cls)))
   ann_colors <- list(class = uniq.cols)
-  
   
   ## Perform the cluster analysis
   pheatmap(cormat, annotation = annotation,

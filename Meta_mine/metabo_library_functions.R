@@ -29,17 +29,18 @@ timestamp = function(){
 # plot_library_bar ####
 plot_library_bar = function(data_select){
   if(nrow(data_select) ==0){return(NULL)}
-  # data_select = data_select_ls[[9]]
+  # data_select = data_select_ls[[4]]
   
-  delColNames = c("ID","ILP_result","is_metabolite","log10_FDR","library_match_formula",
+  delColNames = c("ID","ILP_result","is_metabolite","_log10_FDR","library_match_formula",
                   "library_match_name","high_blank","goodPeakCount","maxQuality","parent",
                   "mean_inten","log10_inten")
   
+  # if any colnames not found, use dplyr::select(-one_of(delColNames))
   data_plot = data_select %>%
-    select(-delColNames) %>%
+    dplyr::select(-delColNames) %>%
     gather(key = names, value = number, -formula, -label, -medMz, -medRt) %>%
     mutate(cohort = stri_replace_last_regex(names,'\\d+|_\\d+|-\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))) %>%
-    filter(complete.cases(.))
+    filter(complete.cases(number))
   
   
   unique_cohort = unique(data_plot$cohort)
@@ -81,7 +82,7 @@ plot_library_bar = function(data_select){
   figure <- ggplot(data_bind, aes(x = cohort, y = TIC, fill = cohort))+
     geom_bar(position=position_dodge(),stat='identity', color = "black") +
     geom_errorbar(aes(ymin=TIC-sd, ymax=TIC+sd),width = 0.5, position=position_dodge(.9)) +
-    ggtitle(data_select$label) +
+    ggtitle(data_select$label[1])+
     theme(legend.title=element_blank()) +
     facet_wrap(~title, scales = "free_y")+
     # scale_y_continuous(limits = c(-0.2,1.2),breaks = c(0,0.5,1)) +
@@ -287,7 +288,7 @@ correlated_peaks = function(mdata = raw_ls[[1]],
                             figure = figure_bottom)
   ))
 }
-## my_plot_heatmap ####
+
 ## my_plot_heatmap ####
 my_plot_heatmap = function(raw_data,
                            cohort,
@@ -296,7 +297,7 @@ my_plot_heatmap = function(raw_data,
                            dpi = 72,
                            width = NA, # define output graph width
                            palette = "RdBu",  # RdBu, gbr, heat, topo
-                           viewOpt = "overview", # Detail
+                           viewOpt = "overview", # detail, overview
                            rowV = T, colV = T, # cluster by row/column
                            border = T, # border for each pixel
                            grp.ave = F, # group average
@@ -318,9 +319,17 @@ my_plot_heatmap = function(raw_data,
   # scale_lb = -3 # heatmap scale
   # 
   
-  printtime = Sys.time()
-  matches <- paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
-  imgName = paste(imgName, "_","dpi", dpi,"_", matches, ".", format, sep = "")
+ 
+  imgName = paste0(imgName, "_dpi", dpi)
+  if(file.exists(paste0(imgName, ".", format))){
+    imgName = paste0(imgName, timestamp(), ".", format)
+  }else{
+    imgName = paste0(imgName, ".", format)
+  }
+     
+     
+     
+     
   hc.dat <- as.matrix(raw_data)
   colnames(hc.dat) <- substr(colnames(hc.dat), 1, 32)
   if(!is.factor(cohort)){cohort = as.factor(cohort)}

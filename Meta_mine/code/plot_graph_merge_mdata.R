@@ -182,7 +182,7 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   source("../metabo_library_functions.R")
-  setwd("../library/pig_blood_pos")
+  setwd("../library/mice_NDUFS4_neg")
   load("merge_mdata.RData")
   
   summaryTable_ls = split(summaryTable, summaryTable$MZRT_group)
@@ -191,6 +191,7 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
   data_all = intenTable
   
   # Statistics dataframe
+  merge_mdata = merge_mdata %>% arrange(MZRT_group)
   data_statistics = merge_mdata[,1:which(colnames(merge_mdata)=="Sum_logP")]
   
   # cohortTable
@@ -209,14 +210,14 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
 
 ## Sample plot ####
 {
-  medMz = 545.9192
+  medMz = 88.0159
   medRt = 5.128
   
   
  
-  targetMZRTGroupID = unique(filter_data(summaryTable, medMz = medMz, formula="")$MZRT_group)
+  targetMZRTGroupID = unique(filter_data(summaryTable, medMz = medMz, formula="")$MZRT_group)[1]
   
-  plot_data = intenTable[intenTable$MZRT_group==targetMZRTGroupID,-1]
+  plot_data = intenTable[intenTable$MZRT_group == targetMZRTGroupID,-1]
   metaData_select = data_statistics[data_statistics$MZRT_group==targetMZRTGroupID,]
   
   ## Scatter plot
@@ -257,10 +258,10 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
 }
 
 
-## top10 sum logP ####
+## top12 sum logP ####
 {
   # select
-  topn_sum_logP = 10
+  topn_sum_logP = 100
   sum_logP = sapply(summaryTable_ls, function(x){
     x = x[!duplicated(x$ID),]
     sum(x$`_log10_FDR`, na.rm = T)
@@ -277,26 +278,25 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
     temp_mz = round(metaData_select$medMz[i],4)
     temp_rt = metaData_select$medRt[i]
     potential_formula = paste(unique(as.character(metaData_select[i,grepl("formula", colnames(metaData_select))])), collapse = "/")
-    # figure_list[[i]] = scatter_plot(plot_data = plot_data,
-    #                                 cohortTable = cohortTable,
-    #                                 cohort1 = 1, #first column in cohortTable, each one is a dot in scatter
-    #                                 cohort2 = 4, #second column in cohortTable, used in x or y axis
-    #                                 xaxis = "draw1", yaxis = "draw2", #select which factor as x or y axis
-    #                                 fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_"))
-    # 
+    figure_list[[i]] = scatter_plot(plot_data = plot_data,
+                                    cohortTable = cohortTable,
+                                    cohort1 = 1, #first column in cohortTable, each one is a dot in scatter
+                                    cohort2 = 2, #second column in cohortTable, used in x or y axis
+                                    xaxis = "WT", yaxis = "KO", #select which factor as x or y axis
+                                    fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_"))
+
     ## Bar plot
-    figure_list[[i]] = bar_plot(plot_data = plot_data, #expect 1 row of intensity and each column is a sample
-                               cohortTable = cohortTable, #expect dataframe of cohort, each column is a cohort, at least 2 column
-                               cohort1 = c(3,4), #first column in cohortTable, each factor is a group of bars
-                               cohort2 = 1, #second column in cohortTable, each factor is a bar in group
-                               xaxis = "pig_draw", yaxis = "TIC", #Set xaxis and yaxis label
-                               log_scale = F,
-                               fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_")
-    )
+    # figure_list[[i]] = bar_plot(plot_data = plot_data, #expect 1 row of intensity and each column is a sample
+    #                            cohortTable = cohortTable, #expect dataframe of cohort, each column is a cohort, at least 2 column
+    #                            cohort1 = 1, #first column in cohortTable, each factor is a group of bars
+    #                            cohort2 = 2, #second column in cohortTable, each factor is a bar in group
+    #                            xaxis = "Tissues", yaxis = "TIC", #Set xaxis and yaxis label
+    #                            log_scale = F,
+    #                            fig_title = paste(temp_mz, temp_rt, potential_formula, sep="_"))
   }
   
   # print
-  ml = marrangeGrob(figure_list, nrow=4, ncol=1, 
+  ml = marrangeGrob(figure_list, nrow=3, ncol=2, 
                     top = paste("Top", topn_sum_logP, "significant peaks."))
   pdf(paste("topn_sum_logP.pdf"), onefile = TRUE, width=10, height = 15)
   print(ml)
@@ -348,7 +348,7 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
 ## top n signif in each tissue ####
 {
   # select
-  tissue_topn = 10
+  tissue_topn = 50
   stat_signif_num = list()
   i=1
   for(i in 1:length(unique(summaryTable$filename))){
@@ -359,7 +359,7 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
       top_n(tissue_topn,`_log10_FDR`)
     stat_signif_num[[i]] = id_tissue_topn$MZRT_group
   }
-  
+  names(stat_signif_num) = unique(summaryTable$filename)
   
   # plot
   ml_list = list()
@@ -386,32 +386,47 @@ bar_plot = function(plot_data, #expect 1 row of intensity and each column is a s
   }
   
   # print
- 
-  pdf(paste("top_n_in_tissue"), onefile = TRUE, width=10, height = 15)
+  pdf("top_n_in_tissue.pdf", onefile = TRUE, width=10, height = 15)
   print(ml_list)
   dev.off()
 }
 
 ## heatmap ####
 {
-  
+  # Select rows
+  id_select = stat_signif_num$Brain
+  raw_data = intenTable[id_select,-1]
+  # Select columns
   cohort = paste(cohortTable$V1, cohortTable$V2, sep="_")
-  raw_data = intenTable[1:200,-1]
+  cohort = cohort[grepl("Brain",cohort)]
+  raw_data = raw_data[,grepl("Brain",colnames(raw_data))]
+  # format graph titles
+  temp_mz = round(data_statistics$medMz[id_select],4)
+  temp_rt = data_statistics$medRt[id_select]
+  temp_formulaTable = data_statistics[id_select,grepl("formula", colnames(metaData_select))]
+  potential_formula = apply(temp_formulaTable, 1, function(x){
+    paste(unique(as.character(x)), collapse = "/")
+  })
+  row.names(raw_data) = substr(paste(temp_mz, temp_rt, potential_formula, sep="_"),1,32)
+  # normalization
   raw_data_normalize = raw_data %>%
     data_impute(impute_method = "threshold", random = F) %>%
     data_normalize(nor_method = "row_mean") %>%
-    data_transform(transform_method = "log10") %>%
+    data_transform(transform_method = "log2") %>%
     data_scale(scale_method = "")
   
+  
+  row_cluster = cluster_mat(raw_data_normalize, method = "average", distance = "correlation")
+  col_cluster = cluster_mat(t(raw_data_normalize), method = "average", distance = "correlation")
   my_plot_heatmap(raw_data_normalize, 
                   cohort,
-                  format = "pdf")
+                  imgName = "brain_heatmap", 
+                  format = "pdf",
+                  rowV = row_cluster, # cluster by row, "F" if not clutser
+                  colV = col_cluster, # cluster by column, "F" if not clutser
+                  viewOpt = "overview",
+                  scale_lb = -2, scale_ub = 2)
   
-  # sum_logP_plot_data = intenTable[id_sum_logP,]
-  # plot_data_note = 
-  # 
-  # signif_n_plot_data = intenTable[id_signif_n, -1]
-  # signif_n_plot_data["Note"] = paste0("signif_n=",stat_signif_num[id_signif_n])
 }
 
 
@@ -426,6 +441,87 @@ mSet<-Volcano.Anal(mSet, paired = F, fcthresh = 2.0, cmpType = 1, percent.thresh
                    nonpar = F, threshp = 0.1, equal.var	= TRUE, pval.type = "raw")
 mSet<-PlotVolcano(mSet, "volcano_0_",1, "png", 72, width=NA)
 test = mSet$analSet$volcano$p.log
+
+
+raw_data = intenTable[,-1]
+cohort = paste(cohortTable$V1, cohortTable$V2, sep="_")
+cohort = cohort[grepl("Brain",cohort)]
+raw_data = raw_data[,grepl("Brain",colnames(raw_data))]
+vcn_data = raw_data %>%
+  data_impute(impute_method = "threshold", random = F) 
+
+cohort1 = unique(cohort)[3]
+cohort2 = unique(cohort)[2]
+
+
+
+
+
+width = NA
+if (is.na(width)) {
+  w <- 10
+} else if (width == 0) {
+  w <- 8
+} else {
+  w <- width
+}
+h <- w * 6/10
+imgName = "volcano_0_"
+format = "png"
+dpi = 72
+Cairo::Cairo(file = imgName, unit = "in", dpi = dpi, width = w, 
+             height = h, type = format, bg = "white")
+par(mar = c(5, 5, 3, 4))
+MyGray <- rgb(t(col2rgb("black")), alpha = 40, maxColorValue = 255)
+MyHighlight <- rgb(t(col2rgb("magenta")), alpha = 80, maxColorValue = 255)
+
+threshp = 0.1
+p.value = 10^-data_statistics$Brain_log10
+inx.p <- p.value <= threshp
+p.log <- -log10(p.value)
+
+fcthresh = 2.0 
+fcthresh = ifelse(fcthresh > 1, fcthresh, 1/fcthresh)
+max.xthresh <- log(fcthresh, 2)
+min.xthresh <- log(1/fcthresh, 2)
+
+fc.all = rowMeans(vcn_data[,cohort == cohort2])/rowMeans(vcn_data[,cohort == cohort1])
+fc.log = log2(fc.all)
+inx.up <- fc.log > max.xthresh
+inx.down <- fc.log < min.xthresh
+
+imp.inx <- (inx.up | inx.down) & inx.p
+
+formula = data_statistics$Brain_formula
+vcn_plot = data.frame(p.log = p.log,
+                      fc.log = fc.log,
+                      imp.inx = imp.inx,
+                      formula = formula,
+                      stringsAsFactors = F
+                      ) %>%
+  filter(!is.na(p.log)) %>%
+  mutate(formula = replace_na(formula,"NA"))
+
+
+ggplot(vcn_plot, aes(y = p.log, x = fc.log)) + #volcanoplot with log2Foldchange versus pvalue
+  geom_point(aes(col=imp.inx)) + 
+  scale_color_manual(values=c("black", "red")) + 
+  geom_vline(xintercept = c(max.xthresh,min.xthresh)) +
+  geom_hline(yintercept = -log10(threshp)) +
+  ggtitle("Volcano!") +
+  geom_text_repel(data=vcn_plot[vcn_plot$imp.inx,], aes(label=formula), ylim=c(-log10(threshp),NA), nudge_y = .2)
+
+plot(fc.log, p.log, pch = 20, 
+     cex = ifelse(imp.inx, 1.2, 0.7), 
+     col = ifelse(imp.inx, MyHighlight, MyGray), 
+     xlab = "log2 (FC)", ylab = "-log10(p)")
+abline(v = max.xthresh, lty = 3)
+abline(v = min.xthresh, lty = 3)
+abline(h = -log10(threshp), lty = 3)
+axis(4)
+
+
+
 
 function (mSetObj = NA, paired = FALSE, fcthresh, cmpType, percent.thresh, 
           nonpar = F, threshp, equal.var = TRUE, pval.type = "raw") 

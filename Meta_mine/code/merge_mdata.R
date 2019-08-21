@@ -153,7 +153,7 @@ cleanUp = function(raw)
 ## load files and set parameters ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  setwd("../library/pig_blood_pos")
+  setwd("../library/mice_NDUFS4_neg")
   
   filenames = list.files(recursive = T, pattern = "mdata.csv")
   filenames = filenames[grepl("\\/", filenames)]
