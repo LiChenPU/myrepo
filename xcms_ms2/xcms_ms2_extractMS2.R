@@ -5,7 +5,7 @@ source("xcms_ms2_functions.R")
 
 ## Read files ####
 {
-  setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
+  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/neg_scan")
   
   list.files()
   peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)

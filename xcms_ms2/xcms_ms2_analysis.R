@@ -14,11 +14,13 @@ source("xcms_ms2_functions.R")
   library_files_path = paste0(library_dir, library_files_name)
   library_files_all = lapply(library_files_path, readRDS)
   names(library_files_all) = sub(".rds","", basename(library_files_name))
-  library_files = library_files_all[grepl("pos", names(library_files_all))]
+  library_files = library_files_all[grepl("neg", names(library_files_all))]
   
   # load experiment ms2 files
-  setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
-  load("190731 Melanie young old mice MS2_EXPMS2.RData")
+  # setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
+  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/neg_scan")
+  
+  load(list.files(pattern = "EXPMS2.RData"))
   
 }
 

@@ -106,7 +106,7 @@ plot_MS2_spec = function(MS2Spectra,
                          ion_mode = 1)
 {
   # MS2Spectra = library_files[[2]][[4403]]
-  MS2Spectra =expMS2Spectra[[1]]
+  # MS2Spectra =expMS2Spectra[[1]]
   if(class(MS2Spectra) == "Spectrum2"){
     temp_spec = MS2Spectra
     temp_mzs = round(mz(temp_spec),4)
@@ -138,7 +138,6 @@ plot_MS2_spec = function(MS2Spectra,
 
   
   if(show_mz_formula == "formula"){
-    
     df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
@@ -212,6 +211,7 @@ updatePrecursorIntensity = function(MS2ScanData, spec_all, targetMzError = 10E-6
   intens = lapply(targetMS2Spectra, intensity)
   intens_targetMz = mapply(function(X,Y){
     if(length(Y)==0){return(0)}
+    if(length(Y)>1){return(max(X[Y]))}
     X[Y]
   }, X=intens, Y=mzs_targetMz_position)
   MS2ScanData$precursorIntensity = intens_targetMz
