@@ -57,7 +57,7 @@ source("xcms_ms2_functions.R")
   library_i = 1
   
   for(exp_i in 1:length(expMS2Spectra_ls)){
-    # for(exp_i in 1:1){
+    # for(exp_i in 4:5){
     expMS2Spectra = expMS2Spectra_ls[[exp_i]]
     selectLargestTIC = sapply(expMS2Spectra, tic)
     expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 10)
@@ -110,8 +110,6 @@ source("xcms_ms2_functions.R")
     print(ml)
     dev.off()
   }
-  
-  
 }
 
 
