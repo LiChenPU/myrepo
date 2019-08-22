@@ -1,7 +1,7 @@
 
 # This code batch run NetID_CPLEX code 
 # cd to the main folder, i.e. Meta_mine
-
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 main_dir = getwd()
 while(basename(main_dir)!="Meta_mine"){
   if(!grepl("Meta_mine", main_dir)){
