@@ -14,30 +14,36 @@ source("xcms_ms2_functions.R")
   library_files_path = paste0(library_dir, library_files_name)
   library_files_all = lapply(library_files_path, readRDS)
   names(library_files_all) = sub(".rds","", basename(library_files_name))
-  library_files = library_files_all[grepl("neg", names(library_files_all))]
   
+  ion_mode = 1
+  library_files = library_files_all[grepl("pos", names(library_files_all))]
+  rm(library_files_all)
   # load experiment ms2 files
   # setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
-  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/neg_scan")
+  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/pos_scan")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
+  dir.create("MS2plots", showWarnings=F)
+  setwd("./MS2plots")
+ 
 }
 
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
-  show_mz_formula = "mz"
+  show_mz_formula = "formula"
+  top_n_peaks = 20
   for(i in 1:length(expMS2Spectra_ls)){
     expMS2Spectra = expMS2Spectra_ls[[i]]
     fig_ls = list()
     for(j in 1:length(expMS2Spectra)){
       temp_spec = expMS2Spectra[[j]]
       fig_ls[[j]] = plot_MS2_spec(MS2Spectra = temp_spec, 
-                                  top_n_peaks = 10,
+                                  top_n_peaks = top_n_peaks,
                                   show_mz_formula = show_mz_formula, 
-                                  exp_inten_cutoff = 5000,
-                                  ion_mode = 1)
+                                  exp_inten_cutoff = 500,
+                                  ion_mode = ion_mode)
       
     }
     plotsMS2Spectra_ls[[i]] = fig_ls
@@ -45,19 +51,19 @@ source("xcms_ms2_functions.R")
   names(plotsMS2Spectra_ls) = names(expMS2Spectra_ls)
   # Print out plots
   print_MS2_spec(plotsMS2Spectra_ls, 
-                 nrow = 4,
-                 ncol = 2, 
-                 outputFileName = paste("all_MS2",show_mz_formula, sep = "_"))
+                 nrow = 2,
+                 ncol = 1, 
+                 outputFileName = paste("all_MS2",show_mz_formula,"top",top_n_peaks,sep = "_"))
   
 }
 
 ## Search library for spectra similar to experimental spectra ####
 {
-  exp_i = 1
-  library_i = 1
+  exp_i = 4
+  library_i = 2
   
-  for(exp_i in 1:length(expMS2Spectra_ls)){
-    # for(exp_i in 4:5){
+  for(exp_i in 5:length(expMS2Spectra_ls)){
+    # for(exp_i in 4:4){
     expMS2Spectra = expMS2Spectra_ls[[exp_i]]
     selectLargestTIC = sapply(expMS2Spectra, tic)
     expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 10)
@@ -83,7 +89,8 @@ source("xcms_ms2_functions.R")
     MS2_similar_result = bind_rows(MS2_similar_result_ls) %>%
       arrange(desc(score)) %>% 
       distinct(smiles, .keep_all=T) %>% 
-      top_n(12, score)
+      top_n(12, score) %>%
+      filter(score!=0)
     
     
     # plot library MS2
@@ -113,13 +120,19 @@ source("xcms_ms2_functions.R")
 }
 
 
+
+
+
 ## calculate dot product distance between spectra ####
-testMS2Spectra = unlist(targetMS2Spectra_ls)
-spec_df_ls = lapply(testMS2Spectra, spec2mzIntensity, top_n_peaks = 10)
+testMS2Spectra = unlist(expMS2Spectra_ls)
+spec_df_ls = lapply(testMS2Spectra, spec2mzIntensity, top_n_peaks = 20)
 spec_DP_matrix = matrix(1, nrow = length(spec_df_ls), ncol = length(spec_df_ls))
 for(i in 1:length(spec_df_ls)){
   for(j in 1:length(spec_df_ls)){
-    spec_merge_df = mergeMzIntensity(spec_df_ls[[i]], spec_df_ls[[j]], ppmTol = 10E-6)
+    spec_merge_df = try(mergeMzIntensity(spec_df_ls[[i]], spec_df_ls[[j]], ppmTol = 10E-6), silent = T)
+    if(inherits(spec_merge_df, "try-error")){
+      spec_merge_df = mergeMzIntensity_backup(spec_df_ls[[i]], spec_df_ls[[j]], ppmTol = 10E-6)
+    }
     spec_DP_matrix[i,j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
   }
 }
@@ -129,11 +142,11 @@ for(i in 1:length(spec_df_ls)){
   spec_DP_matrix_sym = 0.5 *(spec_DP_matrix + t(spec_DP_matrix))
   pheatmap::pheatmap(spec_DP_matrix_sym, clustering_method = "average")
   
-  
-  hc.cls = factor(rep(names(targetMS2Spectra_ls), lapply(targetMS2Spectra_ls, length)))
+  hc.cls = factor(rep(names(expMS2Spectra_ls), lapply(expMS2Spectra_ls, length)))
   annotation <- data.frame(class = hc.cls)
-  rownames(annotation) <- unlist(lapply(targetMS2Spectra_ls, names))
-  colnames(spec_DP_matrix_sym) = rownames(spec_DP_matrix_sym) = unlist(lapply(targetMS2Spectra_ls, names))
+  rownames(annotation) <- unlist(lapply(expMS2Spectra_ls, names))
+  colnames(spec_DP_matrix_sym) = rownames(spec_DP_matrix_sym) = unlist(lapply(expMS2Spectra_ls, names))
+  # colnames(spec_DP_matrix_sym) = rownames(spec_DP_matrix_sym) = names(unlist(expMS2Spectra_ls))
   
   if(length(unique(hc.cls)) < 9){
     pal9 = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
@@ -153,23 +166,27 @@ for(i in 1:length(spec_df_ls)){
   names(uniq.cols) <- unique(as.character(sort(cls)))
   ann_colors <- list(class = uniq.cols)
   
-  test = cluster_mat(spec_DP_matrix_sym, "euclidean", "complete")
   
-  spec_DP_matrix_cls = spec_DP_matrix_sym[test$order, test$order]
-  
-  pheatmap::pheatmap(spec_DP_matrix_cls, 
+  specDist_heatmap = pheatmap::pheatmap(spec_DP_matrix_sym, 
                      annotation = annotation, 
-                     # fontsize = 8, 
+                     cellwidth = 6, 
+                     cellheight = 6,
+                     fontsize = 6,
                      # fontsize_row = 8, 
                      # clustering_distance_rows = smplDist,
                      # clustering_distance_cols = smplDist, 
-                     # clustering_method = clstDist, 
+                     clustering_method = "average",
                      # border_color = border.col, 
                      # cluster_rows = T,
                      # cluster_cols = T,
                      # scale = scaleOpt, 
                      # color = colors,
                      annotation_colors = ann_colors)
+  
+  pdf(file ="specDist_heatmap.pdf", width = 10.5, height = 6.5, onefile = TRUE)
+  print(specDist_heatmap)
+  dev.off()
+  
 }
 
 # Benchmark

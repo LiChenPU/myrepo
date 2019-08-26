@@ -5,7 +5,7 @@ source("xcms_ms2_functions.R")
 
 ## Read files ####
 {
-  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/neg_scan")
+  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/pos_scan")
   
   list.files()
   peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
@@ -27,7 +27,7 @@ source("xcms_ms2_functions.R")
   scanData = raw_data@featureData@data
   MS2ScanData = scanData %>%
     filter(msLevel==2) %>%
-    filter(totIonCurrent>1E5) 
+    filter(totIonCurrent>5E3) 
   unique(MS2ScanData$precursorMZ)
   
   MS2ScanData = updatePrecursorIntensity(MS2ScanData,

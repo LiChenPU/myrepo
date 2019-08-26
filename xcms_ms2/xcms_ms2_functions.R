@@ -38,7 +38,7 @@ fancy_scientific <- function(l) {
 }
 
 ## predict formula ####
-my_pred_formula=function(mz = df$mz, inten = df$inten, ion_mode = ion_mode,
+my_pred_formula=function(mz = df$mz, inten = df$inten, ion_mode,
                          parent_formula = "C99H100N15O15S3P3", N_rule = F, 
                          ppm=15, db_max=8){
   
@@ -53,7 +53,8 @@ my_pred_formula=function(mz = df$mz, inten = df$inten, ion_mode = ion_mode,
   #i=16
   for(i in 1:length(mz)){
     temp = mz_formula(mz[i], charge = ion_mode,  N_rule = N_rule, 
-                      C_range=C_range, H_range = H_range, N_range=N_range, O_range=O_range, P_range = P_range, S_range = S_range, ppm=ppm, db_max = db_max)
+                      C_range=C_range, H_range = H_range, N_range=N_range, O_range=O_range, P_range = P_range, S_range = S_range, 
+                      ppm=ppm, db_max = db_max)
     if(!is.data.frame(temp)){
       predict_formula[i]=round(mz[i],digits = 3)
       next
@@ -103,10 +104,10 @@ plot_MS2_spec = function(MS2Spectra,
                          show_mz_formula = "formula",
                          top_n_peaks = 10,
                          exp_inten_cutoff = 5000,
-                         ion_mode = 1)
+                         ion_mode)
 {
   # MS2Spectra = library_files[[2]][[4403]]
-  # MS2Spectra =expMS2Spectra[[1]]
+  # MS2Spectra =expMS2Spectra_ls[[1]][[1]]
   if(class(MS2Spectra) == "Spectrum2"){
     temp_spec = MS2Spectra
     temp_mzs = round(mz(temp_spec),4)
@@ -114,7 +115,7 @@ plot_MS2_spec = function(MS2Spectra,
     
     temp_caption = try(paste(fns[temp_spec@fromFile], "RT =", round(temp_spec@rt/60,3)),T)
     if(inherits(temp_caption, "try-error")){temp_caption = paste(temp_spec@fromFile, "RT =", round(temp_spec@rt/60,3))}
-    ion_mode = polarity(temp_spec)
+    # ion_mode = polarity(temp_spec)
     df = as.data.frame(cbind(mz=temp_mzs, inten=temp_intens))
     df = df %>%
       arrange(-inten) %>%
@@ -192,6 +193,16 @@ print_MS2_spec = function(plotsMS2Spectra_ls,
   dev.off()
 }
 
+## print_txt_expMS2Spec
+print_txt_expMS2Spec = function(targetSpec, top_n_inten = 15){
+  spec = as.data.frame(cbind(mz(targetSpec), intensity(targetSpec))) 
+  colnames(spec) = c("mz", "intensity")
+  spec = spec %>%
+    arrange(intensity) %>%
+    top_n(top_n_inten, intensity) %>%
+    arrange(mz)
+  write.table(spec,"spec.txt",row.names = F, col.names = F, sep=" ")
+}
 ## Update precursorIntensity ####
 updatePrecursorIntensity = function(MS2ScanData, spec_all, targetMzError = 10E-6){
   # Previous precusorIntensity is calculated by 
@@ -376,9 +387,13 @@ my_SMILES2structure =function(SMILES){
   SDF = try(smiles2sdf(SMILES), silent=T)
   if(inherits(SDF, "try-error")){
     plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
-    text(x=0.5, y=0.5, paste("NA"))
+    text(x=0.5, y=0.5, paste("Invalid SMILES"))
     return(0)
   }
-  
-  ChemmineR::plotStruc(SDF[[1]])
+  tryError = try(ChemmineR::plotStruc(SDF[[1]]), silent=T)
+  if(inherits(tryError, "try-error")){
+    plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+    text(x=0.5, y=0.5, paste("Invalid SDF"))
+    return(0)
+  }
 }
