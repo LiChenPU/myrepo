@@ -19,8 +19,7 @@ source("xcms_ms2_functions.R")
   library_files = library_files_all[grepl("pos", names(library_files_all))]
   rm(library_files_all)
   # load experiment ms2 files
-  # setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
-  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/pos_scan")
+  setwd("C:/study/data/exactive/Yeast_unknown/190402 MS2 yeast 12 13C 50D2O histidine")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
@@ -32,8 +31,8 @@ source("xcms_ms2_functions.R")
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
-  show_mz_formula = "formula"
-  top_n_peaks = 20
+  show_mz_formula = "mz"
+  top_n_peaks = 10
   for(i in 1:length(expMS2Spectra_ls)){
     expMS2Spectra = expMS2Spectra_ls[[i]]
     fig_ls = list()
@@ -51,8 +50,8 @@ source("xcms_ms2_functions.R")
   names(plotsMS2Spectra_ls) = names(expMS2Spectra_ls)
   # Print out plots
   print_MS2_spec(plotsMS2Spectra_ls, 
-                 nrow = 2,
-                 ncol = 1, 
+                 nrow = 4,
+                 ncol = 2, 
                  outputFileName = paste("all_MS2",show_mz_formula,"top",top_n_peaks,sep = "_"))
   
 }
@@ -62,7 +61,19 @@ source("xcms_ms2_functions.R")
   exp_i = 4
   library_i = 2
   
-  for(exp_i in 5:length(expMS2Spectra_ls)){
+  spec_list = list()
+  for(exp_i in 1:length(expMS2Spectra_ls)){
+    # for(exp_i in 4:4){
+    expMS2Spectra = expMS2Spectra_ls[[exp_i]]
+    selectLargestTIC = sapply(expMS2Spectra, tic)
+    expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 20)
+    expMS2Spectra_select["label"] = names(expMS2Spectra_ls[exp_i])
+    spec_list[[exp_i]] = expMS2Spectra_select
+  }
+  
+  test_rawdata = bind_rows(spec_list)
+  
+  for(exp_i in 1:length(expMS2Spectra_ls)){
     # for(exp_i in 4:4){
     expMS2Spectra = expMS2Spectra_ls[[exp_i]]
     selectLargestTIC = sapply(expMS2Spectra, tic)

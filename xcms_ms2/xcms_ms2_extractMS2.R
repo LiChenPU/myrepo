@@ -5,7 +5,8 @@ source("xcms_ms2_functions.R")
 
 ## Read files ####
 {
-  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/pos_scan")
+  work_dir = "C:/study/data/exactive/Yeast_unknown/190402 MS2 yeast 12 13C 50D2O histidine"
+  setwd(work_dir)
   
   list.files()
   peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
@@ -34,6 +35,8 @@ source("xcms_ms2_functions.R")
                                          spec_all,
                                          targetMzError = 10E-6)
 }
+
+
 
 ## Examine all MS2 data in one file ####
 {
