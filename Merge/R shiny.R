@@ -6,6 +6,8 @@ library(ShinyTester)
 
 
 # options(shiny.reactlog=TRUE) 
+# Ctrl + F3 to view 
+
 # Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 datapath = ("./Melanie_merge/merge3")
