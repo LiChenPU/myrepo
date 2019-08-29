@@ -57,14 +57,8 @@ for(i in 1:length(select_run_script)){
                                       normalized_to_col_median = F)
     Mset[["Cohort"]]=Cohort_Info(Mset)
     print(Mset$Cohort)
-    
-    #Clean-up duplicate peaks 
-    Mset[["Data"]] = Peak_cleanup(Mset,
-                                  ms_dif_ppm=5/10^6, 
-                                  rt_dif_min=0.1,
-                                  detection_limit=2500)
-    
-    Mset[["ID"]] = Mset$Data$ID
+    print(unique(Mset$Cohort))
+
   }
   
   setwd(main_dir)
