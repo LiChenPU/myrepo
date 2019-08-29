@@ -57,7 +57,7 @@ for(i in 1:length(select_run_script)){
                                       normalized_to_col_median = F)
     Mset[["Cohort"]]=Cohort_Info(Mset)
     print(Mset$Cohort)
-    print(unique(Mset$Cohort))
+    print(unique(Mset$Cohort$sample_cohort))
 
   }
   
