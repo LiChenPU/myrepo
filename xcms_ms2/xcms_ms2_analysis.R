@@ -2,7 +2,7 @@
 # Main ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("xcms_ms2_functions.R")
-
+source("~/myrepo/mz_calculator/mz_calculator_function.R")
 
 # MS2 analysis ####
 {
@@ -19,7 +19,7 @@ source("xcms_ms2_functions.R")
   library_files = library_files_all[grepl("pos", names(library_files_all))]
   rm(library_files_all)
   # load experiment ms2 files
-  setwd("C:/study/data/exactive/Yeast_unknown/190402 MS2 yeast 12 13C 50D2O histidine")
+  setwd("C:/Users/lc8/Desktop/RNA-Xiaoyang")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
@@ -31,8 +31,37 @@ source("xcms_ms2_functions.R")
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
-  show_mz_formula = "mz"
-  top_n_peaks = 10
+  show_mz_formula = "ms"
+  top_n_peaks = 15
+  
+  precalculated_formula = NA
+  if(show_mz_formula == "formula"){
+    spec_list = list()
+    for(exp_i in 1:length(expMS2Spectra_ls)){
+      # for(exp_i in 4:4){
+      expMS2Spectra = expMS2Spectra_ls[[exp_i]]
+      selectLargestTIC = sapply(expMS2Spectra, tic)
+      expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 20)
+      expMS2Spectra_select["label"] = names(expMS2Spectra_ls[exp_i])
+      spec_list[[exp_i]] = expMS2Spectra_select
+    }
+    spec_list = lapply(unlist(expMS2Spectra_ls), spec2mzIntensity, top_n_peaks = 20)
+    test_rawdata = bind_rows(spec_list) %>% mutate(ID = 1:nrow(.))
+    
+    
+    result_formula = mz_calculator(test_rawdata, 
+                                   expand_formula_to_library("C11H22N6O4"),
+                                   connect_depth = 9,
+                                   ion_mode = ion_mode)
+    result_formula = result_formula %>%
+      filter(!is.na(formula), ILP_result>0.6) %>%
+      mutate(mz = round(mz, 4)) %>%
+      dplyr::select(ID, formula)
+    precalculated_formula = merge(test_rawdata, result_formula) %>% mutate(mz = round(mz, 4))
+    
+  }
+  
+  
   for(i in 1:length(expMS2Spectra_ls)){
     expMS2Spectra = expMS2Spectra_ls[[i]]
     fig_ls = list()
@@ -42,7 +71,8 @@ source("xcms_ms2_functions.R")
                                   top_n_peaks = top_n_peaks,
                                   show_mz_formula = show_mz_formula, 
                                   exp_inten_cutoff = 500,
-                                  ion_mode = ion_mode)
+                                  ion_mode = ion_mode,
+                                  precalculated_formula = NA)
       
     }
     plotsMS2Spectra_ls[[i]] = fig_ls
@@ -50,8 +80,8 @@ source("xcms_ms2_functions.R")
   names(plotsMS2Spectra_ls) = names(expMS2Spectra_ls)
   # Print out plots
   print_MS2_spec(plotsMS2Spectra_ls, 
-                 nrow = 4,
-                 ncol = 2, 
+                 nrow = 2,
+                 ncol = 1, 
                  outputFileName = paste("all_MS2",show_mz_formula,"top",top_n_peaks,sep = "_"))
   
 }
@@ -61,17 +91,8 @@ source("xcms_ms2_functions.R")
   exp_i = 4
   library_i = 2
   
-  spec_list = list()
-  for(exp_i in 1:length(expMS2Spectra_ls)){
-    # for(exp_i in 4:4){
-    expMS2Spectra = expMS2Spectra_ls[[exp_i]]
-    selectLargestTIC = sapply(expMS2Spectra, tic)
-    expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 20)
-    expMS2Spectra_select["label"] = names(expMS2Spectra_ls[exp_i])
-    spec_list[[exp_i]] = expMS2Spectra_select
-  }
+
   
-  test_rawdata = bind_rows(spec_list)
   
   for(exp_i in 1:length(expMS2Spectra_ls)){
     # for(exp_i in 4:4){

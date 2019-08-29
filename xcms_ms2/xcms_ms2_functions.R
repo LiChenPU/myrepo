@@ -38,7 +38,7 @@ fancy_scientific <- function(l) {
 }
 
 ## predict formula ####
-my_pred_formula=function(mz = df$mz, inten = df$inten, ion_mode,
+my_pred_formula=function(mz = df$mz, ion_mode,
                          parent_formula = "C99H100N15O15S3P3", N_rule = F, 
                          ppm=15, db_max=8){
   
@@ -104,7 +104,8 @@ plot_MS2_spec = function(MS2Spectra,
                          show_mz_formula = "formula",
                          top_n_peaks = 10,
                          exp_inten_cutoff = 5000,
-                         ion_mode)
+                         ion_mode,
+                         precalculated_formula = NA)
 {
   # MS2Spectra = library_files[[2]][[4403]]
   # MS2Spectra =expMS2Spectra_ls[[1]][[1]]
@@ -137,9 +138,17 @@ plot_MS2_spec = function(MS2Spectra,
       top_n(top_n_peaks, inten)
   }
 
+ 
   
   if(show_mz_formula == "formula"){
-    df["pred_formula"] = my_pred_formula(df$mz, df$inten, ion_mode = ion_mode)
+    if(!is.data.frame(precalculated_formula)){
+      df["pred_formula"] = my_pred_formula(df$mz, ion_mode = ion_mode)
+    } else {
+      df["pred_formula"] = sapply(df$mz, function(x){
+        unique(precalculated_formula$formula[precalculated_formula$mz==x])[1]
+      })
+    }
+    
     ms2Plot = ggplot(df, aes(x=mz, y=inten, ymax = inten, ymin = 0)) +
       geom_linerange() + 
       ggtitle(temp_caption) + 
