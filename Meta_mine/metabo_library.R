@@ -12,14 +12,13 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 # Read files
 
 {
-  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   setwd("./library")
   filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
   filenames = filenames[!grepl("merge_mdata.csv", filenames)]
-  filenames = filenames[grepl("pos", filenames)]
+  filenames = filenames[grepl("neg", filenames)]
   # filenames = filenames[!grepl("yeast", filenames)]
-  filenames = filenames[grepl("pig", filenames)]
-  
+  filenames = filenames[grepl("yeast", filenames)]
+  filenames = filenames[-c(1,2)]
   
   num_of_files = length(filenames)
   raw_ls = list()
@@ -38,25 +37,25 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 
 ## Cluster dataset to see if LC condition are similar ####
 {
-  # dataset_dist_mtrx = matrix(0,
-  #                            nrow = length(filenames),
-  #                            ncol = length(filenames)
-  # )
-  # rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
-  # 
-  # for(i in 1:length(filenames)){
-  #   print(Sys.time())
-  #   for(j in 1:length(filenames)){
-  #     dataset_dist_mtrx[i,j] = DatasetDist(raw_ls[[i]], raw_ls[[j]],
-  #                                          log10_inten_cutoff = 5,  # only compare peaks with intensity above the threshold
-  #                                          merge_group_ppm_tol = 3 # mz within ppm_tol will merge into one mz group
-  #     )
-  #   }
-  # }
-  # dataset_dist_mtrx_sym = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
-  # pdf("median_RT_shift_between_dataset.pdf")
-  # pheatmap::pheatmap(dataset_dist_mtrx_sym)
-  # dev.off()
+  dataset_dist_mtrx = matrix(0,
+                             nrow = length(filenames),
+                             ncol = length(filenames)
+  )
+  rownames(dataset_dist_mtrx) = colnames(dataset_dist_mtrx) = dirname(filenames)
+
+  for(i in 1:length(filenames)){
+    print(Sys.time())
+    for(j in 1:length(filenames)){
+      dataset_dist_mtrx[i,j] = DatasetDist(raw_ls[[i]], raw_ls[[j]],
+                                           log10_inten_cutoff = 5,  # only compare peaks with intensity above the threshold
+                                           merge_group_ppm_tol = 3 # mz within ppm_tol will merge into one mz group
+      )
+    }
+  }
+  dataset_dist_mtrx_sym = 0.5 *(dataset_dist_mtrx + t(dataset_dist_mtrx))
+  pdf("median_RT_shift_between_dataset.pdf")
+  pheatmap::pheatmap(dataset_dist_mtrx_sym)
+  dev.off()
 }
 
 
@@ -73,14 +72,63 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 }
 
 
+
+# Filter peaks based on existing mz RT intensity list
+{
+  setwd("../project/190828 Yeast comparison")
+  ion_mode = -1
+  inten_cutoff = 5e4
+  raw_peak_list = read.csv("yeast_Pave_neg.csv", stringsAsFactors = F)
+  raw_peak_list = read.csv("yeast_Pave_neg_unknown.csv", stringsAsFactors = F)
+  table(raw_peak_list$feature)
+  
+  peak_list = raw_peak_list %>%
+    filter(feature =="[]") %>%
+    filter(sig>log10(inten_cutoff)) %>%
+    rename(medMz = mz, medRt = RT)
+  
+  target_mdata = raw_ls[[4]] %>%
+    mutate(mean_inten2 = rowMeans(.[,grepl("12C14N-0ev",colnames(.))]))
+  
+  data_select_ls = list()
+  find_i = c()
+  i=2
+  for(i in 1:nrow(peak_list)){
+    medMz = peak_list$medMz[i] - 1.007276 * ion_mode
+    medRt = peak_list$medRt[i]
+    data_select = filter_data(target_mdata, 
+                                 medMz = medMz, medRt = medRt, delta_rt = 1,
+                                 formula = "")
+    if(nrow(data_select)!=0){find_i = c(find_i, i)}
+    data_select_ls[[i]] = data_select
+  }
+  mdata_filter = bind_rows(data_select_ls)
+  
+  mdata_filter2 = mdata_filter %>%
+    filter(mean_inten2>inten_cutoff | mean_inten>inten_cutoff) 
+  
+  mdata_filter2unique = mdata_filter2 %>%
+    distinct(ID)
+  
+  
+  find_i2 = find_i[sapply(data_select_ls[find_i], function(x){max(x$mean_inten, x$mean_inten2) >inten_cutoff})]
+  PAVE_filter_neg = peak_list[find_i2,]
+  
+  write.csv(mdata_filter2, "Yeast_WL_PAVEfiltered_neg_mdata_5e4.csv", row.names = F)
+  write.csv(PAVE_filter_neg, "Yeast_PAVEfiltered_neg_mdata_5e4.csv", row.names = F)
+}
+
+
+
+
 # Search peak of interest based on peak list
 {
-  setwd("C:/study/data/exactive/190731 Melanie young old mice MS2")
-  peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
-  dir.create("library_plots", showWarnings=F)
-  setwd("./library_plots")
-  ion_mode = 1
-  
+  setwd("../project/190828 Yeast comparison")
+  peak_list = read.csv("yeast_Pave_neg_unknown.csv", stringsAsFactors = F)
+  # dir.create("library_plots", showWarnings=F)
+  # setwd("./library_plots")
+  ion_mode = -1
+
   for(i in 1: nrow(peak_list)){
     medMz = peak_list$medMz[i] - 1.007276 * ion_mode
     potential_formula = peak_list$formula[i]
