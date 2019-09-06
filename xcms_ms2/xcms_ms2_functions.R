@@ -74,8 +74,8 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
                            targetRtError = 0.3
 )
 {
-  targetMzError = 10E-6
-  targetRtError = 0.3
+  # targetMzError = 10E-6
+  # targetRtError = 0.3
   targetMS2Spectra_ls = list()
   for(i in 1:nrow(peak_list)){
     
