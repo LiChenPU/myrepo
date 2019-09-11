@@ -5,11 +5,11 @@ source("xcms_ms2_functions.R")
 
 ## Read files ####
 {
-  work_dir = "C:/study/data/exactive/Yeast_unknown/190402 MS2 yeast 12 13C 50D2O histidine"
-  setwd(work_dir)
+  
+  setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
   
   list.files()
-  peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
+  peak_list = read.csv("select_peak_list_neg.csv", stringsAsFactors = F)
   
   
   mzXML <- dir(full.names = TRUE, recursive = F, pattern = ".mzXML")
@@ -19,12 +19,11 @@ source("xcms_ms2_functions.R")
                    stringsAsFactors = FALSE)
   raw_data <- readMSData(files = mzXML, pdata = new("NAnnotatedDataFrame", pd),
                          mode = "onDisk")
-  
+  spec_all = xcms::spectra(raw_data)
 }
 
 ## Extract spectra and MS2 data #### 
 {
-  spec_all = xcms::spectra(raw_data)
   scanData = raw_data@featureData@data
   MS2ScanData = scanData %>%
     filter(msLevel==2) %>%
@@ -33,7 +32,7 @@ source("xcms_ms2_functions.R")
   
   MS2ScanData = updatePrecursorIntensity(MS2ScanData,
                                          spec_all,
-                                         targetMzError = 10E-6)
+                                         targetMzError = 50E-6)
 }
 
 
@@ -80,8 +79,8 @@ source("xcms_ms2_functions.R")
   expMS2Spectra_ls = filter_MS2_Spec(MS2ScanData, 
                                      peak_list,
                                      spec_all,
-                                     targetMzError = 10E-6,
-                                     targetRtError = 0.3)
+                                     targetMzError = 15E-6,
+                                     targetRtError = 0.2)
   
   
   save(fns, MS2_overview, peak_list, expMS2Spectra_ls, file = paste(basename(getwd()), "EXPMS2.RData",sep="_"))

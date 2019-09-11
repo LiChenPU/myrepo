@@ -77,6 +77,7 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
   # targetMzError = 10E-6
   # targetRtError = 0.3
   targetMS2Spectra_ls = list()
+  i=1
   for(i in 1:nrow(peak_list)){
     
     targetMz = peak_list$medMz[i]
@@ -89,7 +90,9 @@ filter_MS2_Spec = function(MS2ScanData = MS2ScanData,
     if(nrow(targetMS2Scans)==0){next}
     
     targetMS2Scans = targetMS2Scans %>%
-      arrange(-precursorIntensity, -totIonCurrent) %>%
+      # arrange(-precursorIntensity, -totIonCurrent) %>%
+      arrange(-precursorIntensity, abs(retentionTime/60 - targetRt)) %>%
+      # arrange( abs(retentionTime/60 - targetRt)) %>%
       distinct(fileIdx, .keep_all=T)
     targetMS2Spectra = spec_all[targetMS2Scans$spectrum]
     targetMS2Spectra_ls[[length(targetMS2Spectra_ls) + 1]] = targetMS2Spectra
@@ -140,8 +143,8 @@ plot_MS2_spec = function(MS2Spectra,
 
  
   
-  if(show_mz_formula == "formula"){
-    if(!is.data.frame(precalculated_formula)){
+  if(show_mz_formula == "formula" | show_mz_formula == "formula_cplex"){
+    if(show_mz_formula == "formula"){
       df["pred_formula"] = my_pred_formula(df$mz, ion_mode = ion_mode)
     } else {
       df["pred_formula"] = sapply(df$mz, function(x){

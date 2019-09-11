@@ -15,11 +15,11 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
   library_files_all = lapply(library_files_path, readRDS)
   names(library_files_all) = sub(".rds","", basename(library_files_name))
   
-  ion_mode = 1
-  library_files = library_files_all[grepl("pos", names(library_files_all))]
+  ion_mode = -1
+  library_files = library_files_all[grepl("neg", names(library_files_all))]
   rm(library_files_all)
   # load experiment ms2 files
-  setwd("C:/Users/lc8/Desktop/RNA-Xiaoyang")
+  setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
@@ -28,14 +28,15 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
  
 }
 
+# expMS2Spectra_ls2 = expMS2Spectra_ls
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
-  show_mz_formula = "ms"
+  show_mz_formula = "formula_cplex"
   top_n_peaks = 15
   
   precalculated_formula = NA
-  if(show_mz_formula == "formula"){
+  if(show_mz_formula == "formula_cplex"){
     spec_list = list()
     for(exp_i in 1:length(expMS2Spectra_ls)){
       # for(exp_i in 4:4){
@@ -45,19 +46,23 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
       expMS2Spectra_select["label"] = names(expMS2Spectra_ls[exp_i])
       spec_list[[exp_i]] = expMS2Spectra_select
     }
-    spec_list = lapply(unlist(expMS2Spectra_ls), spec2mzIntensity, top_n_peaks = 20)
+    spec_list = lapply(unlist(expMS2Spectra_ls), spec2mzIntensity, top_n_peaks = 15)
     test_rawdata = bind_rows(spec_list) %>% mutate(ID = 1:nrow(.))
     
-    
+    # manually copy from other places for R to read clipboard
+    # library_formula = readClipboard()
+    library_pred_formula = my_pred_formula(mz = test_rawdata$mz, ion_mode = ion_mode, parent_formula = "C7H13N2O4")
+    library_pred_formula = library_pred_formula[!grepl("\\.",library_pred_formula)]
     result_formula = mz_calculator(test_rawdata, 
-                                   expand_formula_to_library("C11H22N6O4"),
-                                   connect_depth = 9,
+                                   expand_formula_to_library(c(library_pred_formula)),
+                                   connect_depth = 6,
                                    ion_mode = ion_mode)
-    result_formula = result_formula %>%
-      filter(!is.na(formula), ILP_result>0.6) %>%
-      mutate(mz = round(mz, 4)) %>%
+    result_formula2 = result_formula %>%
+      filter(!is.na(formula)) %>%
+      arrange(desc(ILP_result)) %>%
+      distinct(ID, .keep_all=T) %>%
       dplyr::select(ID, formula)
-    precalculated_formula = merge(test_rawdata, result_formula) %>% mutate(mz = round(mz, 4))
+    precalculated_formula = merge(test_rawdata, result_formula2) %>% mutate(mz = round(mz, 4))
     
   }
   
@@ -72,7 +77,7 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
                                   show_mz_formula = show_mz_formula, 
                                   exp_inten_cutoff = 500,
                                   ion_mode = ion_mode,
-                                  precalculated_formula = NA)
+                                  precalculated_formula = precalculated_formula)
       
     }
     plotsMS2Spectra_ls[[i]] = fig_ls
@@ -90,10 +95,6 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
 {
   exp_i = 4
   library_i = 2
-  
-
-  
-  
   for(exp_i in 1:length(expMS2Spectra_ls)){
     # for(exp_i in 4:4){
     expMS2Spectra = expMS2Spectra_ls[[exp_i]]
@@ -124,7 +125,6 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
       top_n(12, score) %>%
       filter(score!=0)
     
-    
     # plot library MS2
     fig_ls = list()
     show_mz_formula = "mz"
@@ -150,10 +150,6 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
     dev.off()
   }
 }
-
-
-
-
 
 ## calculate dot product distance between spectra ####
 testMS2Spectra = unlist(expMS2Spectra_ls)
