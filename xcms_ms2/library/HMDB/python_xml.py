@@ -10,7 +10,7 @@ from lxml import etree
 import os
 
 
-os.chdir("C:\\Users\\lc8\\Documents\\GitHub\\myrepo\\xcms_ms2\\library\\HMDB")
+os.chdir("C:\\Users\\lc8\\Documents\\myrepo\\xcms_ms2\\library\\HMDB")
 
 
 xml = 'sweat_metabolites.xml'
@@ -31,7 +31,7 @@ fieldnames = ['accession', 'monisotopic_molecular_weight',
               'iupac_name', 'name', 'chemical_formula', 'cas_registry_number', 
               'smiles', 'kingdom', 'direct_parent', 'super_class', 
               'class', 'sub_class', 'molecular_framework',
-              'spectra']
+              'spectra','status']
 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 writer.writeheader()
 
@@ -86,9 +86,13 @@ for event, elem in context:
         molecular_framework = elem.xpath('taxonomy/molecular_framework/text()')[0]
     except:
         molecular_framework = 'NA'
+    try:
+        status = elem.xpath('status/text()')[0]
+    except:
+        status = 'NA'
     print(i)
     i=i+1
-    writer.writerow({'accession': accession, 'monisotopic_molecular_weight': monisotopic_molecular_weight, 'iupac_name': iupac_name, 'name': name, 'chemical_formula': chemical_formula, 'cas_registry_number': cas_registry_number, 'smiles': smiles, 'kingdom': kingdom, 'direct_parent': direct_parent, 'super_class': super_class, 'class': classorg, 'sub_class': sub_class, 'molecular_framework': molecular_framework})
+    writer.writerow({'accession': accession, 'monisotopic_molecular_weight': monisotopic_molecular_weight, 'iupac_name': iupac_name, 'name': name, 'chemical_formula': chemical_formula, 'cas_registry_number': cas_registry_number, 'smiles': smiles, 'kingdom': kingdom, 'direct_parent': direct_parent, 'super_class': super_class, 'class': classorg, 'sub_class': sub_class, 'molecular_framework': molecular_framework, 'status': status})
     # It's safe to call clear() here because no descendants will be
     # accessed
     elem.clear()
