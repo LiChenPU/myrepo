@@ -20,7 +20,7 @@ read_library = function(library_file){
 }
 
 ## Read_rule_table - for Connect_rules ####
-Read_rule_table = function(rule_table_file){
+Read_rule_table = function(rule_table_file, extend_rule = F){
   data("isotopes")
   Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
   for(i in 1: nrow(Connect_rules)){
@@ -30,29 +30,33 @@ Read_rule_table = function(rule_table_file){
     Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1 ,Is_valid = F)
     Connect_rules$mass[i] = formula_mz(Connect_rules$Formula[i])
   }
-  extend_rules = list()
-  i=3
-  for(i in 1: nrow(Connect_rules)){
-    if(Connect_rules$allow_rep[i] <= 1){next}
-    for(j in 2:Connect_rules$allow_rep[i]){
-      temp_rule = Connect_rules[i,]
-      temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
-      temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
-                                               sign = j-1,Is_valid = F)
-      temp_rule$mass = temp_rule$mass * j
-      temp_rule$rdbe = temp_rule$rdbe * j
+  
+  if(extend_rule){
+    extend_rules = list()
+    i=3
+    for(i in 1: nrow(Connect_rules)){
+      if(Connect_rules$allow_rep[i] <= 1){next}
+      for(j in 2:Connect_rules$allow_rep[i]){
+        temp_rule = Connect_rules[i,]
+        temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
+        temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
+                                                 sign = j-1,Is_valid = F)
+        temp_rule$mass = temp_rule$mass * j
+        temp_rule$rdbe = temp_rule$rdbe * j
+        
+        extend_rules[[length(extend_rules)+1]] = temp_rule
+      }
       
-      extend_rules[[length(extend_rules)+1]] = temp_rule
     }
     
+    Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
+    
+    
+    Connect_rules = Connect_rules %>%
+      arrange(mass) %>%
+      dplyr::select(-allow_rep)
   }
-  
-  Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
-  
-  
-  Connect_rules = Connect_rules %>%
-    arrange(mass) %>%
-    dplyr::select(-allow_rep)
+
    
   return(Connect_rules)
 }
@@ -68,7 +72,7 @@ Peak_cleanup = function(Mset)
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
-  raw$mz = raw$mz*abs(ion_mode) - (H_mass-e_mass)*ion_mode
+  raw$mz = raw$mz - (H_mass-e_mass)*ion_mode
   
  
   return(raw)
@@ -97,10 +101,10 @@ Form_node_list = function(Mset)
 }
 
 ## Edge_Connect_rules ####
-Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
+Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6)
 {
   
-  mass_ppm = mass_ppm/10^6
+  
   merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
   merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
   merge_nrow = nrow(merge_node_list)
@@ -111,6 +115,7 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
     temp_mz_list=merge_node_list$mz
     
     for (k in 1:nrow(Mset$Connect_rules)){
+      # print(k)
       temp_fg=Mset$Connect_rules$mass[k]
       temp_direction = Mset$Connect_rules$direction[k]
       temp_rdbe = Mset$Connect_rules$rdbe[k]
@@ -123,7 +128,7 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
                                   rdbe = as.numeric())
       while(i<=merge_nrow){
         temp_ms=0
-        mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
+        mass_tol = max(temp_mz_list[i]*mass_ppm,mass_abs)
         while(1){
           j=j+1
           if(j>merge_nrow){break}
@@ -182,7 +187,7 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Edge_score
-Edge_score = function(Biotransform){
+Edge_score = function(Biotransform, plot_graph = F){
   #Biotransform = EdgeSet$Biotransform
   if(nrow(Biotransform)>10000){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
@@ -190,8 +195,12 @@ Edge_score = function(Biotransform){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
   }
   
-  # plot(edge_mzdif_FIT)  
-  summary(edge_mzdif_FIT)
+  if(plot_graph){
+    plot(edge_mzdif_FIT)
+    print(summary(edge_mzdif_FIT))
+  }
+  
+  
   
   Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
@@ -203,7 +212,8 @@ Network_prediction = function(Mset,
                               edge_biotransform, 
                               biotransform_step = 10,
                               propagation_score_threshold = 0.25,
-                              top_n = 50
+                              top_n = 50,
+                              print_step = F
 )
 {
   
@@ -235,7 +245,7 @@ Network_prediction = function(Mset,
   #while loop to Predict formula based on known formula and edgelist 
   nrow_experiment = nrow(Mset$Data)
   step=0
-  
+  timer = Sys.time()
   timer=Sys.time()
   while(step <= biotransform_step){
     
@@ -247,8 +257,10 @@ Network_prediction = function(Mset,
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df[all_nodes_df$steps==step
                                   &all_nodes_df$score>propagation_score_threshold,]
-      # print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
-      # print((Sys.time()-timer))
+      if(print_step){
+        print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
+        print((Sys.time()-timer))
+      }
       step = step + 1
       if(nrow(new_nodes_df)==0 | step > biotransform_step){break}
       edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
