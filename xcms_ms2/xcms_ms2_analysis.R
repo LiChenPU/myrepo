@@ -15,11 +15,12 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
   library_files_all = lapply(library_files_path, readRDS)
   names(library_files_all) = sub(".rds","", basename(library_files_name))
   
-  ion_mode = -1
-  library_files = library_files_all[grepl("neg", names(library_files_all))]
+  ion_mode = 1
+  library_files = library_files_all[grepl("pos", names(library_files_all))]
   rm(library_files_all)
   # load experiment ms2 files
-  setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
+  # setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
+  setwd("C:/study/data/exactive/190915 Test run")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
@@ -32,8 +33,8 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
-  show_mz_formula = "formula_cplex"
-  top_n_peaks = 15
+  show_mz_formula = "formula"
+  top_n_peaks = 25
   
   precalculated_formula = NA
   if(show_mz_formula == "formula_cplex"){
@@ -51,7 +52,7 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
     
     # manually copy from other places for R to read clipboard
     # library_formula = readClipboard()
-    library_pred_formula = my_pred_formula(mz = test_rawdata$mz, ion_mode = ion_mode, parent_formula = "C7H13N2O4")
+    library_pred_formula = my_pred_formula(mz = test_rawdata$mz, ion_mode = ion_mode, parent_formula = "C54H56N2O21")
     library_pred_formula = library_pred_formula[!grepl("\\.",library_pred_formula)]
     result_formula = mz_calculator(test_rawdata, 
                                    expand_formula_to_library(c(library_pred_formula)),
@@ -77,7 +78,8 @@ source("~/myrepo/mz_calculator/mz_calculator_function.R")
                                   show_mz_formula = show_mz_formula, 
                                   exp_inten_cutoff = 500,
                                   ion_mode = ion_mode,
-                                  precalculated_formula = precalculated_formula)
+                                  precalculated_formula = precalculated_formula,
+                                  parent_formula = "C54H56N2O21")
       
     }
     plotsMS2Spectra_ls[[i]] = fig_ls

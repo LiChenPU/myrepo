@@ -40,7 +40,8 @@ fancy_scientific <- function(l) {
 ## predict formula ####
 my_pred_formula=function(mz = df$mz, ion_mode,
                          parent_formula = "C99H100N15O15S3P3", N_rule = F, 
-                         ppm=15, db_max=8){
+                         ppm=15, db_max=40){
+  # parent_formula = "C54H56N2O21"
   
   C_range = 0:(elem_num_query(parent_formula, "C"))
   H_range = 0:(elem_num_query(parent_formula, "H"))
@@ -50,7 +51,7 @@ my_pred_formula=function(mz = df$mz, ion_mode,
   S_range = 0:(elem_num_query(parent_formula, "S"))
   
   predict_formula = character(length(mz))
-  #i=16
+  # i=15
   for(i in 1:length(mz)){
     temp = mz_formula(mz[i], charge = ion_mode,  N_rule = N_rule, 
                       C_range=C_range, H_range = H_range, N_range=N_range, O_range=O_range, P_range = P_range, S_range = S_range, 
@@ -108,7 +109,8 @@ plot_MS2_spec = function(MS2Spectra,
                          top_n_peaks = 10,
                          exp_inten_cutoff = 5000,
                          ion_mode,
-                         precalculated_formula = NA)
+                         precalculated_formula = NA,
+                         parent_formula = "C99H100N30O50P10S10")
 {
   # MS2Spectra = library_files[[2]][[4403]]
   # MS2Spectra =expMS2Spectra_ls[[1]][[1]]
@@ -145,7 +147,7 @@ plot_MS2_spec = function(MS2Spectra,
   
   if(show_mz_formula == "formula" | show_mz_formula == "formula_cplex"){
     if(show_mz_formula == "formula"){
-      df["pred_formula"] = my_pred_formula(df$mz, ion_mode = ion_mode)
+      df["pred_formula"] = my_pred_formula(df$mz, ion_mode = ion_mode, parent_formula = parent_formula)
     } else {
       df["pred_formula"] = sapply(df$mz, function(x){
         unique(precalculated_formula$formula[precalculated_formula$mz==x])[1]

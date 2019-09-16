@@ -6,10 +6,11 @@ source("xcms_ms2_functions.R")
 ## Read files ####
 {
   
-  setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
+  # setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
+  setwd("C:/study/data/exactive/190915 Test run")
   
   list.files()
-  peak_list = read.csv("select_peak_list_neg.csv", stringsAsFactors = F)
+  peak_list = read.csv("select_peak_list.csv", stringsAsFactors = F)
   
   
   mzXML <- dir(full.names = TRUE, recursive = F, pattern = ".mzXML")
@@ -79,7 +80,7 @@ source("xcms_ms2_functions.R")
   expMS2Spectra_ls = filter_MS2_Spec(MS2ScanData, 
                                      peak_list,
                                      spec_all,
-                                     targetMzError = 15E-6,
+                                     targetMzError = 10E-6,
                                      targetRtError = 0.2)
   
   
