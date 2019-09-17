@@ -187,22 +187,26 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Edge_score
-Edge_score = function(Biotransform, plot_graph = F){
+Edge_score = function(Biotransform, fix_distribution_sigma = F ,plot_graph = F){
   #Biotransform = EdgeSet$Biotransform
-  if(nrow(Biotransform)>10000){
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+  if(fix_distribution_sigma){
+    temp_sigma = fix_distribution_sigma
   } else {
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+    if(nrow(Biotransform)>10000){
+      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+    } else {
+      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+    }
+    
+    if(plot_graph){
+      plot(edge_mzdif_FIT)
+      print(summary(edge_mzdif_FIT))
+    }
+    temp_sigma = edge_mzdif_FIT$estimate[2]
   }
+ 
   
-  if(plot_graph){
-    plot(edge_mzdif_FIT)
-    print(summary(edge_mzdif_FIT))
-  }
-  
-  
-  
-  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
+  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
@@ -581,7 +585,6 @@ Prepare_CPLEX = function(Mset, EdgeSet){
       #edge_info_sum = CPLEXset$data$edge_info_sum
       gc()
       edge_info_sum = bind_rows(edge_info)
-      edge_info_sum = rbind(edge_info_sum,edge_info_sum)
       
       
       edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
@@ -706,15 +709,11 @@ Score_formula = function(Mset, CPLEXset, rdbe=T, step_score=T)
 ### Score_edge_cplex ####
 Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 {
-  edge_info_sum = CPLEXset$data$edge_info_sum
-  edge_info_sum = edge_info_sum[with(edge_info_sum, order(edge_ilp_id)),]
+  edge_info_sum = CPLEXset$data$edge_info_sum %>%
+    arrange(edge_ilp_id)
   unknown_formula = CPLEXset$data$unknown_formula
   
- 
   edge_info_sum$edge_score = log10(edge_info_sum$edge_score) + edge_bonus
-  
-  
-  
   
   test3 = edge_info_sum[edge_info_sum$ILP_id2<=nrow(unknown_formula)&
                           edge_info_sum$ILP_id1<=nrow(unknown_formula),]
