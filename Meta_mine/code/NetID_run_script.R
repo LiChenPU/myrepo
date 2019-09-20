@@ -51,7 +51,7 @@ print(ion_mode)
                                                   mass_ppm = 5/10^6,
                                                   read_from_csv = read_from_csv)
   }
-  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform)
+  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, plot_dist=T)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,

@@ -558,11 +558,14 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5, read_from_csv
 ## Check_sys_measure_error - Check systematic error ####
 Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
   
-  Biotransform = EdgeSet$Biotransform
-  Biotransform = Biotransform[Biotransform$linktype=="",]
-  # Biotransform = Biotransform[Biotransform$node1>nrow(Mset$Data)|Biotransform$node2>nrow(Mset$Data),]
   high_inten_node = Mset$Data$ID[Mset$Data$mean_inten>inten_threshold]
-  Biotransform = Biotransform[Biotransform$node1 %in% high_inten_node | Biotransform$node2 %in% high_inten_node, ]
+  Biotransform = EdgeSet$Biotransform %>%
+    filter(linktype == "") %>%
+    filter(node1>nrow(Mset$Data)|node2>nrow(Mset$Data)) %>%
+    filter(mass_dif<2) %>%
+    filter(node1 %in% high_inten_node | node2 %in% high_inten_node)
+  
+  
   
   A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
   A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
@@ -604,16 +607,17 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
 }
 
 ### Edge_score - Scoring edge based on mass accuracy ####
-Edge_score = function(Biotransform){
+Edge_score = function(Biotransform, plot_dist = F){
   #Biotransform = EdgeSet$Biotransform
   if(nrow(Biotransform)>10000){
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
   } else {
     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
   }
+  if(plot_dist){plot(edge_mzdif_FIT)
+    print(summary(edge_mzdif_FIT))
+    }
   
-  # plot(edge_mzdif_FIT)  
-  summary(edge_mzdif_FIT)
   
   Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
