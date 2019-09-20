@@ -12,13 +12,13 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 # Read files
 
 {
-  setwd("./library")
+  setwd("~/myrepo/Meta_mine/library")
   filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
   filenames = filenames[!grepl("merge_mdata.csv", filenames)]
-  filenames = filenames[grepl("neg", filenames)]
+  filenames = filenames[grepl("pos", filenames)]
   # filenames = filenames[!grepl("yeast", filenames)]
   filenames = filenames[grepl("yeast", filenames)]
-  filenames = filenames[-c(1,2)]
+  filenames = filenames[5]
   
   num_of_files = length(filenames)
   raw_ls = list()
@@ -76,10 +76,10 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 # Filter peaks based on existing mz RT intensity list
 {
   setwd("../project/190828 Yeast comparison")
-  ion_mode = -1
+  ion_mode = 1
   inten_cutoff = 5e4
-  raw_peak_list = read.csv("yeast_Pave_neg.csv", stringsAsFactors = F)
-  raw_peak_list = read.csv("yeast_Pave_neg_unknown.csv", stringsAsFactors = F)
+  # raw_peak_list = read.csv("yeast_Pave_neg.csv", stringsAsFactors = F)
+  raw_peak_list = read.csv("yeast_Pave_pos_unknown.csv", stringsAsFactors = F)
   table(raw_peak_list$feature)
   
   peak_list = raw_peak_list %>%
@@ -87,8 +87,8 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
     filter(sig>log10(inten_cutoff)) %>%
     rename(medMz = mz, medRt = RT)
   
-  target_mdata = raw_ls[[4]] %>%
-    mutate(mean_inten2 = rowMeans(.[,grepl("12C14N-0ev",colnames(.))]))
+  target_mdata = raw_ls[[1]] %>%
+    mutate(mean_inten2 = rowMeans(.[,grepl("12C14N.0ev",colnames(.))]))
   
   data_select_ls = list()
   find_i = c()
@@ -112,10 +112,10 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
   
   
   find_i2 = find_i[sapply(data_select_ls[find_i], function(x){max(x$mean_inten, x$mean_inten2) >inten_cutoff})]
-  PAVE_filter_neg = peak_list[find_i2,]
+  PAVE_filter_pos = peak_list[find_i2,]
   
-  write.csv(mdata_filter2, "Yeast_WL_PAVEfiltered_neg_mdata_5e4.csv", row.names = F)
-  write.csv(PAVE_filter_neg, "Yeast_PAVEfiltered_neg_mdata_5e4.csv", row.names = F)
+  write.csv(mdata_filter2, "Yeast_WL_PAVEfiltered_pos_mdata_5e4.csv", row.names = F)
+  write.csv(PAVE_filter_pos, "Yeast_PAVEfiltered_pos_mdata_5e4.csv", row.names = F)
 }
 
 

@@ -2,7 +2,7 @@
 # Main ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("xcms_ms2_functions.R")
-
+source("~/myrepo/mz_calculator/mz_calculator_function.R")
 
 # MS2 analysis ####
 {
@@ -19,8 +19,8 @@ source("xcms_ms2_functions.R")
   library_files = library_files_all[grepl("pos", names(library_files_all))]
   rm(library_files_all)
   # load experiment ms2 files
-  # setwd("C:/study/data/exactive/190731 Melanie young old mice MS2/")
-  setwd("C:/study/data/exactive/190420 MS2 yeast 12 13C 50D2O rest unknown + hist standard/pos_scan")
+  # setwd("C:/study/data/exactive/Yeast_unknown/190906 Yeast unknowns + spike in/MS2/neg")
+  setwd("C:/study/data/exactive/190915 Test run")
   
   load(list.files(pattern = "EXPMS2.RData"))
   
@@ -29,11 +29,45 @@ source("xcms_ms2_functions.R")
  
 }
 
+# expMS2Spectra_ls2 = expMS2Spectra_ls
 ## Print all experimental MS2 spectra ####
 {
   plotsMS2Spectra_ls = list()
   show_mz_formula = "formula"
-  top_n_peaks = 20
+  top_n_peaks = 25
+  
+  precalculated_formula = NA
+  if(show_mz_formula == "formula_cplex"){
+    spec_list = list()
+    for(exp_i in 1:length(expMS2Spectra_ls)){
+      # for(exp_i in 4:4){
+      expMS2Spectra = expMS2Spectra_ls[[exp_i]]
+      selectLargestTIC = sapply(expMS2Spectra, tic)
+      expMS2Spectra_select = spec2mzIntensity(expMS2Spectra[[which.max(selectLargestTIC)]], top_n_peaks = 20)
+      expMS2Spectra_select["label"] = names(expMS2Spectra_ls[exp_i])
+      spec_list[[exp_i]] = expMS2Spectra_select
+    }
+    spec_list = lapply(unlist(expMS2Spectra_ls), spec2mzIntensity, top_n_peaks = 15)
+    test_rawdata = bind_rows(spec_list) %>% mutate(ID = 1:nrow(.))
+    
+    # manually copy from other places for R to read clipboard
+    # library_formula = readClipboard()
+    library_pred_formula = my_pred_formula(mz = test_rawdata$mz, ion_mode = ion_mode, parent_formula = "C54H56N2O21")
+    library_pred_formula = library_pred_formula[!grepl("\\.",library_pred_formula)]
+    result_formula = mz_calculator(test_rawdata, 
+                                   expand_formula_to_library(c(library_pred_formula)),
+                                   connect_depth = 6,
+                                   ion_mode = ion_mode)
+    result_formula2 = result_formula %>%
+      filter(!is.na(formula)) %>%
+      arrange(desc(ILP_result)) %>%
+      distinct(ID, .keep_all=T) %>%
+      dplyr::select(ID, formula)
+    precalculated_formula = merge(test_rawdata, result_formula2) %>% mutate(mz = round(mz, 4))
+    
+  }
+  
+  
   for(i in 1:length(expMS2Spectra_ls)){
     expMS2Spectra = expMS2Spectra_ls[[i]]
     fig_ls = list()
@@ -43,7 +77,9 @@ source("xcms_ms2_functions.R")
                                   top_n_peaks = top_n_peaks,
                                   show_mz_formula = show_mz_formula, 
                                   exp_inten_cutoff = 500,
-                                  ion_mode = ion_mode)
+                                  ion_mode = ion_mode,
+                                  precalculated_formula = precalculated_formula,
+                                  parent_formula = "C54H56N2O21")
       
     }
     plotsMS2Spectra_ls[[i]] = fig_ls
@@ -61,8 +97,7 @@ source("xcms_ms2_functions.R")
 {
   exp_i = 4
   library_i = 2
-  
-  for(exp_i in 5:length(expMS2Spectra_ls)){
+  for(exp_i in 1:length(expMS2Spectra_ls)){
     # for(exp_i in 4:4){
     expMS2Spectra = expMS2Spectra_ls[[exp_i]]
     selectLargestTIC = sapply(expMS2Spectra, tic)
@@ -92,7 +127,6 @@ source("xcms_ms2_functions.R")
       top_n(12, score) %>%
       filter(score!=0)
     
-    
     # plot library MS2
     fig_ls = list()
     show_mz_formula = "mz"
@@ -118,10 +152,6 @@ source("xcms_ms2_functions.R")
     dev.off()
   }
 }
-
-
-
-
 
 ## calculate dot product distance between spectra ####
 testMS2Spectra = unlist(expMS2Spectra_ls)

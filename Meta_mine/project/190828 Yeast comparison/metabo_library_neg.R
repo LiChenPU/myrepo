@@ -12,13 +12,13 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
 # Read files
 
 {
-  setwd("./library")
+  setwd("~/myrepo/Meta_mine/library")
   filenames = list.files(list.dirs(recursive = T), pattern = "mdata.csv", full.names = T)
   filenames = filenames[!grepl("merge_mdata.csv", filenames)]
   filenames = filenames[grepl("neg", filenames)]
   # filenames = filenames[!grepl("yeast", filenames)]
   filenames = filenames[grepl("yeast", filenames)]
-  filenames = filenames[-c(1,2)]
+  filenames = filenames[4]
   
   num_of_files = length(filenames)
   raw_ls = list()
@@ -87,7 +87,7 @@ source('~/myrepo/Meta_mine/metabo_library_functions.R')
     filter(sig>log10(inten_cutoff)) %>%
     rename(medMz = mz, medRt = RT)
   
-  target_mdata = raw_ls[[4]] %>%
+  target_mdata = raw_ls[[1]] %>%
     mutate(mean_inten2 = rowMeans(.[,grepl("12C14N-0ev",colnames(.))]))
   
   data_select_ls = list()

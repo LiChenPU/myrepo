@@ -15,5 +15,6 @@
 *.xml
 *.sdf
 *.tsv
+*.pptx
 .Rproj.user
 prob.lp

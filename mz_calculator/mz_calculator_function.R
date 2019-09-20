@@ -20,7 +20,7 @@ read_library = function(library_file){
 }
 
 ## Read_rule_table - for Connect_rules ####
-Read_rule_table = function(rule_table_file){
+Read_rule_table = function(rule_table_file, extend_rule = F){
   data("isotopes")
   Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
   for(i in 1: nrow(Connect_rules)){
@@ -30,29 +30,33 @@ Read_rule_table = function(rule_table_file){
     Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1 ,Is_valid = F)
     Connect_rules$mass[i] = formula_mz(Connect_rules$Formula[i])
   }
-  extend_rules = list()
-  i=3
-  for(i in 1: nrow(Connect_rules)){
-    if(Connect_rules$allow_rep[i] <= 1){next}
-    for(j in 2:Connect_rules$allow_rep[i]){
-      temp_rule = Connect_rules[i,]
-      temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
-      temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
-                                               sign = j-1,Is_valid = F)
-      temp_rule$mass = temp_rule$mass * j
-      temp_rule$rdbe = temp_rule$rdbe * j
+  
+  if(extend_rule){
+    extend_rules = list()
+    i=3
+    for(i in 1: nrow(Connect_rules)){
+      if(Connect_rules$allow_rep[i] <= 1){next}
+      for(j in 2:Connect_rules$allow_rep[i]){
+        temp_rule = Connect_rules[i,]
+        temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
+        temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
+                                                 sign = j-1,Is_valid = F)
+        temp_rule$mass = temp_rule$mass * j
+        temp_rule$rdbe = temp_rule$rdbe * j
+        
+        extend_rules[[length(extend_rules)+1]] = temp_rule
+      }
       
-      extend_rules[[length(extend_rules)+1]] = temp_rule
     }
     
+    Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
+    
+    
+    Connect_rules = Connect_rules %>%
+      arrange(mass) %>%
+      dplyr::select(-allow_rep)
   }
-  
-  Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
-  
-  
-  Connect_rules = Connect_rules %>%
-    arrange(mass) %>%
-    dplyr::select(-allow_rep)
+
    
   return(Connect_rules)
 }
@@ -68,7 +72,7 @@ Peak_cleanup = function(Mset)
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
-  raw$mz = raw$mz*abs(ion_mode) - (H_mass-e_mass)*ion_mode
+  raw$mz = raw$mz - (H_mass-e_mass)*ion_mode
   
  
   return(raw)
@@ -97,10 +101,10 @@ Form_node_list = function(Mset)
 }
 
 ## Edge_Connect_rules ####
-Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
+Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5/10^6)
 {
   
-  mass_ppm = mass_ppm/10^6
+  
   merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
   merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
   merge_nrow = nrow(merge_node_list)
@@ -111,6 +115,7 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
     temp_mz_list=merge_node_list$mz
     
     for (k in 1:nrow(Mset$Connect_rules)){
+      # print(k)
       temp_fg=Mset$Connect_rules$mass[k]
       temp_direction = Mset$Connect_rules$direction[k]
       temp_rdbe = Mset$Connect_rules$rdbe[k]
@@ -123,7 +128,7 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
                                   rdbe = as.numeric())
       while(i<=merge_nrow){
         temp_ms=0
-        mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
+        mass_tol = max(temp_mz_list[i]*mass_ppm,mass_abs)
         while(1){
           j=j+1
           if(j>merge_nrow){break}
@@ -152,8 +157,8 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
       
     }
   }
-  print(paste("Connect_rules found."))
-  print(Sys.time()-timer)
+  print("Finish Connect_rules.")
+  # print(Sys.time()-timer)
   edge_list = bind_rows(edge_ls)
   
   edge_list$linktype=Mset$Connect_rules$Formula[edge_list$linktype]
@@ -167,7 +172,7 @@ Edge_Connect_rules = function(Mset, mass_abs = 0.001, mass_ppm = 5)
   edge_list_sub["category"]=1
   # write_csv(edge_list_sub,"edge_list_sub.txt")
     
-
+  
   return(edge_list_sub)
 }
 
@@ -182,18 +187,26 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Edge_score
-Edge_score = function(Biotransform){
+Edge_score = function(Biotransform, fix_distribution_sigma = F ,plot_graph = F){
   #Biotransform = EdgeSet$Biotransform
-  if(nrow(Biotransform)>10000){
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+  if(fix_distribution_sigma){
+    temp_sigma = fix_distribution_sigma
   } else {
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+    if(nrow(Biotransform)>10000){
+      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+    } else {
+      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+    }
+    
+    if(plot_graph){
+      plot(edge_mzdif_FIT)
+      print(summary(edge_mzdif_FIT))
+    }
+    temp_sigma = edge_mzdif_FIT$estimate[2]
   }
+ 
   
-  # plot(edge_mzdif_FIT)  
-  summary(edge_mzdif_FIT)
-  
-  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
+  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
   Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
@@ -203,12 +216,13 @@ Network_prediction = function(Mset,
                               edge_biotransform, 
                               biotransform_step = 10,
                               propagation_score_threshold = 0.25,
-                              top_n = 50
+                              top_n = 50,
+                              print_step = F
 )
 {
   
   mnl=Mset$NodeSet
-  edge_biotransform = EdgeSet$Connect_rules
+  # edge_biotransform = EdgeSet$Connect_rules
   # top_formula_n=1
   # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
@@ -235,7 +249,7 @@ Network_prediction = function(Mset,
   #while loop to Predict formula based on known formula and edgelist 
   nrow_experiment = nrow(Mset$Data)
   step=0
-  
+  timer = Sys.time()
   timer=Sys.time()
   while(step <= biotransform_step){
     
@@ -247,8 +261,10 @@ Network_prediction = function(Mset,
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df[all_nodes_df$steps==step
                                   &all_nodes_df$score>propagation_score_threshold,]
-      print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
-      print((Sys.time()-timer))
+      if(print_step){
+        print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
+        print((Sys.time()-timer))
+      }
       step = step + 1
       if(nrow(new_nodes_df)==0 | step > biotransform_step){break}
       edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
@@ -385,6 +401,8 @@ Network_prediction = function(Mset,
     
     # write_csv(merge_formula,"All_formula_predict.txt")
   }
+  
+  print("Finish Network_prediction.")
   return(sf)
 }
 
@@ -457,8 +475,8 @@ Prepare_CPLEX = function(Mset, EdgeSet){
     for(n in 1:nrow(edge_list)){
       # for(n in 1:20000){
       if(n%%10000==0){
-        print(paste("n=",n,"elapsed="))
-        print(Sys.time()-timer)
+        # print(paste("n=",n,"elapsed="))
+        # print(Sys.time()-timer)
         
       }
       
@@ -567,7 +585,6 @@ Prepare_CPLEX = function(Mset, EdgeSet){
       #edge_info_sum = CPLEXset$data$edge_info_sum
       gc()
       edge_info_sum = bind_rows(edge_info)
-      edge_info_sum = rbind(edge_info_sum,edge_info_sum)
       
       
       edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
@@ -639,13 +656,13 @@ Prepare_CPLEX = function(Mset, EdgeSet){
                     unknown_nodes = unknown_nodes,
                     unknown_formula = unknown_formula
   )
-  print("finish CPLEXset.")
+  print("Finish CPLEXset.")
   return(CPLEX = list(data = CPLEX_data,
                       para = CPLEX_para)
   )
 }
 ### Score_formula ####
-Score_formula = function(CPLEXset, rdbe=T, step_score=T)
+Score_formula = function(Mset, CPLEXset, rdbe=T, step_score=T)
 {
   unknown_formula = CPLEXset$data$unknown_formula
   
@@ -686,21 +703,17 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T)
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
-  print("Finish scoring formula.")
+  # print("Finish scoring formula.")
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
 Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 {
-  edge_info_sum = CPLEXset$data$edge_info_sum
-  edge_info_sum = edge_info_sum[with(edge_info_sum, order(edge_ilp_id)),]
+  edge_info_sum = CPLEXset$data$edge_info_sum %>%
+    arrange(edge_ilp_id)
   unknown_formula = CPLEXset$data$unknown_formula
   
- 
   edge_info_sum$edge_score = log10(edge_info_sum$edge_score) + edge_bonus
-  
-  
-  
   
   test3 = edge_info_sum[edge_info_sum$ILP_id2<=nrow(unknown_formula)&
                           edge_info_sum$ILP_id1<=nrow(unknown_formula),]
@@ -728,7 +741,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
   
   temp_edge_info_sum = temp_edge_info_sum[with(temp_edge_info_sum, order(edge_ilp_id)),]
   
-  print("Finish scoring edges.")
+  # print("Finish scoring edges.")
   return(temp_edge_info_sum)
   
 }
@@ -765,16 +778,16 @@ Run_CPLEX = function(CPLEXset, obj){
   # setDefaultParmCPLEX(env)
   # getChgParmCPLEX(env)
   
-  tictoc::tic()
+  # tictoc::tic()
   
   return_code = mipoptCPLEX(env, prob)
   result_solution=solutionCPLEX(env, prob)
   
-  print(paste(return_codeCPLEX(return_code),"-",
-              status_codeCPLEX(env, getStatCPLEX(env, prob)),
-              " - OBJ_value =", result_solution$objval))
+  # print(paste(return_codeCPLEX(return_code),"-",
+  #             status_codeCPLEX(env, getStatCPLEX(env, prob)),
+  #             " - OBJ_value =", result_solution$objval))
   
-  tictoc::toc()
+  # tictoc::toc()
   
   # writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
@@ -792,3 +805,114 @@ Read_CPLEX_result = function(solution){
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
 }
+
+## CPLEX_permutation ####
+CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
+  unknown_formula = CPLEXset$data$unknown_formula
+  obj = CPLEXset$Init_solution[[1]]$obj
+  obj_node = obj[1:nrow(unknown_formula)]
+  obj_edge = obj[(nrow(unknown_formula)+1):length(obj)]
+  solution_ls = list()
+  for(i in 1:n_pmt){
+    
+    temp_obj_edge = obj_edge + rnorm(length(obj_edge), mean = 0, sd = max(obj_edge) * sd_rel_max)
+    temp_obj <- c(obj_node, temp_obj_edge)
+    
+    result_solution = Run_CPLEX(CPLEXset, temp_obj)
+    solution_ls[[length(solution_ls)+1]] = result_solution
+    
+  }
+  return(solution_ls)
+}
+
+## expand_formula_to_library ####
+expand_formula_to_library = function(formula = "C2H4O2"){
+  data(isotopes)
+  formula = check_chemform(isotopes,formula)$new_formula
+  data.frame(ID = 1:length(formula),
+             Name = formula,
+             MF = formula,
+             Exact_Mass = formula_mz(formula),
+             category = 0, 
+             rdbe = formula_rdbe(formula),
+             stringsAsFactors = F
+  )
+}
+
+
+# !!Run_function!! ####
+mz_calculator = function(raw_data, 
+                         library_data,
+                         connect_depth = 5,
+                         ion_mode = 1,
+                         rule_table_file = "~/myrepo/mz_calculator/dependent/connect_rules.csv"
+                         
+)
+{
+  # raw_data = test_rawdata
+  # library_data = expand_formula_to_library("C5H7N3O")
+  {
+    Mset = list()
+    Mset[["Raw_data"]] = raw_data
+    Mset[["Library"]] = library_data
+    Mset[["Connect_rules"]]=Read_rule_table(rule_table_file = rule_table_file)
+    Mset[["Global_parameter"]]=  list(mode = ion_mode)
+    Mset[["Data"]] = Peak_cleanup(Mset)
+  }
+  
+  {
+    Mset[["NodeSet"]]=Form_node_list(Mset)
+    EdgeSet = list()
+    
+    EdgeSet[["Connect_rules"]] = Edge_Connect_rules(Mset, 
+                                                    mass_abs = 0.002, 
+                                                    mass_ppm = 25/10^6)
+    
+    EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules)
+    EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
+    
+    Mset[["NodeSet_network"]] = Network_prediction(Mset, 
+                                                   edge_biotransform = EdgeSet$Connect_rules,
+                                                   biotransform_step = connect_depth,
+                                                   propagation_score_threshold = 0.25,
+                                                   top_n = 50)
+    
+    CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
+  }
+  
+  # Run CPLEX ####
+  {
+    CPLEXset$data$unknown_formula = Score_formula(Mset, CPLEXset,
+                                                  rdbe=T, step_score=F)
+    edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
+    obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
+    
+    CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+    # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
+    CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
+  }
+  
+  # Read CPLEX result ####
+  {
+    CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
+    CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+    
+    CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+    #CPLEX_x = result_solution$x
+  }
+  
+  {
+    unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
+    unknown_formula = CPLEXset$data$unknown_formula
+    
+    unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
+    unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
+    print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
+    
+    unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  }
+  
+  return(unknown_node_CPLEX)
+  
+} 
+
