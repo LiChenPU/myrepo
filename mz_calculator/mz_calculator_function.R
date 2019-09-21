@@ -188,7 +188,7 @@ Merge_edgeset = function(EdgeSet){
 
 ## Edge_score
 Edge_score = function(Biotransform, fix_distribution_sigma = F ,plot_graph = F){
-  #Biotransform = EdgeSet$Biotransform
+  # Biotransform = EdgeSet$Connect_rules
   if(fix_distribution_sigma){
     temp_sigma = fix_distribution_sigma
   } else {
@@ -217,7 +217,8 @@ Network_prediction = function(Mset,
                               biotransform_step = 10,
                               propagation_score_threshold = 0.25,
                               top_n = 50,
-                              print_step = F
+                              print_step = F,
+                              max_formula_num = 1e6
 )
 {
   
@@ -236,7 +237,6 @@ Network_prediction = function(Mset,
                           rdbe=as.numeric(),
                           stringsAsFactors = F)
     #sf stands for summary_formula
-    
     sf = lapply(1:nrow(mnl),function(i)(data_str))
     
     for(i in mnl$ID[mnl$category==0]){
@@ -254,8 +254,6 @@ Network_prediction = function(Mset,
   while(step <= biotransform_step){
     
     all_nodes_df = bind_rows(sf)
-    
-    
     # Handle biotransform
     {
       all_nodes_df = bind_rows(sf)
@@ -265,8 +263,9 @@ Network_prediction = function(Mset,
         print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
         print((Sys.time()-timer))
       }
+      
       step = step + 1
-      if(nrow(new_nodes_df)==0 | step > biotransform_step){break}
+      if(nrow(new_nodes_df)==0 | step > biotransform_step | nrow(all_nodes_df) > max_formula_num){break}
       edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
                                                   edge_biotransform$node2 %in% new_nodes_df$id,]
       
@@ -662,18 +661,24 @@ Prepare_CPLEX = function(Mset, EdgeSet){
   )
 }
 ### Score_formula ####
-Score_formula = function(Mset, CPLEXset, rdbe=T, step_score=T)
+Score_formula = function(Mset, CPLEXset, mass_dist_sigma, rdbe=F, step_score=F)
 {
-  unknown_formula = CPLEXset$data$unknown_formula
+  unknown_formula = CPLEXset$data$unknown_formula 
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
-  unknown_formula["msr_mass"] = Mset$Data$mz[unknown_formula$id]
-  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  unknown_formula = unknown_formula %>%
+    mutate(msr_mass = Mset$Data$mz[id], cal_mass = formula_mz(formula)) %>%
+    mutate(msr_cal_mass_dif = msr_mass - cal_mass) %>%
+    mutate(msr_cal_mass_dif_ppm = msr_cal_mass_dif / msr_mass * 1e6)
   
-  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
+  
+  
   # edge_mzdif_FIT <- fitdist(unknown_formula$msr_cal_mass_dif*1000, "norm")    
   # summary(edge_mzdif_FIT)
-  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
+  
+  unknown_formula = unknown_formula %>%
+    mutate(Mass_score = dnorm(msr_cal_mass_dif_ppm, 0, mass_dist_sigma)/dnorm(0, 0, mass_dist_sigma)) %>%
+    mutate(Mass_score = Mass_score+1e-10)
   
   #when rdbe < -1, penalty to each rdbe less
   #unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
@@ -696,7 +701,7 @@ Score_formula = function(Mset, CPLEXset, rdbe=T, step_score=T)
   # the rdbe score penalizes unsaturation below -1
   #Each node should be non-positive, to avoid node formula without edge connection
   unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"]) +
-    log10(unknown_formula["score"]) +
+    # log10(unknown_formula["score"]) +
     unknown_formula["step_score"] + 
     unknown_formula["rdbe_score"] 
   
@@ -747,7 +752,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
 }
 
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj){
+Run_CPLEX = function(CPLEXset, obj, print_time =F){
   # obj = obj_cplex
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
@@ -778,14 +783,17 @@ Run_CPLEX = function(CPLEXset, obj){
   # setDefaultParmCPLEX(env)
   # getChgParmCPLEX(env)
   
-  # tictoc::tic()
+  time = Sys.time()
   
   return_code = mipoptCPLEX(env, prob)
   result_solution=solutionCPLEX(env, prob)
   
-  # print(paste(return_codeCPLEX(return_code),"-",
-  #             status_codeCPLEX(env, getStatCPLEX(env, prob)),
-  #             " - OBJ_value =", result_solution$objval))
+  if(print_time){
+    print(paste(return_codeCPLEX(return_code),"-",
+                status_codeCPLEX(env, getStatCPLEX(env, prob)),
+                " - OBJ_value =", result_solution$objval))
+    print(Sys.time()-time)
+  }
   
   # tictoc::toc()
   
@@ -916,3 +924,4 @@ mz_calculator = function(raw_data,
   
 } 
 
+  
