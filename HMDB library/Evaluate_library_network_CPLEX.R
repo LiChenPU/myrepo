@@ -6,40 +6,46 @@ library(ggplot2)
 library(ggrepel)
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
-# Read HMDB_files & library_data
+HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
+HMDB_clean2 = HMDB_clean %>%
+  dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
+
+set.seed(9061)
+results2 = list()
+for(library_formula_num in c(1,100,1000)){
+
+library_formula = sample(HMDB_clean2$MF, library_formula_num)
+if(library_formula_num==1){library_formula = "C6H12O6"} 
+
+# Read HMDB_files & library_data ####
 {
-  HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
-  HMDB_clean2 = HMDB_clean %>%
-    dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
-  
-  
-  {
-    HMDB_xml = read_csv("hmdb_xml_checkchemform.csv") 
-    
-    HMDB_quantified_detected_unique = HMDB_xml %>% 
-      filter(status %in% c("detected", "quantified")) %>%
-      distinct(chemical_formula, .keep_all=T)
-    
-    HMDB_quantified_detected_formula = HMDB_xml %>%
-      filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
-    
-    HMDB_clean_quantified_detected = HMDB_clean %>%
-      filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession) %>%
-      dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
-    
-    
-    HMDB_clean2 = HMDB_clean_quantified_detected
-    }
-  
-  
-  library_data = expand_formula_to_library("C6H12O6")
+  # {
+  #   HMDB_xml = read_csv("hmdb_xml_checkchemform.csv")
+  # 
+  #   HMDB_quantified_detected_unique = HMDB_xml %>%
+  #     filter(status %in% c("detected", "quantified")) %>%
+  #     distinct(chemical_formula, .keep_all=T)
+  # 
+  #   HMDB_quantified_detected_formula = HMDB_xml %>%
+  #     filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
+  # 
+  #   HMDB_clean_quantified_detected = HMDB_clean %>%
+  #     filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession) %>%
+  #     dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
+  # 
+  # 
+  #   HMDB_clean2 = HMDB_clean_quantified_detected
+  # }
+  library_data = expand_formula_to_library(library_formula)
   
 }
 
 ## adding variation to absolute mz
 {
+  ppm_error = .5
+  
   HMDB_clean2 = HMDB_clean2 %>%
-    mutate(mz = mz * (1+ rnorm(nrow(.), 0, 1)/10^6)) # add ppm error
+    mutate(mz = mz * (1+ rnorm(nrow(.), 0, ppm_error)/10^6)) # add ppm error
   # mutate(mz = mz * (1+ rnorm(nrow(.), 0, 2)/10^3)) # add abs error
   
   HMDB_clean_test = HMDB_clean2 %>%
@@ -70,15 +76,18 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
                                                   mass_abs = 0, 
                                                   mass_ppm = 10/10^6)
   
-  EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules, plot_graph = T)
+  EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules, plot_graph = T,
+                                          mass_dist_sigma = ppm_error
+                                          )
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  edge_biotransform = EdgeSet$Connect_rules,
                                                  biotransform_step = 100,
-                                                 propagation_score_threshold = 0.25,
+                                                 propagation_score_threshold = 0.2,
                                                  top_n = 50,
+                                                 max_formula_num = 1e6,
                                                  print_step = T)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
@@ -89,7 +98,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 {
   ## Identify all correct_connects
   {
-    all_connects = EdgeSet$Merge %>% filter(node1!=max(Mset[["NodeSet"]]$ID), node2!=max(Mset[["NodeSet"]]$ID))
+    all_connects = EdgeSet$Merge %>% filter(node1 %in% 1:nrow(Mset$Data), node2 %in% 1:nrow(Mset$Data))
     
     node1_formula = HMDB_clean2$MF[all_connects$node1]
     node2_formula = HMDB_clean2$MF[all_connects$node2]
@@ -268,6 +277,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
     g = g_main
     
     node_list = main_node_list
+    # node_list = unknown_formula
     edge_list = main_edge_list
     
     step_info = as.data.frame(table(node_list$steps), stringsAsFactors = F) %>%
@@ -318,7 +328,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
       geom_point(aes(y = Total.metabolites/4)) + 
       geom_line(aes(y = Total.metabolites/4), group=1) +
       geom_text_repel(aes(y = Total.metabolites/4, label = Total.metabolites), vjust = -.5) +
-      scale_y_continuous(sec.axis = sec_axis(~.*4, name = "Total.metabolites"), limits = c(0,2500), expand = c(0,0)) +
+      scale_y_continuous(sec.axis = sec_axis(~.*4, name = "Total.metabolites"), limits = c(0,1000), expand = c(0,0)) +
       
       # theme(legend.title = element_blank()) + 
       theme(legend.position = "right") +
@@ -326,15 +336,19 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   }
 }
 
+CPLEXset$data$unknown_formula = Score_formula(Mset, CPLEXset,
+                                              mass_dist_sigma = ppm_error,
+                                              rdbe=F, step_score=F)
+results = list()
+for(edge_bonus_test in seq(1,2.5,.5)){
 # Run CPLEX ####
 {
-  CPLEXset$data$unknown_formula = Score_formula(Mset, CPLEXset,
-                                                rdbe=F, step_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1)
+
+  # edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus_test)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
   
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex, print_time = T))
-  # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
 }
 
@@ -344,8 +358,8 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
-  
 }
+
 
 # evaluate CPLEX results
 {
@@ -379,264 +393,70 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
 
 # evaluate brute force formula results
-{
-  Brute_force_formula = HMDB_clean2 %>%
-    dplyr::select(ID, Exact_Mass, mz, MF) 
-  
-  # Max number of element
-  for(i in c("C","H","N","O","P","S")){
-    print(max(sapply(Brute_force_formula$MF, elem_num_query, i)[-c(1434,1435)]))
-  }
-  
-  # rdbes = sapply(Brute_force_formula$MF, formula_rdbe)
-  # max(rdbes)
-  
-  Brute_force_formula_ls = list()
-  for(i in 1:nrow(Brute_force_formula)){
-    Brute_force_formula_ls[[i]] = mz_formula(Brute_force_formula$mz[i], 
-                                             C_range = 0:100,
-                                             H_range = 0:164,
-                                             N_range = 0:23,
-                                             O_range = 0:39,
-                                             P_range = 0:6,
-                                             S_range = 0:4,
-                                             db_max = 99,
-                                             charge=0, 
-                                             ppm = 5)
-  }
-  Elem_ratio_rule_formula_ls = list()
-  for(i in 1:nrow(Brute_force_formula)){
-    Elem_ratio_rule_formula_ls[[i]] = mz_formula(Brute_force_formula$mz[i], 
-                                                 C_range = 0:100,
-                                                 H_range = 0:164,
-                                                 N_range = 0:23,
-                                                 O_range = 0:39,
-                                                 P_range = 0:6,
-                                                 S_range = 0:4,
-                                                 db_max = 99,
-                                                 charge=0, 
-                                                 Elem_ratio_rule = T,
-                                                 ppm = 5)
-  }
-  
-  Brute_force_formula["bf_position"] = apply(Brute_force_formula, 1, function(x){
-    temp_ID = as.numeric(x["ID"])
-    temp_formula = x["MF"]
-    temp_df = Brute_force_formula_ls[[temp_ID]]
-    if(!is.data.frame(temp_df)){return(-2)}
-    if(!temp_formula %in% temp_df$formula){return(-1)}
-    which(temp_df$formula==temp_formula)
-    
-  })
-  
-  Brute_force_formula["elem_ratio_rule_position"] = apply(Brute_force_formula, 1, function(x){
-    temp_ID = as.numeric(x["ID"])
-    temp_formula = x["MF"]
-    temp_df = Elem_ratio_rule_formula_ls[[temp_ID]]
-    if(!is.data.frame(temp_df)){return(-2)}
-    if(!temp_formula %in% temp_df$formula){return(-1)}
-    which(temp_df$formula==temp_formula)
-    
-  })
-  
-  table(Brute_force_formula["elem_ratio_rule_position"] )
-  table(Brute_force_formula["bf_position"] )
-  
-  
-  
-  brute_force_summary = as.data.frame(table(Brute_force_formula$elem_ratio_rule_position), stringsAsFactors = F) %>%
-    mutate(Var1 = as.numeric(Var1))
-  
-  brute_force_summary %>%
-    filter(Var1==1) %>%
-    dplyr::select(Freq) %>% sum()
-  
-  brute_force_summary %>%
-    filter(Var1<=3, Var1>=1) %>%
-    dplyr::select(Freq) %>% sum()
-  
-  brute_force_summary %>%
-    filter(Var1<=10, Var1>=1) %>%
-    dplyr::select(Freq) %>% sum()
-}
-
-
-
-
-# 
 # {
-#   #subnetwork criteria 
-#   clu = components(g)
-#   main_network = igraph::groups(clu)[table(clu$membership)>1000]
-#   subnetwork = igraph::groups(clu)[table(clu$membership)>30&table(clu$membership)<1000]
-#   g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g, order=diameter(g), mode="all")
-#   sub_nodelist = merge_library[merge_library$ID %in% subnetwork[[2]],]
-#   #write.csv(sub_nodelist, "maybe wrong entry in HMDB.csv")
-#   
-#   g_sub = graph_from_data_frame(d = edge_list_sub, vertices = merge_node_list[merge_node_list$ID %in% c(edge_list_sub[,1], edge_list_sub[,2]),], directed = FALSE)
-#   colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
-#   V(g_sub)$color = colors[vertex.attributes(g_sub)$category+1]
-#   E(g_sub)$color = colors[edge_list_sub$category+1]
-#   
-#   #Basic graph characteristics, distance, degree, betweeness
-#   {
-#     #distance
-#     farthest_vertices(g) 
-#     #Degree
-#     g.degree <- degree(g, mode = c("all"))
-#     table(g.degree)
-#     hist(g.degree)
-#     # which.max(g.degree)
-#     node_list_0degree = node_list[g.degree==0,]
-#     # node_list$Exact_Mass[g.degree==0]
-#     # node_list$Exact_Mass[71]
-#     # node_list$MF[71]
-#     #Betweenness
-#     g.b <- betweenness(g, directed = T)
-#     colors <- c("white", "red", "orange", "blue", "dodgerblue", "cyan")
-#     V(g)$color <- colors[merge_node_list$category+2]
-#     plot(g, 
-#          vertex.label = NA,
-#          edge.color = 'black',
-#          vertex.size = sqrt(degree(g, mode = c("all")))+1,
-#          edge.arrow.size = 0.05,
-#          layout = layout_nicely(g))
+#   Brute_force_formula = HMDB_clean2 %>%
+#     dplyr::select(ID, Exact_Mass, mz, MF)
+# 
+#   # Max number of element
+#   for(i in c("C","H","N","O","P","S")){
+#     print(max(sapply(Brute_force_formula$MF, elem_num_query, i)[-c(1434,1435)]))
 #   }
-#   
-#   
-#   #Analyze the network/subgraph of specific node
-#   {
-#     interested_node = "1941"
-#     g_intrest <- make_ego_graph(g,2, nodes = interested_node, mode = c("all"))[[1]]
-#     dists = distances(g_intrest, interested_node)
-#     colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
-#     
-#     #V(g_intrest)$color <- colors[dists+1]
-#     plot(g_intrest,
-#          #vertex.color = 'white',
-#          #vertex.label = vertex.attributes(g_intrest)$Predict_formula,
-#          #vertex.label = vertex.attributes(g_intrest)$MF,
-#          vertex.label = vertex.attributes(g_intrest)$MF,
-#          #vertex.label = vertex.attributes(g_intrest)$ID,
-#          vertex.label.color = "red",
-#          vertex.label.cex = 1,
-#          edge.color = 'black',
-#          edge.label = fun_group_1$fun_group[edge.attributes(g_intrest)$linktype],
-#          vertex.size = 10,
-#          edge.arrow.size = .05,
-#          main = paste("Subnetwork of node", interested_node)
-#     )
+# 
+#   # rdbes = sapply(Brute_force_formula$MF, formula_rdbe)
+#   # max(rdbes)
+# 
+# 
+#   Elem_ratio_rule_formula_ls = list()
+#   for(i in 1:nrow(Brute_force_formula)){
+#     Elem_ratio_rule_formula_ls[[i]] = mz_formula(Brute_force_formula$mz[i],
+#                                                  C_range = 0:100,
+#                                                  H_range = 0:164,
+#                                                  N_range = 0:23,
+#                                                  O_range = 0:39,
+#                                                  P_range = 0:6,
+#                                                  S_range = 0:4,
+#                                                  db_max = 99,
+#                                                  charge=0,
+#                                                  Elem_ratio_rule = T,
+#                                                  ppm = 5)
 #   }
-#   
-#   #merge_node_list[which(merge_node_list$MF=="C6H13O4PS2"),]
-#   
-#   #Analysis of Subnetwork 
-#   {
-#     clu=components(g)
-#     #table(clu$csize)
-#     #subnetwork criteria 
-#     main_network = igraph::groups(clu)[table(clu$membership)>1000]
-#     subnetwork = igraph::groups(clu)[table(clu$membership)>30&table(clu$membership)<1000]
-#     g_subnetwork_list = lapply(subnetwork, make_ego_graph, graph=g, order=diameter(g), mode="all")
-#     sub_nodelist = merge_library[merge_library$ID %in% subnetwork[[1]],]
-#     #write.csv(sub_nodelist, "maybe wrong entry in HMDB.csv")
-#     
-#     
-#     for (i in 1:length(subnetwork)){
-#       plot(g_subnetwork_list[[i]][[1]],
-#            #vertex.color = 'white',
-#            vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$MF,
-#            #vertex.label = vertex.attributes(g_subnetwork_list[[i]][[1]])$Exact_Mass,
-#            vertex.label.color = "red",
-#            vertex.label.cex = 1,
-#            edge.color = 'black',
-#            edge.label = fun_group_1$fun_group[edge.attributes(g_subnetwork_list[[i]][[1]])$linktype],
-#            vertex.size = 10,
-#            edge.arrow.size = .05,
-#            main = paste("Subnetwork",names(subnetwork)[[i]])
-#       )
-#     }
-#     merge_node_list[subnetwork[["52"]],]
-#   }
-#   
+# 
+#   Brute_force_formula["elem_ratio_rule_position"] = apply(Brute_force_formula, 1, function(x){
+#     temp_ID = as.numeric(x["ID"])
+#     temp_formula = x["MF"]
+#     temp_df = Elem_ratio_rule_formula_ls[[temp_ID]]
+#     if(!is.data.frame(temp_df)){return(-2)}
+#     if(!temp_formula %in% temp_df$formula){return(-1)}
+#     which(temp_df$formula==temp_formula)
+# 
+#   })
+# 
+#   table(Brute_force_formula["elem_ratio_rule_position"] )
+# 
+#   brute_force_summary = as.data.frame(table(Brute_force_formula$elem_ratio_rule_position), stringsAsFactors = F) %>%
+#     mutate(Var1 = as.numeric(Var1))
+# 
+#   brute_force_summary %>%
+#     filter(Var1==1) %>%
+#     dplyr::select(Freq) %>% sum()
+# 
+#   brute_force_summary %>%
+#     filter(Var1<=3, Var1>=1) %>%
+#     dplyr::select(Freq) %>% sum()
+# 
+#   brute_force_summary %>%
+#     filter(Var1<=10, Var1>=1) %>%
+#     dplyr::select(Freq) %>% sum()
+# 
+#   brute_force_summary %>%
+#     dplyr::select(Freq) %>% sum()
 # }
 
-
-
-
-
-mz_calculator = function(raw_data, 
-                         library_data,
-                         connect_depth = 5,
-                         ion_mode = 1,
-                         rule_table_file = "~/myrepo/mz_calculator/dependent/connect_rules.csv"
-                         
-)
-{
-  # raw_data = test_rawdata
-  # library_data = expand_formula_to_library("C5H7N3O")
-  {
-    Mset = list()
-    Mset[["Raw_data"]] = raw_data
-    Mset[["Library"]] = library_data
-    Mset[["Connect_rules"]]=Read_rule_table(rule_table_file = rule_table_file)
-    Mset[["Global_parameter"]]=  list(mode = ion_mode)
-    Mset[["Data"]] = Peak_cleanup(Mset)
-  }
-  
-  {
-    Mset[["NodeSet"]]=Form_node_list(Mset)
-    EdgeSet = list()
-    
-    EdgeSet[["Connect_rules"]] = Edge_Connect_rules(Mset, 
-                                                    mass_abs = 0.002, 
-                                                    mass_ppm = 25/10^6)
-    
-    EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules)
-    EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
-    
-    Mset[["NodeSet_network"]] = Network_prediction(Mset, 
-                                                   edge_biotransform = EdgeSet$Connect_rules,
-                                                   biotransform_step = connect_depth,
-                                                   propagation_score_threshold = 0.25,
-                                                   top_n = 50)
-    
-    CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
-  }
-  
-  # Run CPLEX ####
-  {
-    CPLEXset$data$unknown_formula = Score_formula(Mset, CPLEXset,
-                                                  rdbe=F, step_score=F)
-    edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.2)
-    obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
-    
-    CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
-    # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-    CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
-  }
-  
-  # Read CPLEX result ####
-  {
-    CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-    CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
-    
-    CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
-    #CPLEX_x = result_solution$x
-  }
-  
-  {
-    unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
-    unknown_formula = CPLEXset$data$unknown_formula
-    
-    unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
-    unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
-    print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
-    
-    unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
-  }
-  
-  return(unknown_node_CPLEX)
-  
+results[[length(results)+1 ]] = list(cplex_formula_correct, cplex_formula_wrong, all_formula)
 } 
+results2[[length(results2)+1]] = results
+}
+lapply(results2, function(results){
+  sapply(results, function(x){c(nrow(x[[1]]),nrow(x[[2]]), nrow(x[[3]]))})
+})
 
