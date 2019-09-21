@@ -187,27 +187,44 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Edge_score
-Edge_score = function(Biotransform, fix_distribution_sigma = F ,plot_graph = F){
+Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
   # Biotransform = EdgeSet$Connect_rules
-  if(fix_distribution_sigma){
-    temp_sigma = fix_distribution_sigma
-  } else {
-    if(nrow(Biotransform)>10000){
-      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
-    } else {
-      edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
-    }
-    
-    if(plot_graph){
-      plot(edge_mzdif_FIT)
-      print(summary(edge_mzdif_FIT))
-    }
-    temp_sigma = edge_mzdif_FIT$estimate[2]
-  }
- 
+  # mass_dist_sigma = 1
+  library_nodes_ID = Mset$NodeSet %>% 
+    filter(category==0) %>% 
+    pull(ID)
   
-  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
-  Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
+  Biotransform1 = Biotransform %>%
+    filter(node1 %in% library_nodes_ID | node2 %in% library_nodes_ID) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
+  
+  
+  Biotransform2 = Biotransform %>%
+    filter(!node1 %in% library_nodes_ID, !node2 %in% library_nodes_ID) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, sqrt(2) * mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
+  
+  Biotransform = rbind(Biotransform1, Biotransform2)
+  
+  
+  # if(fix_distribution_sigma){
+  #   temp_sigma = ppm_error
+  # } else {
+  #   if(nrow(Biotransform)>10000){
+  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+  #   } else {
+  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+  #   }
+  #   
+  #   if(plot_graph){
+  #     plot(edge_mzdif_FIT)
+  #     print(summary(edge_mzdif_FIT))
+  #   }
+  #   temp_sigma = edge_mzdif_FIT$estimate[2]
+  # }
+  # Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
+  # Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
 

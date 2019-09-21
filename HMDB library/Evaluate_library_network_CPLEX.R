@@ -10,7 +10,7 @@ HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
 HMDB_clean2 = HMDB_clean %>%
   dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
 
-set.seed(123)
+set.seed(9061)
 results2 = list()
 for(library_formula_num in c(1,100,1000)){
 
@@ -19,30 +19,30 @@ if(library_formula_num==1){library_formula = "C6H12O6"}
 
 # Read HMDB_files & library_data ####
 {
-  {
-    HMDB_xml = read_csv("hmdb_xml_checkchemform.csv")
-
-    HMDB_quantified_detected_unique = HMDB_xml %>%
-      filter(status %in% c("detected", "quantified")) %>%
-      distinct(chemical_formula, .keep_all=T)
-
-    HMDB_quantified_detected_formula = HMDB_xml %>%
-      filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
-
-    HMDB_clean_quantified_detected = HMDB_clean %>%
-      filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession) %>%
-      dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
-
-
-    HMDB_clean2 = HMDB_clean_quantified_detected
-  }
+  # {
+  #   HMDB_xml = read_csv("hmdb_xml_checkchemform.csv")
+  # 
+  #   HMDB_quantified_detected_unique = HMDB_xml %>%
+  #     filter(status %in% c("detected", "quantified")) %>%
+  #     distinct(chemical_formula, .keep_all=T)
+  # 
+  #   HMDB_quantified_detected_formula = HMDB_xml %>%
+  #     filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
+  # 
+  #   HMDB_clean_quantified_detected = HMDB_clean %>%
+  #     filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession) %>%
+  #     dplyr::mutate(mz = Exact_Mass, ID = 1:nrow(.))
+  # 
+  # 
+  #   HMDB_clean2 = HMDB_clean_quantified_detected
+  # }
   library_data = expand_formula_to_library(library_formula)
   
 }
 
 ## adding variation to absolute mz
 {
-  ppm_error = 1
+  ppm_error = .5
   
   HMDB_clean2 = HMDB_clean2 %>%
     mutate(mz = mz * (1+ rnorm(nrow(.), 0, ppm_error)/10^6)) # add ppm error
@@ -77,7 +77,7 @@ if(library_formula_num==1){library_formula = "C6H12O6"}
                                                   mass_ppm = 10/10^6)
   
   EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules, plot_graph = T,
-                                          fix_distribution_sigma = sqrt(2) * ppm_error
+                                          mass_dist_sigma = ppm_error
                                           )
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
@@ -452,11 +452,11 @@ for(edge_bonus_test in seq(1,2.5,.5)){
 #     dplyr::select(Freq) %>% sum()
 # }
 
-results[[length(results)+1 ]] = list(cplex_formula_correct, cplex_formula_wrong)
+results[[length(results)+1 ]] = list(cplex_formula_correct, cplex_formula_wrong, all_formula)
 } 
 results2[[length(results2)+1]] = results
 }
 lapply(results2, function(results){
-  sapply(results, function(x){c(nrow(x[[1]]),nrow(x[[2]]))})
+  sapply(results, function(x){c(nrow(x[[1]]),nrow(x[[2]]), nrow(x[[3]]))})
 })
 
