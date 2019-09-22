@@ -55,7 +55,7 @@ print(ion_mode)
   }
   
   mass_dist_sigma = 0.5
-  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = 0.5)
+  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = mass_dist_sigma)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
@@ -65,9 +65,8 @@ print(ion_mode)
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
                                                search_ms_cutoff=0.002,
-                                               search_ppm_cutoff=10,
-                                               read_from_csv = read_from_csv)
-  EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts)
+                                               search_ppm_cutoff=10)
+  EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts, mass_dist_sigma = mass_dist_sigma)
   
   #heterodimer  
   EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation)
@@ -80,21 +79,20 @@ print(ion_mode)
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  edge_biotransform = EdgeSet$Biotransform, 
                                                  edge_artifact = EdgeSet$Artifacts,
-                                                 biotransform_step = 4,
-                                                 artifact_step = 5,
-                                                 propagation_score_threshold = 0.5,
-                                                 top_n = 50,
-                                                 read_from_csv = read_from_csv)
+                                                 biotransform_step = 7,
+                                                 artifact_step = 7,
+                                                 propagation_score_threshold = 0.2,
+                                                 top_n = 50)
   
-  CPLEXset = Prepare_CPLEX(Mset, EdgeSet, read_from_csv = read_from_csv)
+  CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
 }
 
 # Run CPLEX ####
 {
   # save.image("temp.RData")
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
-                                                rdbe=T, step_score=T, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
+                                                rdbe=F, step_score=F, iso_penalty_score=F)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 }
 

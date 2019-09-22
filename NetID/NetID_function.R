@@ -631,21 +631,21 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_t
 
 ### Edge_score - Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
-  # Biotransform = EdgeSet$Connect_rules
-  # mass_dist_sigma = 1
+  # Biotransform = EdgeSet[["Artifacts"]]
+  # mass_dist_sigma = .5
   library_nodes_ID = Mset$NodeSet %>% 
-    filter(category==0) %>% 
+    filter(category!=1) %>% 
     pull(ID)
   
   Biotransform1 = Biotransform %>%
     filter(node1 %in% library_nodes_ID | node2 %in% library_nodes_ID) %>%
-    mutate(edge_massdif_score = dnorm(mass_dif, 0, mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, mass_dist_sigma) + 1e-10) %>%
     mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
-  
+  # max(Biotransform1$edge_massdif_score)
   
   Biotransform2 = Biotransform %>%
     filter(!node1 %in% library_nodes_ID, !node2 %in% library_nodes_ID) %>%
-    mutate(edge_massdif_score = dnorm(mass_dif, 0, sqrt(2) * mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, sqrt(2) * mass_dist_sigma)+ 1e-10) %>%
     mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
   
   Biotransform = rbind(Biotransform1, Biotransform2)
@@ -811,7 +811,7 @@ Peak_variance = function(Mset,
   edge_ls = edge_ls[with(edge_ls, order(mz_dif)),]
   edge_ls["mz_node1"] = Mset$NodeSet$mz[edge_ls$node1]
   edge_ls["mz_node2"] = Mset$NodeSet$mz[edge_ls$node2]
-  # edge_ls["mz_dif"] = Mset$NodeSet$mz[edge_ls$node2] -Mset$NodeSet$mz[edge_ls$node1]
+  edge_ls["mz_dif"] = Mset$NodeSet$mz[edge_ls$node2] -Mset$NodeSet$mz[edge_ls$node1]
   # edge_ls["log10_inten_node1"] = Mset$Data$log10_inten[edge_ls$node1]
   # edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
   # edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
@@ -826,9 +826,10 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
                                search_ms_cutoff=0.002, search_ppm_cutoff = 10)
 {
   
-    # edge_ls_highcor = EdgeSet$Peak_inten_correlation
-    edge_ls_highcor = Peak_inten_correlation
-    edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
+  search_ppm_cutoff = search_ppm_cutoff/1e6
+    # edge_ls_highcor = EdgeSet$Peak_inten_correlation %>% arrange(mz_dif)
+    edge_ls_highcor = Peak_inten_correlation %>% arrange(mz_dif)
+    # edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
     junk_df = Mset$Artifacts
     
     i=j=1
@@ -848,7 +849,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
       if(i%%1000000==0){print(paste(i, "edges screened."))
         print(Sys.time()-timer)}
       
-      search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i]/10^6)
+      search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*edge_ls_highcor$mz_node1[i])
       
       
       if(edge_ls_highcor_mz_dif[i]<(junk_df$mass[j]-search_cutoff)){
@@ -927,18 +928,12 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
     #data$parent[data$ID==6]
     test_time = Sys.time()-test_time
     
-    edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo)
+    edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo) %>%
+      dplyr::select(c("node1","node2","linktype","mass_dif","category","direction","rdbe"))
     
+    # edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction","rdbe")]
     
-    
-    edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction","rdbe")]
-    
-    # write_csv(edge_ls_annotate_network,"artifact_edge_list.txt")
-  } 
-  else{
-    edge_ls_annotate_network = read.csv("artifact_edge_list.txt",stringsAsFactors = F)
-  }
-  return(edge_ls_annotate_network)
+  return(edge_ls_annotate)
 }
 
 ### Hetero_dimer - Edge_list for hetero_dimer ####
@@ -977,22 +972,13 @@ Hetero_dimer = function(Peak_inten_correlation)
 ## Merge_edgeset ####
 Merge_edgeset = function(EdgeSet){
   edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
-  Mdata = Mset$Data$log10_inten
-  node1 = edge_merge$node1
-  node2 = edge_merge$node2
   
+  edge_merge = edge_merge %>%
+    mutate(node1_log10_inten = Mset$Data$log10_inten[node1],
+           node2_log10_inten = Mset$Data$log10_inten[node2]) %>%
+    mutate(edge_id = 1:nrow(.)) %>%
+    mutate(msr_inten_dif = node2_log10_inten - node1_log10_inten)
   
-  c1 = list()
-  c2 = list()
-  for(i in 1:nrow(edge_merge)){
-    c1[[length(c1)+1]] = Mdata[node1[i]]
-    c2[[length(c2)+1]] = Mdata[node2[i]]
-  }
-  
-  edge_merge["node1_log10_inten"] = unlist(c1)
-  edge_merge["node2_log10_inten"] = unlist(c2)
-  edge_merge["edge_id"]=1:nrow(edge_merge)
-  edge_merge["msr_inten_dif"] = edge_merge["node2_log10_inten"]-edge_merge["node1_log10_inten"]
   
   return(edge_merge)
 }
@@ -1004,16 +990,17 @@ Network_prediction = function(Mset,
                               edge_artifact,
                               biotransform_step = 5,
                               artifact_step = 5,
-                              propagation_score_threshold = 0.5,
-                              top_n = 50,
-                              read_from_csv = F
+                              propagation_score_threshold = 0.2,
+                              propagation_artifact_intensity_threshold = 2e4,
+                              max_formula_num = 1e6
+                              top_n = 50
 )
 {
   gc()
-  if(!read_from_csv){
+  
     mnl=Mset$NodeSet
-    edge_biotransform = EdgeSet$Biotransform
-    edge_artifact = EdgeSet$Artifacts
+    # edge_biotransform = EdgeSet$Biotransform
+    # edge_artifact = EdgeSet$Artifacts
     # top_formula_n=1
     # edge_list_sub = EdgeSet$Merge
     #Initialize predict_formula from HMDB known formula
@@ -1061,9 +1048,13 @@ Network_prediction = function(Mset,
                                     &all_nodes_df$score>propagation_score_threshold,]
         sub_step = sub_step+0.01
         if(nrow(new_nodes_df)==0){break}
+        
+        
         edge_artifact_sub = edge_artifact[edge_artifact$node1 %in% new_nodes_df$id | 
                                             edge_artifact$node2 %in% new_nodes_df$id,]
         
+      
+        n=3
         for(n in 1:nrow(new_nodes_df)){
           temp_new_node = new_nodes_df[n,]
           flag_id = temp_new_node$id
@@ -1076,14 +1067,17 @@ Network_prediction = function(Mset,
           
           # temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
           #                         edge_artifact_sub$node2==flag_id)
+          
+          
           flag_id_in_node1_or_node2 = edge_artifact_sub$node1==flag_id | edge_artifact_sub$node2==flag_id
           temp_edge_list = edge_artifact_sub[flag_id_in_node1_or_node2,]
           
           
           #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
           if(flag_id <= nrow_experiment){
-            if(Mset$Data$mean_inten[flag_id]< 2e4){next}
+            if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
           }
+          
           
           #If flag is an isotopic peak, then only look for isotopic peaks
           if(grepl("\\[",flag_formula)){
@@ -1191,7 +1185,7 @@ Network_prediction = function(Mset,
         print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
         print((Sys.time()-timer))
         step = step + 1
-        if(nrow(new_nodes_df)==0 | step > biotransform_step){break}
+        if(nrow(new_nodes_df)==0 | step > biotransform_step | nrow(new_nodes_df) > max_formula_num){break}
         edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
                                                     edge_biotransform$node2 %in% new_nodes_df$id,]
         
@@ -1315,7 +1309,6 @@ Network_prediction = function(Mset,
     # Pruning formula  #
     {
       pred_formula = bind_rows(lapply(sf, head, top_n))
-      #pred_formula = pred_formula[!grepl("-",pred_formula$formula),]
       pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
       
       merge_formula = pred_formula
@@ -1324,21 +1317,8 @@ Network_prediction = function(Mset,
         sf[[n]]=merge_formula[merge_formula$id==n,]
       }
       
-      # write_csv(merge_formula,"All_formula_predict.txt")
     }
     
-    
-    
-  } else {
-    
-    merge_formula = read.csv("All_formula_predict.txt",stringsAsFactors = F)
-    sf = list()
-    for(n in 1: max(merge_formula$id)){
-      sf[[n]]=merge_formula[merge_formula$id==n,]
-    }
-  }
-  
-  
   return(sf)
 }
 
