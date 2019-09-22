@@ -2,7 +2,9 @@
 ## Read files ####
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+source("NetID_function.R")
 work_dir = "Xi_new_neg"
+ion_mode = -1
 print(work_dir)
 print(ion_mode)
 {
@@ -34,7 +36,6 @@ print(ion_mode)
 
 # Network ####
 {
-  read_from_csv = F
   EdgeSet = list()
   
   Mset[["NodeSet"]]=Form_node_list(Mset)

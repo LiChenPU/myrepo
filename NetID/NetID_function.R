@@ -6,9 +6,12 @@
   library(lc8)
   library(enviPat)
   library(dplyr)
+  library(tidyr)
   # library(fitdistrplus)
   library(slam)
   library(cplexAPI)
+  library(readr)
+  library(stringi)
 }
 
 # {
@@ -48,20 +51,41 @@ read_library = function(library_file){
   hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$MF)
   return(hmdb_lib)
 }
-## Read_rule_table - for biotransformation rule and artifacts ####
-Read_rule_table = function(rule_table_file = "biotransform.csv"){
+## Read_rule_table - for Connect_rules ####
+Read_rule_table = function(rule_table_file, extend_rule = F){
   data("isotopes")
-  biotransform = read.csv(rule_table_file,stringsAsFactors = F)
-  for(i in 1: nrow(biotransform)){
-    if(biotransform$Formula[i]==""){next}
-    biotransform$Formula[i] = check_chemform(isotopes,biotransform$Formula[i])$new_formula
-    biotransform$Formula[i] = my_calculate_formula(biotransform$Formula[i], "C1",Is_valid = F)
-    biotransform$Formula[i] = my_calculate_formula(biotransform$Formula[i], "C1", -1 ,Is_valid = F)
-    biotransform$mass[i] = formula_mz(biotransform$Formula[i])
+  Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
+  for(i in 1: nrow(Connect_rules)){
+    if(Connect_rules$Formula[i]==""){next}
+    Connect_rules$Formula[i] = check_chemform(isotopes,Connect_rules$Formula[i])$new_formula
+    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1",Is_valid = F)
+    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1 ,Is_valid = F)
+    Connect_rules$mass[i] = formula_mz(Connect_rules$Formula[i])
   }
   
-  biotransform = biotransform[with(biotransform, order(mass)),]
-  return(biotransform)
+  if(extend_rule){
+    extend_rules = list()
+    i=3
+    for(i in 1: nrow(Connect_rules)){
+      if(Connect_rules$allow_rep[i] <= 1){next}
+      for(j in 2:Connect_rules$allow_rep[i]){
+        temp_rule = Connect_rules[i,]
+        temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
+        temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
+                                                 sign = j-1,Is_valid = F)
+        temp_rule$mass = temp_rule$mass * j
+        temp_rule$rdbe = temp_rule$rdbe * j
+        
+        extend_rules[[length(extend_rules)+1]] = temp_rule
+      }
+    }
+    
+    Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
+    Connect_rules = Connect_rules %>%
+      arrange(mass) %>%
+      dplyr::select(-allow_rep)
+  }
+  return(Connect_rules)
 }
 
 ## Cohort_Info - Data name and cohorts ####
@@ -90,115 +114,73 @@ Peak_cleanup = function(Mset,
                         detection_limit=500
 )
 {
-  raw = Mset$Raw_data
+ 
   #raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
-  colnames(raw)[colnames(raw)=="groupId"] = "ID"
+  # colnames(raw)[colnames(raw)=="groupId"] = "ID"
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
-  raw$medMz = raw$medMz*abs(ion_mode) - (H_mass-e_mass)*ion_mode
+  raw = Mset$Raw_data %>%
+    rename(ID = groupId) %>%
+    mutate(medMz = medMz - (H_mass-e_mass)*ion_mode)
   
   
-  
-  #Group MS groups
+  ##Group MS groups
   {
     s = raw[with(raw, order(medMz, medRt)),]
-    s["merge_group"]=NA
-    mgMS_count = 1 
-    i_max=i_min=1
     
-    #
-    while (i_min <= nrow(raw)){
-      while(s$medMz[i_max]-s$medMz[i_min]< (s$medMz[i_min]*ms_dif_ppm)){
-        i_max = i_max+1
-        if(i_max>nrow(raw)){
-          break
-        }
+    mzs = s$medMz
+    count = 1
+    MZ_group = rep(1,(length(mzs)))
+    for(i in 2:length(mzs)){
+      if(mzs[i]-mzs[i-1]>mzs[i-1]*ms_dif_ppm){
+        count = count+1
       }
-      if(i_max-i_min == 1){
-        s$merge_group[i_min] = 0
-        i_min = i_min + 1
-        next
-      }
-      while(i_min < i_max){
-        s$merge_group[i_min] = mgMS_count
-        i_min=i_min+1
-      }  
-      mgMS_count=mgMS_count+1
+      MZ_group[i]=count
     }
+    s["MZ_group"]=MZ_group
+    }
+  
+  ##Group RT similar groups based on MS groups
+  {
+    s2 = s[with(s, order(MZ_group, medRt)),]
+    
+    rts = s2$medRt
+    
+    MZRT_group = rep(1,(length(rts)))
+    MZ_group = s2$MZ_group
+    
+    count = 1
+    for(i in 2:length(rts)){
+      if(MZ_group[i]!=MZ_group[i-1] | rts[i]-rts[i-1]>rt_dif_min){
+        count = count+1
+      }
+      MZRT_group[i]=count
+    }
+    s2["MZRT_group"] = MZRT_group
+    
   }
   
-  #Group RT similar groups based on MS groups
+  # Take median of the mz and rt for peaks with same MZRTgroup
   {
-    s2 = s[with(s, order(merge_group, medRt)),]
-    s2["RTmerge_group"]=NA
-    
-    mgRT_count=1
-    
-    j_min=length(which(s2$merge_group == 0))
-    
-    for (n in 1:j_min){
-      s2$RTmerge_group[n] = 0
-    }
-    
-    j_min=j_min+1
-    if(j_min <=nrow(raw)){s2$RTmerge_group[j_min] = 0}
-    j_max=j_min+1
-    
-    while (j_max <= nrow(raw)){
-      while (s2$merge_group[j_min] != s2$merge_group[j_max] |
-             s2$medRt[j_max] - s2$medRt[j_min] >= rt_dif_min){
-        s2$RTmerge_group[j_max] = 0
-        j_max = j_max+1
-        j_min = j_min+1
-        if(j_max > nrow(raw)){break}
-      }
-      if(j_max > nrow(raw)){break}
-      
-      while (s2$medRt[j_max] - s2$medRt[j_max-1] < rt_dif_min){
-        j_max = j_max+1
-        if(j_max>nrow(raw) | s2$merge_group[j_min] != s2$merge_group[j_max]) {break}
-      }
-      j_max = j_max-1
-      
-      for(j in j_min:j_max){
-        s2$RTmerge_group[j] = mgRT_count
-      }
-      
-      mgRT_count = mgRT_count+1
-      j_min=j_max
-      j_max=j_max+1
-    }
-  }
-  
-  #Flag groups for deletion & combine signal
-  {
-    s3 = s2[with(s2, order(RTmerge_group)),]
-    s3[["flag"]]=NA
-    k_max=k_min=length(which(s3$RTmerge_group==0))
-    for(k in 1:k_min){
-      s3$flag[k] = T
-    }
-    
-    
+    s3 = s2 %>% 
+      arrange(MZRT_group)
     ncol_raw = ncol(raw)
-    while (k_max <= nrow(raw)){
+    MZRT_group = s3$MZRT_group
+    medMz = s3$medMz
+    medRt = s3$medRt
+    
+    k_max=k_min=1
+    while (k_max <= length(MZRT_group)){
       k_min = k_max
-      s3$flag[k_min] = T
-      while (s3$RTmerge_group[k_min] == s3$RTmerge_group[k_max]){
+      while (MZRT_group[k_min] == MZRT_group[k_max]){
         k_max = k_max+1
-        if(k_max > nrow(raw)){break}
-        s3$flag[k_max] = F
+        if(k_max > length(MZRT_group)){break}
       }
-      
-      if(k_min == k_max-1){
-        next
-      }
-      s3$medMz[k_min]=mean(s3$medMz[k_min:(k_max-1)], na.rm=TRUE)
-      s3$medRt[k_min]=mean(s3$medRt[k_min:(k_max-1)], na.rm=TRUE)
-      # s3$goodPeakCount[k_min]=max(s3$goodPeakCount[k_min:(k_max-1)], na.rm=TRUE)
-      s3$ID[k_min]=min(s3$ID[k_min:(k_max-1)], na.rm=TRUE)
-      temp = s3[k_min:(k_max-1),14:ncol_raw]
+      if(k_max-k_min ==1){next}
+      medMz[k_min:(k_max-1)]=median(medMz[k_min:(k_max-1)], na.rm = T)
+      medRt[k_min:(k_max-1)]=median(medRt[k_min:(k_max-1)], na.rm = T)
+      temp = s3[k_min:(k_max-1),15:ncol_raw]
       temp[1,] = apply(temp, 2, function(x){
         if(any(!is.na(x))){
           return(max(x, na.rm = T))
@@ -206,36 +188,31 @@ Peak_cleanup = function(Mset,
           return(NA)
         }
       })
-      s3[k_min, 14:ncol_raw] = temp[1,]
-      # 
-      # for (n in 14:ncol(raw)){
-      #   if(any(!is.na(s3[k_min:(k_max-1),n]))){
-      #     s3[k_min,n]=max(s3[k_min:(k_max-1),n], na.rm=TRUE)
-      #   }
-      # }
+      s3[k_min:(k_max-1), 15:ncol_raw] = temp[1,]
     }
+    
+    s3$medMz = medMz
+    s3$medRt = medRt
   }
   
   #intermediate files, replace below detection number to random small number
   {
-    
-    s4=s3
+    s4=s3 %>%
+      mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
+      filter(mean_inten > detection_limit)
     # s4[,4:ncol(s4)][s4[,4:ncol(s4)]<detection_limit]=sample(1:detection_limit, 
     #                                                         size=sum(s4[,4:ncol(s4)]<detection_limit), 
     #                                                         replace=T)
-    
-    s4["mean_inten"]=NA
-    s4["mean_inten"]=rowMeans(s4[,Mset$Cohort$sample_names], na.rm = T)
-    s4$flag[s4$mean_inten<detection_limit]=F
   }
   
-  
-  s5 = s4[s4$flag, 1:ncol(raw)]
-  s5 = s5[with(s5, order(ID)),]
-  s5$ID = 1:nrow(s5)
-  
-  s5["mean_inten"]=rowMeans(s5[,Mset$Cohort$sample_names], na.rm = T)
-  s5["log10_inten"]=log10(s5$mean_inten)
+  s5 = s4 %>%
+    distinct(MZRT_group, .keep_all=T) %>%
+    arrange(ID) %>%
+    mutate(ID = 1:nrow(.)) %>%
+    dplyr::select(-c("MZ_group", "MZRT_group")) %>%
+    # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
+    mutate(log10_inten = log10(mean_inten))
+    
   
   return(s5)
 }
