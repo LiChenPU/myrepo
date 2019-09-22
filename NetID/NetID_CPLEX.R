@@ -25,13 +25,13 @@
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
-  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
+  # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
 }
 
 # Read CPLEX result ####
 {
   CPLEX_all_x = Read_CPLEX_result(CPLEXset$Init_solution)
-  CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   #CPLEX_x = result_solution$x

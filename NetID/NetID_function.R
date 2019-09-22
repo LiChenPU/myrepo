@@ -992,7 +992,7 @@ Network_prediction = function(Mset,
                               artifact_step = 5,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
-                              max_formula_num = 1e6
+                              max_formula_num = 1e6,
                               top_n = 50
 )
 {
@@ -1589,18 +1589,22 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
 }
 
 ### Score_formula ####
-Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
+Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F)
 {
-  unknown_formula = CPLEXset$data$unknown_formula
+  unknown_formula = CPLEXset$data$unknown_formula 
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
-  unknown_formula["msr_mass"] = Mset$Data$medMz[unknown_formula$id]
-  unknown_formula["cal_mass"] = formula_mz(unknown_formula$formula)
+  unknown_formula = unknown_formula %>%
+    mutate(msr_mass = Mset$NodeSet$mz[id], cal_mass = formula_mz(formula)) %>%
+    mutate(msr_cal_mass_dif = msr_mass - cal_mass) %>%
+    mutate(msr_cal_mass_dif_ppm = msr_cal_mass_dif / msr_mass * 1e6)
   
-  unknown_formula["msr_cal_mass_dif"] = unknown_formula["msr_mass"]-unknown_formula["cal_mass"]
   # edge_mzdif_FIT <- fitdist(unknown_formula$msr_cal_mass_dif*1000, "norm")    
   # summary(edge_mzdif_FIT)
-  unknown_formula["Mass_score"] = dnorm(unknown_formula$msr_cal_mass_dif, 0, 1e-3)/dnorm(0, 0, 1e-3)
+  
+  unknown_formula = unknown_formula %>%
+    mutate(Mass_score = dnorm(msr_cal_mass_dif_ppm, 0, mass_dist_sigma)/dnorm(0, 0, mass_dist_sigma)) %>%
+    mutate(Mass_score = Mass_score+1e-10)
   
   #when rdbe < -1, penalty to each rdbe less
   #unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
@@ -1617,9 +1621,9 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   } else{
     unknown_formula["step_score"]=0
   }
-  
-  
+
   unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
+  
   if(iso_penalty_score==TRUE){
     No_expect_isotope_penalty = function(unknown_formula, linktype){
       isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
@@ -1649,7 +1653,7 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   # the rdbe score penalizes unsaturation below -1
   #Each node should be non-positive, to avoid node formula without edge connection
   unknown_formula["cplex_score"] = log10(unknown_formula["Mass_score"]) +
-    log10(unknown_formula["score"]) +
+    # log10(unknown_formula["score"]) +
     unknown_formula["step_score"] + 
     unknown_formula["rdbe_score"] +
     unknown_formula["sum_iso_penalty_score"]
@@ -1661,19 +1665,25 @@ Score_formula = function(CPLEXset, rdbe=T, step_score=T, iso_penalty_score=F)
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
-Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
+Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
 {
-  edge_info_sum = CPLEXset$data$edge_info_sum
-  edge_info_sum = edge_info_sum[with(edge_info_sum, order(edge_ilp_id)),]
+  edge_info_sum = CPLEXset$data$edge_info_sum %>%
+    arrange(edge_ilp_id)
   unknown_formula = CPLEXset$data$unknown_formula
   
   {
-    edge_info_sum["isotope_score"] = NA
-    edge_info_sum["category"] = EdgeSet$Merge$category[edge_info_sum$edge_id]
-    edge_info_sum["msr_inten_dif"] =  EdgeSet$Merge$msr_inten_dif[edge_info_sum$edge_id]
+    edge_info_sum = edge_info_sum %>%
+      mutate(isotope_score = NA) %>%
+      mutate(category = EdgeSet$Merge$category[edge_id]) %>%
+      mutate(msr_inten_dif = EdgeSet$Merge$msr_inten_dif[edge_id])
+    # edge_info_sum["isotope_score"] = NA
+    # edge_info_sum["category"] = EdgeSet$Merge$category[edge_info_sum$edge_id]
+    # edge_info_sum["msr_inten_dif"] =  EdgeSet$Merge$msr_inten_dif[edge_info_sum$edge_id]
     
-    edge_info_isotope = edge_info_sum[grepl("\\[", edge_info_sum$category) & !is.na(edge_info_sum$msr_inten_dif),]
-    i=8706
+    edge_info_isotope = edge_info_sum %>%
+      filter(grepl("\\[", category), !is.na(msr_inten_dif))
+    
+    i=1
     for(i in 1:nrow(edge_info_isotope)){
       temp_edge = EdgeSet$Merge[edge_info_isotope$edge_id[i],]
       temp_iso = temp_edge$category
@@ -1687,6 +1697,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
       }
       calc_abun = isotopic_abundance(temp_formula, temp_iso)
       abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+      
       edge_info_isotope$isotope_score[i] = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
       # edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id[i]] = edge_info_isotope$isotope_score[i]
     }
@@ -1694,23 +1705,23 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
     # edge_info_sum[edge_info_sum$edge_ilp_id==8716,]
   }
   
+  edge_info_sum2 = edge_info_sum %>%
+    mutate(edge_score = log10(edge_score) + edge_bonus) %>%
+    mutate(isotope_score = isotope_score + isotope_bonus) %>%
+    mutate(isotope_score = replace_na(isotope_score, 0)) %>%
+    mutate(edge_score = edge_score + isotope_score)
+
+  edge_info_sum2 = edge_info_sum2 %>%
+    filter(ILP_id2<=nrow(unknown_formula), 
+           ILP_id1<=nrow(unknown_formula))
   
-  edge_info_sum$edge_score = log10(edge_info_sum$edge_score) + edge_bonus
-  edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus*2
-  #edge_info_sum$isotope_score = edge_info_sum$isotope_score + edge_bonus
-  edge_info_sum$isotope_score[is.na(edge_info_sum$isotope_score)]=0
-  edge_info_sum$edge_score = edge_info_sum$edge_score+edge_info_sum$isotope_score
+  edge_info_same12 = edge_info_sum2 %>% filter(formula1 == formula2)
+  df_same12 = table(edge_info_same12$formula1)
   
-  test3 = edge_info_sum[edge_info_sum$ILP_id2<=nrow(unknown_formula)&
-                          edge_info_sum$ILP_id1<=nrow(unknown_formula),]
-  
-  test3_same12 = test3[test3$formula1==test3$formula2,]
-  df_same12 = table(test3_same12$formula1)
-  
-  test3_dif12 = test3[test3$formula1!=test3$formula2,]
-  test3_dif12 = test3_dif12[duplicated(test3_dif12[,c("formula1","formula2")]) | 
+  edge_info_dif12 = edge_info_sum2 %>% filter(formula1 != formula2)
+  edge_info_dif12 = edge_info_dif12[duplicated(test3_dif12[,c("formula1","formula2")]) | 
                               duplicated(test3_dif12[,c("formula1","formula2")], fromLast=TRUE),]
-  temp_merge = with(test3_dif12, paste0(formula1, formula2))
+  temp_merge = with(edge_info_dif12, paste0(formula1, formula2))
   df_dif12 = table(temp_merge)
   
   # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
@@ -1719,13 +1730,16 @@ Score_edge_cplex = function(CPLEXset, edge_bonus = -log10(0.5))
   sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
   sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
   
-  test3_same12$edge_score = test3_same12$edge_score / (sol_mat$div[df_same12[test3_same12$formula1]])
-  test3_dif12$edge_score = test3_dif12$edge_score / (sol_mat$div[df_dif12[temp_merge]])
+  edge_info_same12 = edge_info_same12 %>%
+    mutate(edge_score = edge_score / sol_mat$div[df_same12[formula1]])
+  edge_info_dif12 = edge_info_dif12 %>%
+    mutate(edge_score = edge_score / sol_mat$div[df_dif12[temp_merge]])
   
-  temp_edge_info_sum = rbind(test3_same12,test3_dif12,edge_info_sum)
-  temp_edge_info_sum = temp_edge_info_sum[!duplicated(temp_edge_info_sum$edge_ilp_id),]
-  
-  temp_edge_info_sum = temp_edge_info_sum[with(temp_edge_info_sum, order(edge_ilp_id)),]
+  temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum2) %>%
+    distinct(edge_ilp_id, .keep_all = T) %>%
+    arrange(edge_ilp_id) %>%
+    mutate(node1 = EdgeSet$Merge$node1[edge_id],node2 = EdgeSet$Merge$node2[edge_id]) %>%
+    mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
   
   print("Finish scoring edges.")
   return(temp_edge_info_sum)

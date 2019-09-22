@@ -90,9 +90,9 @@ print(ion_mode)
 # Run CPLEX ####
 {
   # save.image("temp.RData")
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset,
+  CPLEXset$data$unknown_formula = Score_formula(CPLEXset, mass_dist_sigma = mass_dist_sigma,
                                                 rdbe=F, step_score=F, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5, isotope_bonus = 5)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 }
 
