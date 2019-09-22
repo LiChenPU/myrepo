@@ -12,6 +12,7 @@
   library(cplexAPI)
   library(readr)
   library(stringi)
+  library(pracma)
 }
 
 # {
@@ -459,105 +460,148 @@ Form_node_list = function(Mset)
 }
 
 ## Edge_biotransform - generate Edge_list for biotransformation ####
-Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5, read_from_csv=F)
+Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5)
 {
-  if(!read_from_csv){
-    mass_ppm = mass_ppm/10^6
-    merge_node_list = Mset$NodeSet[Mset$NodeSet$category!=-1,]
-    merge_node_list = merge_node_list[with(merge_node_list, order(mz)),]
-    merge_nrow = nrow(merge_node_list)
+  mass_ppm = mass_ppm/10^6
+  merge_node_list = Mset$NodeSet %>%
+    filter(category!=-1) %>% #category -1 means adduct node
+    arrange(mz)
+  
+  merge_nrow = nrow(merge_node_list)
+  
+  timer=Sys.time()
+  {
+    edge_ls = list()
+    temp_mz_list=merge_node_list$mz
     
-    timer=Sys.time()
-    {
-      edge_ls = list()
-      temp_mz_list=merge_node_list$mz
-      
-      for (k in 1:nrow(Mset$Biotransform)){
-        temp_fg=Mset$Biotransform$mass[k]
-        temp_direction = Mset$Biotransform$direction[k]
-        temp_rdbe = Mset$Biotransform$rdbe[k]
-        i=j=1
-        temp_edge_list = data.frame(node1=as.numeric(), 
-                                    node2=as.numeric(), 
-                                    linktype=as.numeric(), 
-                                    mass_dif=as.numeric(), 
-                                    direction = as.numeric(),
-                                    rdbe = as.numeric())
-        while(i<=merge_nrow){
-          temp_ms=0
-          mass_tol = max(temp_mz_list[i]*mass_ppm,0.001)
-          while(1){
-            j=j+1
-            if(j>merge_nrow){break}
-            temp_ms = temp_mz_list[j]-temp_mz_list[i]
-            
-            if(abs(temp_ms-temp_fg)<mass_tol){
-              temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], 
-                                                           merge_node_list$ID[j], 
-                                                           k, 
-                                                           (temp_ms-temp_fg)/temp_mz_list[j]*1E6, 
-                                                           temp_direction,
-                                                           temp_rdbe
-              )
-            }
-            if((temp_ms-temp_fg)>mass_tol){break}
-          }
-          i=i+1
+    for (k in 1:nrow(Mset$Biotransform)){
+      temp_fg=Mset$Biotransform$mass[k]
+      temp_direction = Mset$Biotransform$direction[k]
+      temp_rdbe = Mset$Biotransform$rdbe[k]
+      i=j=1
+      temp_edge_list = data.frame(node1=as.numeric(), 
+                                  node2=as.numeric(), 
+                                  linktype=as.numeric(), 
+                                  mass_dif=as.numeric(), 
+                                  direction = as.numeric(),
+                                  rdbe = as.numeric())
+      while(i<=merge_nrow){
+        temp_ms=0
+        mass_tol = max(temp_mz_list[i]*mass_ppm,mass_abs)
+        while(1){
+          j=j+1
+          if(j>merge_nrow){break}
+          temp_ms = temp_mz_list[j]-temp_mz_list[i]
           
-          while(j>i){
-            j=j-1
-            temp_ms = temp_mz_list[j]-temp_mz_list[i]
-            if((temp_ms-temp_fg)<(-mass_tol)){break}
+          if(abs(temp_ms-temp_fg)<mass_tol){
+            temp_edge_list[nrow(temp_edge_list)+1,]=list(merge_node_list$ID[i], 
+                                                         merge_node_list$ID[j], 
+                                                         k, 
+                                                         (temp_ms-temp_fg)/temp_mz_list[j]*1E6, 
+                                                         temp_direction,
+                                                         temp_rdbe
+            )
           }
+          if((temp_ms-temp_fg)>mass_tol){break}
         }
-        edge_ls[[k]]=temp_edge_list
-        print(paste("Biotransform", Mset$Biotransform$category[k], nrow(temp_edge_list),"found."))
+        i=i+1
+        
+        while(j>i){
+          j=j-1
+          temp_ms = temp_mz_list[j]-temp_mz_list[i]
+          if((temp_ms-temp_fg)<(-mass_tol)){break}
+        }
       }
+      edge_ls[[k]]=temp_edge_list
+      print(paste("Biotransform", Mset$Biotransform$category[k], nrow(temp_edge_list),"found."))
     }
-    
-    print(Sys.time()-timer)
-    edge_list = bind_rows(edge_ls)
-    
-    edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
-    
-    edge_list_sub = subset(edge_list, 
-                           (edge_list$node1<=nrow(Mset$Data)|
-                              edge_list$node2<=nrow(Mset$Data))&
-                             edge_list$node1!=edge_list$node2
-    )
-    
-    edge_list_sub["category"]=1
-    # write_csv(edge_list_sub,"edge_list_sub.txt")
-    
-  } else{
-    edge_list_sub = read.csv("edge_list_sub.txt", na="NA", stringsAsFactors = F)
   }
-  return(edge_list_sub)
+  
+  print(Sys.time()-timer)
+  edge_list = bind_rows(edge_ls) %>%
+    mutate(linktype = Mset$Biotransform$Formula[linktype]) %>%
+    filter(node1<=nrow(Mset$Data) | node2<=nrow(Mset$Data), 
+           node1!=node2) %>%
+    mutate(category = 1)
+  # 
+  # edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
+  # 
+  # edge_list_sub = subset(edge_list, 
+  #                        (edge_list$node1<=nrow(Mset$Data)|
+  #                           edge_list$node2<=nrow(Mset$Data))&
+  #                          edge_list$node1!=edge_list$node2
+  # )
+  # edge_list_sub["category"]=1
+
+  return(edge_list)
 }
 ## Check_sys_measure_error - Check systematic error ####
-Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
+Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_tol = 2){
   
-  high_inten_node = Mset$Data$ID[Mset$Data$mean_inten>inten_threshold]
-  Biotransform = EdgeSet$Biotransform %>%
+  Biotransform = EdgeSet$Biotransform
+  
+  high_inten_node = Mset$Data %>%
+    filter(mean_inten > inten_threshold) %>%
+    pull(ID)
+    
+  Biotransform = Biotransform %>%
     filter(linktype == "") %>%
     filter(node1>nrow(Mset$Data)|node2>nrow(Mset$Data)) %>%
-    filter(mass_dif<2) %>%
+    filter(mass_dif<mass_dif_tol) %>%
     filter(node1 %in% high_inten_node | node2 %in% high_inten_node)
   
+  Biotransform2 = Biotransform %>%
+    mutate(mz_std = ifelse(node1 > node2, Mset$NodeSet$mz[node1], Mset$NodeSet$mz[node2]),
+           mz_msr = ifelse(node1 > node2, Mset$NodeSet$mz[node2], Mset$NodeSet$mz[node1])) %>%
+    mutate(mz_std_msr_diff = mz_std - mz_msr)
   
   
-  A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  A_col_3 = - as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  A_col_4 = as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  
-  A = cbind(A_col_1,A_col_2,A_col_3,A_col_4)
-  b = - Biotransform$mass_dif
-  C = matrix(c(1,0,-1,0,0,1,0,-1), nrow = 2)
-  d = matrix(c(0,0), nrow=2)
-  x <- lsqlin(A, b, C,d)
-  ppm_adjust = x[1]
-  abs_adjust = x[3]/10^6
+  ## minimize m_msr*ppm_adjust + abs_adjust + m_msr = m_std
+  A_col_1 = Biotransform2$mz_msr
+  A_col_2 = rep(1, length(A_col_1))
+  b = Biotransform2$mz_std_msr_diff *10^3
+  A = cbind(A_col_1, A_col_2)
+  lsq_result = lm(Biotransform2$mz_std_msr_diff~Biotransform2$mz_msr)
+  ppm_adjust = as.numeric(lsq_result$coefficients[2] * 10^6)
+  abs_adjust = as.numeric(lsq_result$coefficients[1])
+
+  fitdistData = fitdistrplus::fitdist(b, "norm")
+  plot(fitdistData)
+  print(fitdistData)
+  # shapiro.test(b)
+  # 
+  # 
+  # # selected_ppm_error = Biotransform %>%
+  # #   mutate(mass_dif = mass_dif * ifelse(node1>node2, 1, -1)) %>%
+  # #   pull(mass_dif)
+  # # 
+  # # selected_abs_error = Biotransform %>%
+  # #   mutate(abs_mass_dif = Mset$NodeSet$mz[node2] - Mset$NodeSet$mz[node1]) %>%
+  # #   mutate(abs_mass_dif = abs_mass_dif * ifelse(node1>node2, 1, -1)) %>%
+  # #   pull(abs_mass_dif)
+  # 
+  # # shapiro.test(selected_abs_error)
+  # # fitdistData = fitdistrplus::fitdist(selected_ppm_error , "norm")
+  # # fitdistData = fitdistrplus::fitdist(selected_abs_error * 1000, "norm")
+  # 
+  # 
+  # 
+  # ## fit a abs adjust and a ppm adjust to minimize difference between true values
+  # A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  # A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  # A_col_3 = - as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  # A_col_4 = as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
+  # 
+  # ## Col1,2 gives ppm_adjust, 3,4 gives abs adjust
+  # ## Example: [-mz1/mz2, 0, -1/mz2, 0] * [ppm_adjust, ppm_adjust, abs_adjust, abs_adjust]' = -(mz2-mz1)/mz2
+  # A = cbind(A_col_1,A_col_2,A_col_3,A_col_4)
+  # b = - Biotransform$mass_dif
+  # # minimizes ||A*x - b|| (i.e., in the least-squares sense) subject to C*x = d.
+  # # i.e. ppm_adjust or abs_adjust apply to mz1 and mz2 equally,
+  # C = matrix(c(1,0,-1,0,0,1,0,-1), nrow = 2)
+  # d = matrix(c(0,0), nrow=2)
+  # x <- lsqlin(A, b, C,d) 
+ 
   
   
   if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
@@ -586,20 +630,44 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5){
 }
 
 ### Edge_score - Scoring edge based on mass accuracy ####
-Edge_score = function(Biotransform, plot_dist = F){
-  #Biotransform = EdgeSet$Biotransform
-  if(nrow(Biotransform)>10000){
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
-  } else {
-    edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
-  }
-  if(plot_dist){plot(edge_mzdif_FIT)
-    print(summary(edge_mzdif_FIT))
-    }
+Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
+  # Biotransform = EdgeSet$Connect_rules
+  # mass_dist_sigma = 1
+  library_nodes_ID = Mset$NodeSet %>% 
+    filter(category==0) %>% 
+    pull(ID)
+  
+  Biotransform1 = Biotransform %>%
+    filter(node1 %in% library_nodes_ID | node2 %in% library_nodes_ID) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
   
   
-  Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, edge_mzdif_FIT$estimate[2])
-  Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
+  Biotransform2 = Biotransform %>%
+    filter(!node1 %in% library_nodes_ID, !node2 %in% library_nodes_ID) %>%
+    mutate(edge_massdif_score = dnorm(mass_dif, 0, sqrt(2) * mass_dist_sigma)) %>%
+    mutate(edge_massdif_score = edge_massdif_score/max(edge_massdif_score)) 
+  
+  Biotransform = rbind(Biotransform1, Biotransform2)
+  
+  
+  # if(fix_distribution_sigma){
+  #   temp_sigma = ppm_error
+  # } else {
+  #   if(nrow(Biotransform)>10000){
+  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
+  #   } else {
+  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
+  #   }
+  #   
+  #   if(plot_graph){
+  #     plot(edge_mzdif_FIT)
+  #     print(summary(edge_mzdif_FIT))
+  #   }
+  #   temp_sigma = edge_mzdif_FIT$estimate[2]
+  # }
+  # Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
+  # Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
 ## Peak_variance - Variance between peaks ####
@@ -608,12 +676,17 @@ Peak_variance = function(Mset,
                          TIC_cutoff=10000,
                          correlation_cutoff = -1)
 {
-  df_raw = Mset$Data[,c("ID","medMz","medRt",Mset$Cohort$sample_names)]
-  df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
-  df_raw["log10_inten"]=log10(df_raw$mean_inten)
+  df_raw = Mset$Data %>%
+    dplyr::select(c("ID","medMz","medRt",Mset$Cohort$sample_names)) %>%
+    mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm = T)) %>%
+    mutate(log10_inten = log10(mean_inten)) %>%
+    arrange(medRt)
+                    
+  # df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
+  # df_raw["log10_inten"]=log10(df_raw$mean_inten)
   
   {
-    df_raw = df_raw[with(df_raw, order(medRt)),]
+    # df_raw = df_raw[with(df_raw, order(medRt)),]
     df_raw_medRt = df_raw$medRt
     i = 1
     
@@ -686,7 +759,7 @@ Peak_variance = function(Mset,
   # edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
   edge_ls["mz_dif"] = Mset$Data$medMz[edge_ls$node2]-Mset$Data$medMz[edge_ls$node1]
   
-  # calculate mass difference between measured peak and adducts
+  # calculate mass difference between measured peak and library adducts
   {
     adduct_set = Mset$NodeSet[Mset$NodeSet$category == -1,]
     measure_set = Mset$NodeSet[Mset$NodeSet$category == 1,]
@@ -744,14 +817,15 @@ Peak_variance = function(Mset,
   # edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
   # edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
   
-  print("High correlation peaks identified.")
+  print("Close RT peaks identified.")
   return(edge_ls)
 }
 
 ### Artifact_prediction - Edge_list for artifacts ####
-Artifact_prediction = function(Mset, Peak_inten_correlation, search_ms_cutoff=0.002, search_ppm_cutoff = 10, read_from_csv=F)
+Artifact_prediction = function(Mset, Peak_inten_correlation, 
+                               search_ms_cutoff=0.002, search_ppm_cutoff = 10)
 {
-  if(read_from_csv == F){
+  
     # edge_ls_highcor = EdgeSet$Peak_inten_correlation
     edge_ls_highcor = Peak_inten_correlation
     edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]

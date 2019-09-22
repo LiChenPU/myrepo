@@ -29,7 +29,7 @@ print(ion_mode)
   Mset[["Data"]] = Peak_cleanup(Mset,
                                 ms_dif_ppm=5/10^6, 
                                 rt_dif_min=0.1,
-                                detection_limit=2500)
+                                detection_limit=500)
   
   Mset[["ID"]] = Mset$Data$ID
 }
@@ -43,8 +43,7 @@ print(ion_mode)
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
                                                 mass_abs = 0.001, 
-                                                mass_ppm = 5/10^6, 
-                                                read_from_csv = read_from_csv)
+                                                mass_ppm = 5/10^6)
   
   adjust = Check_sys_measure_error(EdgeSet$Biotransform, inten_threshold=1e5)
   if(abs(adjust[1])>0.5 | abs(adjust[2])> 0.0001){
@@ -52,10 +51,11 @@ print(ion_mode)
     Mset[["NodeSet"]]=Form_node_list(Mset)
     EdgeSet[["Biotransform"]] = Edge_biotransform(Mset,
                                                   mass_abs = 0.001,
-                                                  mass_ppm = 5/10^6,
-                                                  read_from_csv = read_from_csv)
+                                                  mass_ppm = 5/10^6)
   }
-  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, plot_dist=T)
+  
+  mass_dist_sigma = 0.5
+  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = 0.5)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
                                                       time_cutoff=0.1,
