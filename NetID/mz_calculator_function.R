@@ -229,7 +229,7 @@ Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
 Network_prediction = function(Mset, 
                               edge_biotransform, 
                               biotransform_step = 10,
-                              propagation_score_threshold = 0.25,
+                              propagation_score_threshold = 0.2,
                               top_n = 50,
                               print_step = F,
                               max_formula_num = 1e6
@@ -649,7 +649,7 @@ Prepare_CPLEX = function(Mset, EdgeSet){
     ind=triplet_df$i-1
     val = triplet_df$v
   }
-  CPX_MAX = -1
+  CPX_MAX = -1 #default in CPLEX
   CPLEX_para = list(nc = nc,
                     nr = nr,
                     CPX_MAX = CPX_MAX,
