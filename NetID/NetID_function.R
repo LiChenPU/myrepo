@@ -1363,9 +1363,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
   ##Core codes
   
   #Construct constraint matrix 
-  
-  if(!read_from_csv)
-  {
+ 
     #Unknown nodes
     triplet_unknown_nodes_ls = list()
     temp_j=1
@@ -1503,8 +1501,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
       #edge_info_sum = CPLEXset$data$edge_info_sum
       gc()
       edge_info_sum = bind_rows(edge_info)
-      edge_info_sum = rbind(edge_info_sum,edge_info_sum)
-      
+      # edge_info_sum = rbind(edge_info_sum,edge_info_sum)
       
       edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
       test = edge_info_sum
@@ -1533,14 +1530,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     mat = simple_triplet_matrix(i=triplet_df$i,
                                 j=triplet_df$j,
                                 v=triplet_df$v)
-  }else{
-    triplet_df = read.csv("triplet_df.txt")
-    edge_info_sum = read.csv("edge_info_sum.txt",stringsAsFactors = F)
-    mat = simple_triplet_matrix(i=triplet_df$i,
-                                j=triplet_df$j,
-                                v=triplet_df$v)
-    
-  }
+
   
   #CPLEX solver parameter
   {
@@ -1709,7 +1699,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   
   # combine isotope scores and edge_difference scores
   
-  edge_info_sum2 = edge_info_sum %>%
+  edge_info_sum = edge_info_sum %>%
     mutate(edge_score = log10(edge_score) + edge_bonus) %>%
     mutate(isotope_score = isotope_score + isotope_bonus) %>%
     mutate(isotope_score = replace_na(isotope_score, 0)) %>%
@@ -1745,7 +1735,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   }
   
   
-  temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum2) %>%
+  temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%
     arrange(edge_ilp_id) %>%
     mutate(node1 = EdgeSet$Merge$node1[edge_id],node2 = EdgeSet$Merge$node2[edge_id]) %>%
@@ -1756,7 +1746,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   
 }
 ## Run_CPLEX ####
-Run_CPLEX = function(CPLEXset, obj){
+Run_CPLEX = function(CPLEXset, obj_cplex){
   # obj = obj_cplex
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
@@ -1776,7 +1766,7 @@ Run_CPLEX = function(CPLEXset, obj){
   
   
   
-  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj, rhs, sense,
+  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
   
   
@@ -1802,7 +1792,7 @@ Run_CPLEX = function(CPLEXset, obj){
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
   
-  return(list(obj = obj, result_solution = result_solution))
+  return(list(obj = obj_cplex, result_solution = result_solution))
 }
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){

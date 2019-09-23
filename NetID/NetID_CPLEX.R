@@ -1,26 +1,5 @@
-# 
-# {
-#   library(readr)
-#   library(igraph)
-#   library(fitdistrplus)
-#   library(tidyr)
-#   library(dplyr)
-#   library(enviPat)
-#   library(stringi)
-#   library(matrixStats)
-#   library(Matrix)
-#   library(slam)
-#   library(cplexAPI)
-#   library(MetaboAnalystR)
-#   library(pracma)
-#   library(tictoc)
-#   # install.packages("janitor")
-#   library(janitor)
-#   #devtools::install_github("LiChenPU/Formula_manipulation")
-#   library(lc8)
-#   library(profvis)
-#   
-# }
+
+source("../NetID_function.R")
 
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -40,46 +19,38 @@
 {
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
   unknown_formula = CPLEXset$data$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
-  unknown_formula_cplex = unknown_formula %>% filter(ILP_result!=0 )
+  unknown_formula_CPLEX = unknown_formula %>% filter(ILP_result!=0 )
 
   print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   
-  unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
+  # unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
 }
 
 {
   nodeset = Mset$NodeSet %>%
     filter(category ==1) %>%
     dplyr::select(1:3) %>%
-    merge(unknown_formula_CPLEX, all =T)
-  
-  
-  
+    merge(unknown_formula_CPLEX, by.x = "ID", by.y = "id", all =T)
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
 ## determine_is_metabolite - A messy function so far, probably need to clean up
 determine_is_metabolite = function(){
-  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
+  data_peak_num = nrow(Mset$Data)
+  
+  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T) %>%
+    mutate(formula = 1)
+  
+  
+  
   formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
   formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
   formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
   
   formula_list["ILP_id"]=NA
   formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
+  # edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   
   relation_list = edge_info_sum[edge_info_sum$ILP_result!=0,]
