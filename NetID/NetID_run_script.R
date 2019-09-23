@@ -10,8 +10,8 @@ print(ion_mode)
 {
   Mset = list()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "./dependent/biotransform.csv")
-  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "./dependent/artifacts.csv")
+  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "./dependent/biotransform2 - basic15.csv")
+  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "./dependent/PAVE artifacts.csv")
   
   setwd(work_dir)
   filename = c("raw_data.csv")
@@ -97,21 +97,21 @@ print(ion_mode)
 }
 
 
-## Feature generation ####
-{
-  #Identify peaks with high blanks
-  Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-  
-  #library_match
-  Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-  
-  #Metaboanalyst_Statistic
-  if(length(unique(Mset$Cohort$sample_cohort))>1 & 
-     min(table(Mset$Cohort$sample_cohort))>2){
-    Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-  }
-  
-  # output assigned formula
-  Mset[["Summary"]] = Summary_Mset(Mset)
-}
+# ## Feature generation ####
+# {
+#   #Identify peaks with high blanks
+#   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
+#   
+#   #library_match
+#   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
+#   
+#   #Metaboanalyst_Statistic
+#   if(length(unique(Mset$Cohort$sample_cohort))>1 & 
+#      min(table(Mset$Cohort$sample_cohort))>2){
+#     Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
+#   }
+#   
+#   # output assigned formula
+#   Mset[["Summary"]] = Summary_Mset(Mset)
+# }
 save.image("final.RData")

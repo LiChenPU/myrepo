@@ -1671,6 +1671,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
     arrange(edge_ilp_id)
   unknown_formula = CPLEXset$data$unknown_formula
   
+  # Calculate isotope scores 
   {
     edge_info_sum = edge_info_sum %>%
       mutate(isotope_score = NA) %>%
@@ -1703,7 +1704,10 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
     }
     edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id] = edge_info_isotope$isotope_score
     # edge_info_sum[edge_info_sum$edge_ilp_id==8716,]
+  
   }
+  
+  # combine isotope scores and edge_difference scores
   
   edge_info_sum2 = edge_info_sum %>%
     mutate(edge_score = log10(edge_score) + edge_bonus) %>%
@@ -1711,29 +1715,35 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
     mutate(isotope_score = replace_na(isotope_score, 0)) %>%
     mutate(edge_score = edge_score + isotope_score)
 
-  edge_info_sum2 = edge_info_sum2 %>%
-    filter(ILP_id2<=nrow(unknown_formula), 
-           ILP_id1<=nrow(unknown_formula))
   
-  edge_info_same12 = edge_info_sum2 %>% filter(formula1 == formula2)
-  df_same12 = table(edge_info_same12$formula1)
   
-  edge_info_dif12 = edge_info_sum2 %>% filter(formula1 != formula2)
-  edge_info_dif12 = edge_info_dif12[duplicated(test3_dif12[,c("formula1","formula2")]) | 
-                              duplicated(test3_dif12[,c("formula1","formula2")], fromLast=TRUE),]
-  temp_merge = with(edge_info_dif12, paste0(formula1, formula2))
-  df_dif12 = table(temp_merge)
+  {
+    edge_info_sum2 = edge_info_sum2 %>%
+      filter(ILP_id2<=nrow(unknown_formula), 
+             ILP_id1<=nrow(unknown_formula))
+    
+    edge_info_same12 = edge_info_sum2 %>% filter(formula1 == formula2)
+    df_same12 = table(edge_info_same12$formula1)
+    
+    edge_info_dif12 = edge_info_sum2 %>% filter(formula1 != formula2)
+    edge_info_dif12 = edge_info_dif12[duplicated(edge_info_dif12[,c("formula1","formula2")]) | 
+                                        duplicated(edge_info_dif12[,c("formula1","formula2")], fromLast=TRUE),]
+    temp_merge = with(edge_info_dif12, paste0(formula1, formula2))
+    df_dif12 = table(temp_merge)
+    
+    # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
+    # Solution: when n duplicated mz exist, the intra mz edge number are n*(n+1)/2, but effectively they should only get n/2
+    
+    sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
+    sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
+    
+    edge_info_same12 = edge_info_same12 %>%
+      mutate(edge_score = edge_score / sol_mat$div[df_same12[formula1]])
+    edge_info_dif12 = edge_info_dif12 %>%
+      mutate(edge_score = edge_score / sol_mat$div[df_dif12[temp_merge]])
   
-  # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
-  # Solution: when n duplicated mz exist, the intra mz edge number are n*(n+1)/2, but effectively they should only get n/2
+  }
   
-  sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
-  sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
-  
-  edge_info_same12 = edge_info_same12 %>%
-    mutate(edge_score = edge_score / sol_mat$div[df_same12[formula1]])
-  edge_info_dif12 = edge_info_dif12 %>%
-    mutate(edge_score = edge_score / sol_mat$div[df_dif12[temp_merge]])
   
   temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum2) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%

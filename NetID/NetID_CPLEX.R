@@ -1,26 +1,26 @@
-
-{
-  library(readr)
-  library(igraph)
-  library(fitdistrplus)
-  library(tidyr)
-  library(dplyr)
-  library(enviPat)
-  library(stringi)
-  library(matrixStats)
-  library(Matrix)
-  library(slam)
-  library(cplexAPI)
-  library(MetaboAnalystR)
-  library(pracma)
-  library(tictoc)
-  # install.packages("janitor")
-  library(janitor)
-  #devtools::install_github("LiChenPU/Formula_manipulation")
-  library(lc8)
-  library(profvis)
-  
-}
+# 
+# {
+#   library(readr)
+#   library(igraph)
+#   library(fitdistrplus)
+#   library(tidyr)
+#   library(dplyr)
+#   library(enviPat)
+#   library(stringi)
+#   library(matrixStats)
+#   library(Matrix)
+#   library(slam)
+#   library(cplexAPI)
+#   library(MetaboAnalystR)
+#   library(pracma)
+#   library(tictoc)
+#   # install.packages("janitor")
+#   library(janitor)
+#   #devtools::install_github("LiChenPU/Formula_manipulation")
+#   library(lc8)
+#   library(profvis)
+#   
+# }
 
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
@@ -39,14 +39,35 @@
 
 {
   unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
-  unknown_formula = CPLEXset$data$unknown_formula
-  
-  unknown_formula["ILP_result"] = CPLEX_x[1:nrow(unknown_formula)]
-  unknown_formula_CPLEX = unknown_formula[unknown_formula$ILP_result !=0,]
+  unknown_formula = CPLEXset$data$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
+  unknown_formula_cplex = unknown_formula %>% filter(ILP_result!=0 )
+
   print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   
   unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
 }
+
+{
+  nodeset = Mset$NodeSet %>%
+    filter(category ==1) %>%
+    dplyr::select(1:3) %>%
+    merge(unknown_formula_CPLEX, all =T)
+  
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## determine_is_metabolite - A messy function so far, probably need to clean up
