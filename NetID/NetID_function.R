@@ -13,6 +13,7 @@
   library(readr)
   library(stringi)
   library(pracma)
+  library(igraph)
 }
 
 # {
@@ -1738,8 +1739,12 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%
     arrange(edge_ilp_id) %>%
-    mutate(node1 = EdgeSet$Merge$node1[edge_id],node2 = EdgeSet$Merge$node2[edge_id]) %>%
+    mutate(node1 = EdgeSet$Merge$node1[edge_id],
+           node2 = EdgeSet$Merge$node2[edge_id],
+           direction = EdgeSet$Merge$direction[edge_id],
+           linktype = EdgeSet$Merge$linktype[edge_id]) %>%
     mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
+
   
   print("Finish scoring edges.")
   return(temp_edge_info_sum)

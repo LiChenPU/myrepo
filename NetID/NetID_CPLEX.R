@@ -27,11 +27,41 @@ source("../NetID_function.R")
 }
 
 {
-  nodeset = Mset$NodeSet %>%
-    filter(category ==1) %>%
-    dplyr::select(1:3) %>%
-    merge(unknown_formula_CPLEX, by.x = "ID", by.y = "id", all =T)
+  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
+  formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
+  formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
+  formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
+  
+  formula_list["ILP_id"]=NA
+  formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
+  colors <- c("grey", "white", "red", "yellow", "green")
+  formula_list["color"] = colors[formula_list$category+2]
+  
+  
+  
+  edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
+  
+  ilp_id_non0 = formula_list %>%
+    filter(ILP_result!=0) %>%
+    pull(ILP_id)
+  
+  
+  edge_ilp_id_non0 = edge_info_sum %>% 
+    filter(ILP_result==0) %>%
+    filter((node1 > nrow(Mset$Data) & node2 %in% ilp_id_non0) | 
+              (node2 > nrow(Mset$Data) & node1 %in% ilp_id_non0)) %>%
+    pull(edge_ilp_id)
+  
+  relation_list = edge_info_sum %>%
+    filter(ILP_result!=0 | edge_ilp_id %in% edge_ilp_id_non0)
+    
+  
+  
 }
+
+
+
+
 
 
 
@@ -39,17 +69,14 @@ source("../NetID_function.R")
 determine_is_metabolite = function(){
   data_peak_num = nrow(Mset$Data)
   
-  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T) %>%
-    mutate(formula = 1)
-  
-  
-  
+  formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
   formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
   formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
   formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
   
   formula_list["ILP_id"]=NA
   formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
+  
   # edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 0.1)
   edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
   
