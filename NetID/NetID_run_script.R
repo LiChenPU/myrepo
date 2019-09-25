@@ -15,13 +15,14 @@ print(biotransform_file)
 print(artifact_file)
 print(edge_bonus)
 print(sigma)
-sink()
+
 
 {
   Mset = list()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = biotransform_file)
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = artifact_file)
+
   
   setwd(work_dir)
   filename = c("raw_data.csv")
@@ -127,7 +128,7 @@ sink()
 
 
 save.image(paste(timestamp,".RData"))
-
+sink()
 
 
 
