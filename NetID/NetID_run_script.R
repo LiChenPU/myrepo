@@ -27,8 +27,8 @@ print(ion_mode)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=5/10^6, 
-                                rt_dif_min=0.1,
+                                ms_dif_ppm=.5/10^6, 
+                                rt_dif_min=0.01,
                                 detection_limit=500)
   
   Mset[["ID"]] = Mset$Data$ID
@@ -92,7 +92,7 @@ print(ion_mode)
   # save.image("temp.RData")
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset, mass_dist_sigma = mass_dist_sigma,
                                                 rdbe=F, step_score=F, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5, isotope_bonus = 5)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5, isotope_bonus = 3)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 }
 

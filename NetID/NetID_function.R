@@ -523,7 +523,10 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5)
     mutate(linktype = Mset$Biotransform$Formula[linktype]) %>%
     filter(node1<=nrow(Mset$Data) | node2<=nrow(Mset$Data), 
            node1!=node2) %>%
+    filter(!(linktype == "" & node1<=nrow(Mset$Data) & node2<=nrow(Mset$Data))) %>% # remove data-data isomer connection
     mutate(category = 1)
+  
+  
   # 
   # edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
   # 
@@ -1709,7 +1712,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   
   
   {
-    edge_info_sum2 = edge_info_sum2 %>%
+    edge_info_sum2 = edge_info_sum %>%
       filter(ILP_id2<=nrow(unknown_formula), 
              ILP_id1<=nrow(unknown_formula))
     
