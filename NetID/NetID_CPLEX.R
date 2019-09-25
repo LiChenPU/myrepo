@@ -1,5 +1,6 @@
 
 source("../NetID_function.R")
+library(cplexAPI)
 
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))

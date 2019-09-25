@@ -9,7 +9,7 @@
   library(tidyr)
   # library(fitdistrplus)
   library(slam)
-  library(cplexAPI)
+  # library(cplexAPI)
   library(readr)
   library(stringi)
   library(pracma)
