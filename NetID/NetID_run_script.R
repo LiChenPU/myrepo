@@ -15,7 +15,7 @@ print(biotransform_file)
 print(artifact_file)
 print(edge_bonus)
 print(sigma)
-
+sink()
 
 {
   Mset = list()
@@ -127,7 +127,7 @@ print(sigma)
 
 
 save.image(paste(timestamp,".RData"))
-sink()
+
 
 
 

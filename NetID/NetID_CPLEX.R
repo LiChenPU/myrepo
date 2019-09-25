@@ -2,6 +2,10 @@
 source("../NetID_function.R")
 library(cplexAPI)
 
+
+NetID_files = list.files(pattern = " .RData")
+load(NetID_files[length(NetID_files)])
+
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
@@ -109,7 +113,7 @@ relation_list2 = g_vertex_edge$relation_list2
 
 
 write.csv(formula_list2, paste(timestamp, ".csv"), row.names = F)
-save.image(paste(timestamp,".RData"))
+save.image(paste(timestamp,"2.RData"))
 
 
 
