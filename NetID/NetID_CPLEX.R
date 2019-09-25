@@ -107,8 +107,7 @@ g_vertex_edge = determine_is_metabolite()
 formula_list2 = g_vertex_edge$formula_list2
 relation_list2 = g_vertex_edge$relation_list2
 
-printtime = Sys.time()
-timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+
 write.csv(formula_list2, paste(timestamp, ".csv"), row.names = F)
 save.image(paste(timestamp,".RData"))
 

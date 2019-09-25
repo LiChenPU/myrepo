@@ -7,11 +7,21 @@ work_dir = "Xi_new_neg"
 ion_mode = -1
 print(work_dir)
 print(ion_mode)
+
+printtime = Sys.time()
+timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+sink(paste(timestamp,"log.txt"))
+print(biotransform_file)
+print(artifact_file)
+print(edge_bonus)
+print(sigma)
+sink()
+
 {
   Mset = list()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = "./dependent/biotransform2 - basic15.csv")
-  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = "./dependent/PAVE artifacts.csv")
+  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = biotransform_file)
+  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = artifact_file)
   
   setwd(work_dir)
   filename = c("raw_data.csv")
@@ -54,7 +64,7 @@ print(ion_mode)
                                                   mass_ppm = 5/10^6)
   }
   
-  mass_dist_sigma = 0.5
+  mass_dist_sigma = sigma
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = mass_dist_sigma)
   
   EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
@@ -92,7 +102,7 @@ print(ion_mode)
   # save.image("temp.RData")
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset, mass_dist_sigma = mass_dist_sigma,
                                                 rdbe=F, step_score=F, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = 1.5, isotope_bonus = 3)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus, isotope_bonus = edge_bonus*2)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 }
 
@@ -114,4 +124,11 @@ print(ion_mode)
 #   # output assigned formula
 #   Mset[["Summary"]] = Summary_Mset(Mset)
 # }
-save.image("final.RData")
+
+
+save.image(paste(timestamp,".RData"))
+
+
+
+
+
