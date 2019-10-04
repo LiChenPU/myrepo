@@ -1,22 +1,31 @@
 library(janitor)
 # install.packages("readxl")
 library(readxl)
+library(readr)
+library(dplyr)
+library(enviPat)
 
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+# Read previous CPLEX results
+{
+  NetID_files = list.files(pattern = "[0-9].csv")
+  formula_list_ls = list()
+  for(i in 1:length(NetID_files)){
+    formula_list_ls[[length(formula_list_ls)+1]] = read.csv( NetID_files[i], stringsAsFactors = F) 
+  }
+}
 # Evaluate Xi's data from annotation ####
 {
   # wl_result = read_csv("WL_190405_both.csv")
+  formula_list2 = formula_list_ls[[6]]
+  
+  data("isotopes")
   wl_result = read_excel("WL_190405_both_190924.xlsx") %>%
     mutate(formula = check_chemform(isotopes, formula)$new_formula)
   merge_result = formula_list2 %>%
     dplyr::select(ID,formula,is_metabolite, is_artifact, is_biotransform, ILP_result) %>%
     merge(wl_result, by.x="ID", by.y = "id", all.y = T)
-  
-  all_top_metabolites = bind_rows(CPLEXset$data$pred_formula_ls) %>%
-    distinct(id, .keep_all = T)
-  merge_result2 = all_top_metabolites %>%
-    merge(wl_result, by.x="id", by.y = "id", all.y = T)
 }
-
 
 # Evaluate all metabolites ####
 {
@@ -30,8 +39,8 @@ library(readxl)
     filter(formula.x == formula.y) %>%
     filter(ILP_result!=0)
   all_PAVE_metabolites_wrong = all_PAVE_metabolites %>%
-    filter(formula.x != formula.y) %>%
-    filter(ILP_result!=0)
+    filter(!ID %in% all_PAVE_metabolites_correct$ID) #%>%
+    # filter(ILP_result!=0)
 }
 
 # Evaluate if unconnected in PAVE background ####
@@ -54,7 +63,7 @@ library(readxl)
     filter(feature...11 != "Background")
   
   all_unconnected_non_backgrounds_5e4 = all_unconnected_non_backgrounds %>%
-    filter(log10_inten>log10(5e4))
+    filter(log10_inten>log10(3e5))
 }
 
 # Evaluate others ####
@@ -69,7 +78,6 @@ library(readxl)
     filter(!grepl("\\[",formula.x )) %>%
     filter(ILP_result!=0)
 }
-
 # Evaluate Adducts 
 {
   all_PAVE_adduct = merge_result %>%  #dplyr::select(feature...11) %>% table
@@ -81,7 +89,6 @@ library(readxl)
     filter(!is_artifact) %>%
     filter(ILP_result!=0)
 }
-
 # Evaluate unknowns
 {
   all_PAVE_unknowns = merge_result %>%
@@ -103,6 +110,13 @@ library(readxl)
   
 }
 
+# Compare with simply select top metabolites ####
+# {
+#   all_top_metabolites = bind_rows(CPLEXset$data$pred_formula_ls) %>%
+#     distinct(id, .keep_all = T)
+#   merge_result2 = all_top_metabolites %>%
+#     merge(wl_result, by.x="id", by.y = "id", all.y = T)
+# }
 # Compare assignment ####
 {
   Mdata = Mset$Data
@@ -125,6 +139,8 @@ library(readxl)
   fea_vs_fea1 = tabyl(wl_result, feature, feature_1 )
   artifact_vs_fea1 = tabyl(merge_result_notbg, is_artifact, feature_1,is_biotransform )
 }
+
+
 
 # 
 # 
