@@ -109,8 +109,11 @@ formula_list2 = g_vertex_edge$formula_list2
 relation_list2 = g_vertex_edge$relation_list2
 
 
-write.csv(formula_list2, paste(timestamp, ".csv"), row.names = F)
-save.image(paste(timestamp,".RData"))
+write.csv(formula_list2, paste0(timestamp, ".csv"), row.names = F)
+save.image(paste0(timestamp,".RData"))
+
+
+
 
 
 

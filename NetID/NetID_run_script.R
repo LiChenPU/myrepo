@@ -127,7 +127,7 @@ print(sigma)
 # }
 
 
-save.image(paste(timestamp,".RData"))
+save.image(paste0(timestamp,".RData"))
 sink()
 
 
