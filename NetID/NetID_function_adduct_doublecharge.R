@@ -1082,7 +1082,6 @@ Network_prediction = function(Mset,
             if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
           }
           
-          
           #If flag is an isotopic peak, then only look for isotopic peaks
           if(grepl("\\[",flag_formula)){
             temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
@@ -1659,11 +1658,25 @@ Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_pe
   return(unknown_formula)
 }
 ### Score_edge_cplex ####
-Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
+Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
 {
   edge_info_sum = CPLEXset$data$edge_info_sum %>%
-    arrange(edge_ilp_id)
+    arrange(edge_ilp_id) %>%
+    mutate(node1 = EdgeSet$Merge$node1[edge_id],
+           node2 = EdgeSet$Merge$node2[edge_id],
+           direction = EdgeSet$Merge$direction[edge_id],
+           linktype = EdgeSet$Merge$linktype[edge_id],
+           category = EdgeSet$Merge$category[edge_id]) %>%
+    mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
   unknown_formula = CPLEXset$data$unknown_formula
+  
+  # Give artifact bonus to all artifact connections
+  {
+    edge_info_sum = edge_info_sum %>%
+      mutate(artifact_score = ifelse(category == 1, 0, artifact_bonus))
+    
+  }
+  
   
   # Calculate isotope scores 
   {
@@ -1707,7 +1720,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
     mutate(edge_score = log10(edge_score) + edge_bonus) %>%
     mutate(isotope_score = isotope_score + isotope_bonus) %>%
     mutate(isotope_score = replace_na(isotope_score, 0)) %>%
-    mutate(edge_score = edge_score + isotope_score)
+    mutate(edge_score = edge_score + isotope_score + artifact_score)
 
   
   
@@ -1741,12 +1754,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus)
   
   temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%
-    arrange(edge_ilp_id) %>%
-    mutate(node1 = EdgeSet$Merge$node1[edge_id],
-           node2 = EdgeSet$Merge$node2[edge_id],
-           direction = EdgeSet$Merge$direction[edge_id],
-           linktype = EdgeSet$Merge$linktype[edge_id]) %>%
-    mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
+    arrange(edge_ilp_id) 
 
   
   print("Finish scoring edges.")

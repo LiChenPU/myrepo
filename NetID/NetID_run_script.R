@@ -15,7 +15,7 @@ print(biotransform_file)
 print(artifact_file)
 print(edge_bonus)
 print(sigma)
-
+sink()
 
 {
   Mset = list()
@@ -103,7 +103,9 @@ print(sigma)
   # save.image("temp.RData")
   CPLEXset$data$unknown_formula = Score_formula(CPLEXset, mass_dist_sigma = mass_dist_sigma,
                                                 rdbe=F, step_score=F, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus, isotope_bonus = edge_bonus*2)
+  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus, 
+                                   isotope_bonus = edge_bonus,
+                                   artifact_bonus = edge_bonus)
   obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
 }
 
@@ -128,7 +130,7 @@ print(sigma)
 
 
 save.image(paste0(timestamp,".RData"))
-sink()
+
 
 
 
