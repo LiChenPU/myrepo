@@ -1,7 +1,7 @@
 # Main Codes ####
 ## Read files ####
 
-# setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 work_dir = "Xi_new_neg"
 ion_mode = -1

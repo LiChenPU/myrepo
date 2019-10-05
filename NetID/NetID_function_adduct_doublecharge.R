@@ -993,7 +993,7 @@ Network_prediction = function(Mset,
                               edge_biotransform, 
                               edge_artifact,
                               biotransform_step = 5,
-                              artifact_step = 5,
+                              artifact_step = 1,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
                               max_formula_num = 1e6,
@@ -1048,8 +1048,11 @@ Network_prediction = function(Mset,
         print(paste("sub_step",sub_step,"elapsed="))
         print((Sys.time()-timer))
         all_nodes_df = bind_rows(sf)
-        new_nodes_df = all_nodes_df[all_nodes_df$steps==(step + sub_step)
-                                    &all_nodes_df$score>propagation_score_threshold,]
+        new_nodes_df = all_nodes_df %>%
+          filter(steps==(step + sub_step),
+                 score>propagation_score_threshold) %>%
+          filter(!grepl("\\.", formula))
+        
         sub_step = sub_step+0.01
         if(nrow(new_nodes_df)==0){break}
         
@@ -1058,7 +1061,7 @@ Network_prediction = function(Mset,
                                             edge_artifact$node2 %in% new_nodes_df$id,]
         
       
-        n=3
+        n=114
         for(n in 1:nrow(new_nodes_df)){
           temp_new_node = new_nodes_df[n,]
           flag_id = temp_new_node$id
@@ -1066,16 +1069,11 @@ Network_prediction = function(Mset,
           flag_is_metabolite = temp_new_node$is_metabolite
           flag_score = temp_new_node$score
           flag_rdbe = temp_new_node$rdbe
-          
-          
-          
+         
           # temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
           #                         edge_artifact_sub$node2==flag_id)
-          
-          
           flag_id_in_node1_or_node2 = edge_artifact_sub$node1==flag_id | edge_artifact_sub$node2==flag_id
           temp_edge_list = edge_artifact_sub[flag_id_in_node1_or_node2,]
-          
           
           #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
           if(flag_id <= nrow_experiment){
@@ -1093,7 +1091,7 @@ Network_prediction = function(Mset,
                                           |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
           if(nrow(temp_edge_list)==0){next}
           
-          i=1
+          i=19
           for(i in 1:nrow(temp_edge_list)){
             temp_rdbe = temp_edge_list$rdbe[i]
             #If flag is head
@@ -1134,8 +1132,9 @@ Network_prediction = function(Mset,
                 partner_formula = flag_formula
               }else if (grepl("x",temp_fg)){
                 fold = as.numeric(gsub("x","",temp_fg))
-                partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = T)
-                if(grepl(".", partner_formula)){partner_formula=F}
+                partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = F)
+                # Remove decimal point in formula
+                # if(grepl("\\.", partner_formula)){partner_formula=F}
               }else {
                 partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
               }
