@@ -1209,9 +1209,10 @@ Network_prediction = function(Mset,
             if(Mset$Data$mean_inten[flag_id]< 2e4){next}
           }
           
-          #If flag is an isotopic peak, then only look for isotopic peaks
+          #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks
           if(grepl("\\[",flag_formula)){
-            temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+            temp_edge_list = temp_edge_list %>%
+              filter(grepl("\\[|x",category))
             if(nrow(temp_edge_list)==0){next}
           }
           
