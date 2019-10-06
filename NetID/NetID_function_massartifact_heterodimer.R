@@ -524,7 +524,7 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5)
     filter(node1<=nrow(Mset$Data) | node2<=nrow(Mset$Data), 
            node1!=node2) %>%
     filter(!(linktype == "" & node1<=nrow(Mset$Data) & node2<=nrow(Mset$Data))) %>% # remove data-data isomer connection
-    mutate(category = 1)
+    mutate(category = "biotransform")
   
   
   # 
@@ -635,7 +635,7 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_t
 
 ### Edge_score - Scoring edge based on mass accuracy ####
 Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
-  # Biotransform = EdgeSet[["Artifacts"]]
+  # Biotransform = EdgeSet$Heterodimer
   # mass_dist_sigma = .5
   library_nodes_ID = Mset$NodeSet %>% 
     filter(category!=1) %>% 
@@ -975,7 +975,7 @@ Hetero_dimer = function(Peak_inten_correlation)
 
 ## Merge_edgeset ####
 Merge_edgeset = function(EdgeSet){
-  edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
+  edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform, EdgeSet$Heterodimer)
   
   edge_merge = edge_merge %>%
     mutate(node1_log10_inten = Mset$Data$log10_inten[node1],
@@ -1333,9 +1333,9 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     pred_formula = raw_pred_formula
     
     #1 is measured peaks; 0 is library; -1 is system adduct
-    lib_nodes = raw_node_list[raw_node_list$category!=1,]
+    lib_nodes = raw_node_list[raw_node_list$category!= "biotransform",]
     lib_nodes_cutoff = nrow(Mset$Data)
-    unknown_nodes = raw_node_list[raw_node_list$category==1,]
+    unknown_nodes = raw_node_list[raw_node_list$category=="biotransform",]
     unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
     num_unknown_nodes = nrow(unknown_nodes)
     
@@ -1668,7 +1668,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
   # Give artifact bonus to all artifact connections
   {
     edge_info_sum = edge_info_sum %>%
-      mutate(artifact_score = ifelse(category == 1, 0, artifact_bonus))
+      mutate(artifact_score = ifelse(category == "biotransform", 0, artifact_bonus))
     
   }
   
