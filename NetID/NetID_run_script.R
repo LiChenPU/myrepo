@@ -1,8 +1,8 @@
 # Main Codes ####
 ## Read files ####
 
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-# source("NetID_function.R")
+# setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+source("NetID_function_massartifact_heterodimer.R")
 work_dir = "Xi_new_neg"
 ion_mode = -1
 print(work_dir)
@@ -93,6 +93,7 @@ sink()
                                                  biotransform_step = 7,
                                                  artifact_step = 7,
                                                  propagation_score_threshold = 0.2,
+                                                 max_formula_num = 1e6,
                                                  top_n = 50)
   
   CPLEXset = Prepare_CPLEX(Mset, EdgeSet)

@@ -1061,7 +1061,7 @@ Network_prediction = function(Mset,
                                             edge_artifact$node2 %in% new_nodes_df$id,]
         
       
-        n=114
+        n=231
         for(n in 1:nrow(new_nodes_df)){
           temp_new_node = new_nodes_df[n,]
           flag_id = temp_new_node$id
@@ -1069,7 +1069,8 @@ Network_prediction = function(Mset,
           flag_is_metabolite = temp_new_node$is_metabolite
           flag_score = temp_new_node$score
           flag_rdbe = temp_new_node$rdbe
-         
+          
+        
           # temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
           #                         edge_artifact_sub$node2==flag_id)
           flag_id_in_node1_or_node2 = edge_artifact_sub$node1==flag_id | edge_artifact_sub$node2==flag_id
@@ -1083,7 +1084,7 @@ Network_prediction = function(Mset,
           #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks
           if(grepl("\\[",flag_formula)){
             temp_edge_list = temp_edge_list %>%
-              filter(grepl("\\[|x",category))
+              filter(grepl("\\[|oligomer",category))
             if(nrow(temp_edge_list)==0){next}
           }
           
