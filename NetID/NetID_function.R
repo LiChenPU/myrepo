@@ -992,8 +992,8 @@ Merge_edgeset = function(EdgeSet){
 Network_prediction = function(Mset, 
                               edge_biotransform, 
                               edge_artifact,
-                              biotransform_step = 5,
-                              artifact_step = 1,
+                              biotransform_step = 1,
+                              artifact_step = 2,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
                               max_formula_num = 1e6,
@@ -1080,9 +1080,10 @@ Network_prediction = function(Mset,
             if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
           }
           
-          #If flag is an isotopic peak, then only look for isotopic peaks
+          #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks
           if(grepl("\\[",flag_formula)){
-            temp_edge_list = temp_edge_list[grepl("\\[",temp_edge_list$category),]
+            temp_edge_list = temp_edge_list %>%
+              filter(grepl("\\[|x",category))
             if(nrow(temp_edge_list)==0){next}
           }
           
@@ -1207,13 +1208,6 @@ Network_prediction = function(Mset,
           #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
           if(flag_id <= nrow_experiment){
             if(Mset$Data$mean_inten[flag_id]< 2e4){next}
-          }
-          
-          #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks
-          if(grepl("\\[",flag_formula)){
-            temp_edge_list = temp_edge_list %>%
-              filter(grepl("\\[|x",category))
-            if(nrow(temp_edge_list)==0){next}
           }
           
           #Filter edge direction
