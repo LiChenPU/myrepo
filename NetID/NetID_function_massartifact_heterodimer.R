@@ -1333,9 +1333,9 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     pred_formula = raw_pred_formula
     
     #1 is measured peaks; 0 is library; -1 is system adduct
-    lib_nodes = raw_node_list[raw_node_list$category!= "biotransform",]
+    lib_nodes = raw_node_list[raw_node_list$category!= 1,]
     lib_nodes_cutoff = nrow(Mset$Data)
-    unknown_nodes = raw_node_list[raw_node_list$category=="biotransform",]
+    unknown_nodes = raw_node_list[raw_node_list$category==1,]
     unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
     num_unknown_nodes = nrow(unknown_nodes)
     
@@ -1345,10 +1345,10 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     
     merge_formula = rbind(unknown_formula,lib_formula)
     merge_formula["ilp_index"]=1:nrow(merge_formula)
-    #Select edge list where it relates only to unknown nodes that lie in the main network
+    #Select edge list where it relates only to unknown nodes that have propagated formula
     edge_list = raw_edge_list[raw_edge_list$node1 %in% unknown_nodes$ID |
                                 raw_edge_list$node2 %in% unknown_nodes$ID,]
-    
+  
     pred_formula_ls = list()
     merge_formula_id=merge_formula$id
     for(n in 1: max(merge_formula$id)){
