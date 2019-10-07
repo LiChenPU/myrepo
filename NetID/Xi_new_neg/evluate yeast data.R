@@ -14,7 +14,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
     formula_list_ls[[length(formula_list_ls)+1]] = read.csv( NetID_files[i], stringsAsFactors = F) 
   }
   
-  formula_list2 = formula_list_ls[[6]]
+  # formula_list2 = formula_list_ls[[6]]
 }
 
 evaluate_summary = list()
@@ -113,7 +113,7 @@ for(i in 1:length(NetID_files)){
   print(results)
 }
 
-selected_file = 10
+selected_file = 11
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%

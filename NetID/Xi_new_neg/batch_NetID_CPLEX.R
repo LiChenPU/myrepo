@@ -61,10 +61,10 @@ for(repeating_n2 in 1:10){
 #   
 #   
 edge_info_sum = edge_info_sum_ls[[9]]
-formula_list = formula_list_ls[[10]]
+formula_list = formula_list_ls[[11]]
 
 {
-  selected_ID = 403
+  selected_ID = 22
   edge_selected = edge_info_sum %>% filter(node1==selected_ID|node2==selected_ID)
   formula_selected = formula_list %>% filter(ID == selected_ID)
   formula_selected_in_edges = formula_list %>% filter(ID %in% c(edge_selected$node1, edge_selected$node2))
