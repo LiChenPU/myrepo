@@ -13,11 +13,20 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   for(i in 1:length(NetID_files)){
     formula_list_ls[[length(formula_list_ls)+1]] = read.csv( NetID_files[i], stringsAsFactors = F) 
   }
+  
+  formula_list2 = formula_list_ls[[6]]
 }
+
+evaluate_summary = list()
+for(i in 1:length(NetID_files)){
+  formula_list2 = formula_list_ls[[i]]
+  
+
+
 # Evaluate Xi's data from annotation ####
 {
   # wl_result = read_csv("WL_190405_both.csv")
-  formula_list2 = formula_list_ls[[6]]
+  
   
   data("isotopes")
   wl_result = read_excel("WL_190405_both_190924.xlsx") %>%
@@ -62,9 +71,68 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   all_unconnected_non_backgrounds = all_unconnected %>%
     filter(feature...11 != "Background")
   
-  all_unconnected_non_backgrounds_5e4 = all_unconnected_non_backgrounds %>%
+  all_unconnected_non_backgrounds_3e5 = all_unconnected_non_backgrounds %>%
     filter(log10_inten>log10(3e5))
 }
+
+
+# Evaluate all isotope-labeled peaks
+{
+  all_labeled_peaks = merge_result %>%
+    filter(feature...11 != "Background") %>%
+    arrange(-ILP_result) 
+  
+  all_labeled_peaks_3e5 = all_labeled_peaks %>%
+    filter(log10_inten > log10(3e5))
+  
+  all_labeled_peaks_3e5_distinct = all_labeled_peaks_3e5 %>%
+    distinct(ID, .keep_all=T)
+  
+  all_labeled_peaks_3e5_correct_potential = all_labeled_peaks_3e5 %>%
+    filter(formula.x == `Ground truth`)
+  
+  all_labeled_peaks_3e5_correct = all_labeled_peaks_3e5_correct_potential %>%
+    filter(ILP_result!=0)
+
+  all_labeled_peaks_3e5_wrong = all_labeled_peaks_3e5_distinct %>%
+    filter(!ID %in% all_labeled_peaks_3e5_correct$ID)
+}
+
+  
+  evaluate_summary[[i]] = list(Total_potential_3e5 = all_labeled_peaks_3e5,
+                               Correct_potential = all_labeled_peaks_3e5_correct_potential,
+                               Correct = all_labeled_peaks_3e5_correct,
+                               Wrong = all_labeled_peaks_3e5_wrong,
+                               # Unconnected = all_unconnected_non_backgrounds,
+                               Unconnected_3e5 = all_unconnected_non_backgrounds_3e5
+                               )
+}
+  
+for(i in 1:length(NetID_files)){
+  results = sapply(evaluate_summary[[i]], nrow)
+  print(results)
+}
+
+selected_file = 10
+test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
+  filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
+  dplyr::select(ID) %>%
+  inner_join(evaluate_summary[[selected_file]]$Total_potential_3e5)
+result9 = evaluate_summary[[9]]$Total_potential_3e5 %>%
+  dplyr::select(ID, ILP_result, formula.x)
+
+result10 = evaluate_summary[[10]]$Total_potential_3e5 %>%
+  dplyr::select(ID, ILP_result, formula.x)
+
+result10_not9 = evaluate_summary[[10]]$Total_potential_3e5 %>%
+  anti_join(result9)
+
+result9_not10 = evaluate_summary[[9]]$Total_potential_3e5 %>%
+  anti_join(result10)
+
+
+
+
 
 # Evaluate others ####
 # Evaluate isotopes 
