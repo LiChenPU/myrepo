@@ -80,16 +80,16 @@ sink()
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts, mass_dist_sigma = mass_dist_sigma)
   
   #heterodimer  
-  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation)
+  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 5e5)
+  EdgeSet[["Heterodimer"]] = Edge_score(EdgeSet$Heterodimer, mass_dist_sigma = mass_dist_sigma)
   
   
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
-  
-  
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  edge_biotransform = EdgeSet$Biotransform, 
                                                  edge_artifact = EdgeSet$Artifacts,
+                                                 edge_heterodimer = EdgeSet$Heterodimer,
                                                  biotransform_step = 7,
                                                  artifact_step = 7,
                                                  propagation_score_threshold = 0.2,
@@ -132,7 +132,8 @@ sink()
 
 save.image(paste0(timestamp,".RData"))
 
-
+print("total run time")
+print(Sys.time()-printtime)
 
 
 

@@ -941,19 +941,25 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
 }
 
 ### Hetero_dimer - Edge_list for hetero_dimer ####
-Hetero_dimer = function(Peak_inten_correlation)
+Hetero_dimer = function(Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 5e5)
 {
   # e = EdgeSet$Peak_inten_correlation
   e = Peak_inten_correlation
   e2 = e[e$node1 %in% Mset$Data$ID & e$node2 %in% Mset$Data$ID, ]
   e3 = e2[e2$mz_dif > min(e2$mz_node1) & e2$mz_dif < max(e2$mz_node1),]
   e3_list = split(e3, e3$node2)
+  
+  ID_inten_threshold = Mset$Data %>%
+    filter(mean_inten > inten_threshold) %>%
+    pull(ID)
+  # e3_list = e3_list[ID_inten_threshold]
+  
   hetero_dimer_ls = list()
   for(i in 1: length(e3_list)){
     temp_e = e3_list[[i]]
     temp_matrix = outer(temp_e$mz_node1, temp_e$mz_node1, FUN = "+")  # mz_node1 and mz_dif are the same.
     temp_matrix = (temp_matrix - temp_e$mz_node2[1])/temp_e$mz_node2[1] * 10^6
-    temp_index = which(abs(temp_matrix) < 5, arr.ind = T)
+    temp_index = which(abs(temp_matrix) < ppm_tolerance, arr.ind = T)
     if(length(temp_index)>0){
       temp_ppm = temp_matrix[temp_index]
       temp_node_1 = temp_e$node1[temp_index[,1]]
@@ -962,13 +968,14 @@ Hetero_dimer = function(Peak_inten_correlation)
       hetero_dimer_ls[[length(hetero_dimer_ls)+1]] = temp_df
     }
   }
-  hetero_dimer_df = bind_rows(hetero_dimer_ls)
-  hetero_dimer_df["category"]="Heterodimer"
-  hetero_dimer_df["direction"]=1
-  hetero_dimer_df["rdbe"]=0
-  # hetero_dimer_df_duplicate = hetero_dimer_df[duplicated(hetero_dimer_df[,c("node2", "linktype")]) | duplicated(hetero_dimer_df[,c("node2", "linktype")], fromLast = T),]
-  
-  print("Potentail hetero dimer identified.")
+  hetero_dimer_df = bind_rows(hetero_dimer_ls) %>%
+    mutate(category = "Heterodimer",
+           direction = 1,
+           rdbe = 0) %>%
+    filter(node1 != linktype) %>% # remove homo-dimer
+    filter(node1 %in% ID_inten_threshold) # retain only high intensity as node1
+ 
+  print("Potential heterodimer identified.")
   return(hetero_dimer_df)
 }
 
@@ -992,6 +999,7 @@ Merge_edgeset = function(EdgeSet){
 Network_prediction = function(Mset, 
                               edge_biotransform, 
                               edge_artifact,
+                              edge_heterodimer,
                               biotransform_step = 1,
                               artifact_step = 2,
                               propagation_score_threshold = 0.2,
@@ -1003,8 +1011,10 @@ Network_prediction = function(Mset,
   gc()
   
   mnl=Mset$NodeSet
+  edge_artifact = rbind(edge_artifact, edge_heterodimer)
   # edge_biotransform = EdgeSet$Biotransform
   # edge_artifact = EdgeSet$Artifacts
+  # edge_artifact = EdgeSet$Heterodimer
   # top_formula_n=1
   # edge_list_sub = EdgeSet$Merge
   #Initialize predict_formula from HMDB known formula
@@ -1064,6 +1074,9 @@ Network_prediction = function(Mset,
       n=231
       for(n in 1:nrow(new_nodes_df)){
         temp_new_node = new_nodes_df[n,]
+        
+        
+        
         flag_id = temp_new_node$id
         flag_formula = temp_new_node$formula
         flag_is_metabolite = temp_new_node$is_metabolite
@@ -1093,57 +1106,74 @@ Network_prediction = function(Mset,
                                         |(temp_edge_list$node2 == flag_id & temp_edge_list$direction != 1),]
         if(nrow(temp_edge_list)==0){next}
         
-        i=19
+        i=8
         for(i in 1:nrow(temp_edge_list)){
-          temp_rdbe = temp_edge_list$rdbe[i]
-          #If flag is head
-          if(temp_edge_list$node1[i] == flag_id){
+          if(temp_edge_list$category[i] == "Heterodimer"){
+            link_fg = sf[[as.numeric(temp_edge_list$linktype[i])]] 
+            if(nrow(link_fg) == 0){next}
+            temp_fg = link_fg$formula[1]
+            temp_rdbe = link_fg$rdbe[1]
+            temp_edge_list$edge_massdif_score[i] = temp_edge_list$edge_massdif_score[i] * link_fg$score[1]
+            
             partner_id = temp_edge_list$node2[i]
-            if(partner_id>nrow_experiment){next}
-            if(grepl("x", temp_rdbe)){
-              fold = as.numeric(gsub("x","",temp_rdbe))
-              partner_rdbe = flag_rdbe * fold
-            } else{
-              partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
+            partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
+            partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
+          } 
+          
+          if(temp_edge_list$category[i] != "Heterodimer"){
+            temp_rdbe = temp_edge_list$rdbe[i]
+            #If flag is head
+            if(temp_edge_list$node1[i] == flag_id){
+              partner_id = temp_edge_list$node2[i]
+              if(partner_id>nrow_experiment){next}
+              if(grepl("x", temp_rdbe)){
+                fold = as.numeric(gsub("x","",temp_rdbe))
+                partner_rdbe = flag_rdbe * fold
+              } else{
+                partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
+              }
+              
+              temp_fg = temp_edge_list$linktype[i]
+              if(temp_fg==""){
+                partner_formula = flag_formula
+              }else if (grepl("x",temp_fg)){
+                fold = as.numeric(gsub("x","",temp_fg))
+                partner_formula=my_calculate_formula(flag_formula,flag_formula,fold-1,Is_valid = T)
+              }else {
+                partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
+              }
             }
             
-            temp_fg = temp_edge_list$linktype[i]
-            if(temp_fg==""){
-              partner_formula = flag_formula
-            }else if (grepl("x",temp_fg)){
-              fold = as.numeric(gsub("x","",temp_fg))
-              partner_formula=my_calculate_formula(flag_formula,flag_formula,fold-1,Is_valid = T)
-            }else {
-              partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
+            #If flag is tail
+            if(temp_edge_list$node2[i] == flag_id){
+              partner_id = temp_edge_list$node1[i]
+              if(partner_id>nrow_experiment){next}
+              
+              if(grepl("x", temp_rdbe)){
+                fold = as.numeric(gsub("x","",temp_rdbe))
+                partner_rdbe = flag_rdbe / fold
+              } else{
+                partner_rdbe = flag_rdbe - as.numeric(temp_rdbe)
+              }
+              temp_fg = temp_edge_list$linktype[i]
+              if(temp_fg==""){
+                partner_formula = flag_formula
+              }else if (grepl("x",temp_fg)){
+                fold = as.numeric(gsub("x","",temp_fg))
+                partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = F)
+                # Remove decimal point in formula
+                # if(grepl("\\.", partner_formula)){partner_formula=F}
+              }else {
+                partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
+              }
             }
-          }
-          
-          #If flag is tail
-          if(temp_edge_list$node2[i] == flag_id){
-            partner_id = temp_edge_list$node1[i]
-            if(partner_id>nrow_experiment){next}
             
-            if(grepl("x", temp_rdbe)){
-              fold = as.numeric(gsub("x","",temp_rdbe))
-              partner_rdbe = flag_rdbe / fold
-            } else{
-              partner_rdbe = flag_rdbe - as.numeric(temp_rdbe)
-            }
-            temp_fg = temp_edge_list$linktype[i]
-            if(temp_fg==""){
-              partner_formula = flag_formula
-            }else if (grepl("x",temp_fg)){
-              fold = as.numeric(gsub("x","",temp_fg))
-              partner_formula=my_calculate_formula(flag_formula,flag_formula,-(fold-1)/fold,Is_valid = F)
-              # Remove decimal point in formula
-              # if(grepl("\\.", partner_formula)){partner_formula=F}
-            }else {
-              partner_formula=my_calculate_formula(flag_formula,temp_fg,-1,Is_valid = T)
-            }
+            #function return false if not valid formula
+            if(is.logical(partner_formula)){next}
+            
           }
           
-          #function return false if not valid formula
-          if(is.logical(partner_formula)){next}
+          
           
           #Criteria to enter new entry into formula list
           #1. If it is a new formula or a new metabolite status, then record
@@ -1385,97 +1415,104 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
   triplet_edge_ls_edge=triplet_edge_ls_node=list()
   edge_info = list()
   timer=Sys.time()
-  n=1
+  
+  n=7
+  # edge_list = edge_list %>%
+  #   sample_n(1000)
   for(n in 1:nrow(edge_list)){
     # for(n in 1:20000){
     if(n%%10000==0){
       print(paste("n=",n,"elapsed="))
       print(Sys.time()-timer)
-      
     }
-    
     
     temp_edge = edge_list[n,]
     node_1 = temp_edge$node1
     node_2 = temp_edge$node2
     formula_1 = pred_formula_ls[[node_1]]
     formula_2 = pred_formula_ls[[node_2]]
-    temp_fg = temp_edge$linktype
     
+    if(temp_edge$category[1] == "Heterodimer"){
+      link_fg = pred_formula_ls[[as.numeric(temp_edge$linktype)]]$formula
+    } else {
+      link_fg = temp_edge$linktype
+    }
     
-    #temp_formula = formula_1$formula[2]
+    temp_score = temp_edge$edge_massdif_score
     for(temp_formula in unique(formula_1$formula)){
-      temp_score = temp_edge$edge_massdif_score
       
-      
-      #Assuming formula in node_1 is always smaller than node_2
-      if(temp_fg==""){
-        temp_formula_2 = temp_formula
-      }else if (grepl("x",temp_fg)){
-        fold = as.numeric(gsub("x","",temp_fg))
-        temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = T)
-      }else {
-        temp_formula_2=my_calculate_formula(temp_formula,temp_fg,1,Is_valid = T)
-      }
-      
-      #Write triplet for edge and corresponding 2 nodes
-      if(temp_formula_2 %in% formula_2$formula){
-        temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
-        temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
-        
-        
-        #if one node is library node,
-        if(node_1>lib_nodes_cutoff){
-          triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                j=temp_j,
-                                                v=1)
-          triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
-                                                j=temp_j2,
-                                                v=-1)
-          edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                     edge_score= temp_score,
-                                     formula1 = temp_formula,
-                                     formula2 = temp_formula_2,
-                                     ILP_id1 = temp_j1,
-                                     ILP_id2 = temp_j2
-          )
-        }
-        if(node_2>lib_nodes_cutoff){
-          triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                j=temp_j,
-                                                v=1)
-          triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
-                                                j=temp_j1,
-                                                v=-1)
-          edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                     edge_score=temp_score,
-                                     formula1 = temp_formula,
-                                     formula2 = temp_formula_2,
-                                     ILP_id1 = temp_j1,
-                                     ILP_id2 = temp_j2
-          )
+      for(temp_fg in unique(link_fg)){
+        #Assuming formula in node_1 is always smaller than node_2
+        if(temp_fg==""){
+          temp_formula_2 = temp_formula
+        }else if (grepl("x",temp_fg)){
+          fold = as.numeric(gsub("x","",temp_fg))
+          temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = F)
+        }else {
+          temp_formula_2=my_calculate_formula(temp_formula,temp_fg,1,Is_valid = T)
         }
         
-        #if both nodes are unknown nodes
-        if(node_1<=lib_nodes_cutoff&node_2<=lib_nodes_cutoff){
-          triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                j=temp_j,
-                                                v=2)
-          triplet_edge_ls_node[[temp_i]] = list(i=c(temp_i,temp_i),
-                                                j=c(temp_j1,temp_j2),
-                                                v=c(-1,-1))
-          edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                     edge_score=temp_score,
-                                     formula1 = temp_formula,
-                                     formula2 = temp_formula_2,
-                                     ILP_id1 = temp_j1,
-                                     ILP_id2 = temp_j2
-          )
+        #Write triplet for edge and corresponding 2 nodes
+        if(any(temp_formula_2 == formula_2$formula)){
+          temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
+          temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
+          
+          #if one node is library node,
+          if(node_1>lib_nodes_cutoff){
+            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                                  j=temp_j,
+                                                  v=1)
+            triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
+                                                  j=temp_j2,
+                                                  v=-1)
+            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
+                                       edge_score= temp_score,
+                                       formula1 = temp_formula,
+                                       formula2 = temp_formula_2,
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
+            )
+          }
+          if(node_2>lib_nodes_cutoff){
+            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                                  j=temp_j,
+                                                  v=1)
+            triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
+                                                  j=temp_j1,
+                                                  v=-1)
+            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
+                                       edge_score=temp_score,
+                                       formula1 = temp_formula,
+                                       formula2 = temp_formula_2,
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
+            )
+          }
+          
+          #if both nodes are unknown nodes
+          if(node_1<=lib_nodes_cutoff&node_2<=lib_nodes_cutoff){
+            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                                  j=temp_j,
+                                                  v=2)
+            triplet_edge_ls_node[[temp_i]] = list(i=c(temp_i,temp_i),
+                                                  j=c(temp_j1,temp_j2),
+                                                  v=c(-1,-1))
+            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
+                                       edge_score=temp_score,
+                                       formula1 = temp_formula,
+                                       formula2 = temp_formula_2,
+                                       ILP_id1 = temp_j1,
+                                       ILP_id2 = temp_j2
+            )
+          }
+          temp_i = temp_i+1
+          temp_j = temp_j+1
         }
-        temp_i = temp_i+1
-        temp_j = temp_j+1
-      }
-    } 
+      } 
+      
+    }
+    
+    
   }
   
   
