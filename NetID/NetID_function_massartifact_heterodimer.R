@@ -982,22 +982,32 @@ Hetero_dimer = function(Peak_inten_correlation, ppm_tolerance = 5, inten_thresho
   return(hetero_dimer_df)
 }
 
-
+### Ring_artifact - Edge_list for Ring_artifact ####
 Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
 {
   e = Peak_inten_correlation %>%
     filter(node1 %in% Mset$Data$ID, node2 %in% Mset$Data$ID) %>%
     filter(mz_dif < max(mz_node1, mz_node2)*ppm_range_ub/1e6) %>%
     mutate(inten_ratio = Mset$Data$mean_inten[node1]/Mset$Data$mean_inten[node2]) %>%
-    filter(inten_ratio > ring_fold)
+    filter(inten_ratio > ring_fold | inten_ratio < (1/ring_fold))
   
+  e2 = e %>%
+    filter(inten_ratio < 1) %>%
+    mutate(temp_node = node1, node1 = node2, node2 = temp_node) %>%
+    mutate(temp_mz = mz_node1, mz_node1 = mz_node2, mz_node2 = temp_mz) %>%
+    mutate(mz_dif = -mz_dif, inten_ratio = 1/inten_ratio) %>%
+    dplyr::select(-temp_node, -temp_mz)
   
-  e3_list = split(e, e$node1)
+  e3 = e %>%
+    filter(inten_ratio > 1) %>%
+    rbind(e2)
+  
+  e3_list = split(e3, e3$node1)
   
   ID_inten_threshold = Mset$Data %>%
     filter(mean_inten > inten_threshold) %>%
     pull(ID)
-  e3_list = e3_list[ID_inten_threshold]
+  # e3_list = e3_list[ID_inten_threshold]
   
   Mass_ring_artifact_ls = list()
   for(i in 1: length(e3_list)){
@@ -1016,7 +1026,9 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
     mutate(category = "Ring_artifact",
            direction = 1,
            rdbe = 0, 
-           edge_massdif_score = 1) 
+           edge_massdif_score = 1) %>%
+    filter(node1 %in% ID_inten_threshold)
+    
   
   print("Potential Mass_ring_artifact identified.")
   return(Mass_ring_artifact_df)
