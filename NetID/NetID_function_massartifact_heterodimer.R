@@ -34,6 +34,7 @@
 #   library(tictoc)
 #   library(janitor)
 #   
+#   devtools::install_github("LiChenPU/Formula_manipulation")
 #   library(lc8)
 #   library(profvis)
 #   
@@ -932,8 +933,10 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
   #data$parent[data$ID==6]
   test_time = Sys.time()-test_time
   
-  edge_ls_annotate=rbind(temp_df_isotope,temp_df_oligo) %>%
-    dplyr::select(c("node1","node2","linktype","mass_dif","category","direction","rdbe"))
+  edge_ls_annotate= temp_df_isotope %>%
+    # mutate(category = "Adduct_isotopes") %>%
+    rbind(temp_df_oligo) %>%
+    dplyr::select(c("node1","node2","linktype","mass_dif","category","direction","rdbe")) 
   
   # edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction","rdbe")]
   
@@ -980,9 +983,54 @@ Hetero_dimer = function(Peak_inten_correlation, ppm_tolerance = 5, inten_thresho
 }
 
 
+Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
+{
+  e = Peak_inten_correlation %>%
+    filter(node1 %in% Mset$Data$ID, node2 %in% Mset$Data$ID) %>%
+    filter(mz_dif < max(mz_node1, mz_node2)*ppm_range_ub/1e6) %>%
+    mutate(inten_ratio = Mset$Data$mean_inten[node1]/Mset$Data$mean_inten[node2]) %>%
+    filter(inten_ratio > ring_fold)
+  
+  
+  e3_list = split(e, e$node1)
+  
+  ID_inten_threshold = Mset$Data %>%
+    filter(mean_inten > inten_threshold) %>%
+    pull(ID)
+  e3_list = e3_list[ID_inten_threshold]
+  
+  Mass_ring_artifact_ls = list()
+  for(i in 1: length(e3_list)){
+    temp_e = e3_list[[i]] 
+    temp_vector= temp_e$mz_dif / temp_e$mz_node1 * 1e6
+    temp_index = which(abs(temp_vector) > ppm_range_lb & abs(temp_vector) < ppm_range_ub) 
+    if(length(temp_index)>0){
+      temp_ppm = temp_vector[temp_index]
+      temp_node_2 = temp_e$node2[temp_index]
+      linktype = "Ring_artifact"
+      temp_df = data.frame(node1 = temp_e$node1[1], linktype = linktype, node2 = temp_node_2, mass_dif = temp_ppm)
+      Mass_ring_artifact_ls[[length(Mass_ring_artifact_ls)+1]] = temp_df
+    }
+  }
+  Mass_ring_artifact_df = bind_rows(Mass_ring_artifact_ls) %>%
+    mutate(category = "Ring_artifact",
+           direction = 1,
+           rdbe = 0, 
+           edge_massdif_score = 1) 
+  
+  print("Potential Mass_ring_artifact identified.")
+  return(Mass_ring_artifact_df)
+}
+
 ## Merge_edgeset ####
-Merge_edgeset = function(EdgeSet){
-  edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform, EdgeSet$Heterodimer)
+Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T){
+  edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
+  if(Include_Heterodimer){
+    edge_merge = rbind(edge_merge, EdgeSet$Heterodimer)
+  }
+  if(Include_Ring_artifact){
+    edge_merge = rbind(edge_merge, EdgeSet$Ring_artifact)
+  }
   
   edge_merge = edge_merge %>%
     mutate(node1_log10_inten = Mset$Data$log10_inten[node1],
@@ -997,11 +1045,9 @@ Merge_edgeset = function(EdgeSet){
 
 ## Network_prediction - used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, 
-                              edge_biotransform, 
-                              edge_artifact,
-                              edge_heterodimer,
+                              EdgeSet,
                               biotransform_step = 1,
-                              artifact_step = 2,
+                              artifact_step = 1,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
                               max_formula_num = 1e6,
@@ -1009,39 +1055,40 @@ Network_prediction = function(Mset,
 )
 {
   gc()
-  
-  mnl=Mset$NodeSet
-  edge_artifact = rbind(edge_artifact, edge_heterodimer)
-  # edge_biotransform = EdgeSet$Biotransform
-  # edge_artifact = EdgeSet$Artifacts
-  # edge_artifact = EdgeSet$Heterodimer
-  # top_formula_n=1
-  # edge_list_sub = EdgeSet$Merge
-  #Initialize predict_formula from HMDB known formula
-  {
-    data_str = data.frame(id=as.numeric(),
-                          formula=as.character(), 
-                          steps=as.numeric(), 
-                          parent=as.numeric(), 
-                          is_metabolite = as.logical(),
-                          score=as.numeric(),
-                          rdbe=as.numeric(),
-                          stringsAsFactors = F)
-    #sf stands for summary_formula
-    
-    sf = lapply(1:nrow(mnl),function(i)(data_str))
-    
-    for(i in mnl$ID[mnl$category==0]){
-      Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1,mnl$rdbe[i])
-      sf[[i]]=Initial_formula
-    }
-    for(i in mnl$ID[mnl$category==-1]){
-      Initial_formula =sf[[i]]
-      Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
-      sf[[i]]=Initial_formula
-    }
-  }
+  # Initialize
+  { 
+    mnl=Mset$NodeSet
+    # edge_artifact = rbind(edge_artifact, edge_heterodimer)
+    edge_biotransform = EdgeSet$Biotransform
+    edge_artifact = rbind(EdgeSet$Artifacts, EdgeSet$Heterodimer, EdgeSet$Ring_artifact)
+    # top_formula_n=1
+    # edge_list_sub = EdgeSet$Merge
+    #Initialize predict_formula from HMDB known formula
+    {
+      data_str = data.frame(id=as.numeric(),
+                            formula=as.character(), 
+                            steps=as.numeric(), 
+                            parent=as.numeric(), 
+                            is_metabolite = as.logical(),
+                            score=as.numeric(),
+                            rdbe=as.numeric(),
+                            stringsAsFactors = F)
+      #sf stands for summary_formula
+      
+      sf = lapply(1:nrow(mnl),function(i)(data_str))
+      
+      for(i in mnl$ID[mnl$category==0]){
+        Initial_formula =sf[[i]]
+        Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1,mnl$rdbe[i])
+        sf[[i]]=Initial_formula
+      }
+      for(i in mnl$ID[mnl$category==-1]){
+        Initial_formula =sf[[i]]
+        Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
+        sf[[i]]=Initial_formula
+      }
+    }}
+ 
   
   #while loop to Predict formula based on known formula and edgelist 
   nrow_experiment = nrow(Mset$Data)
@@ -1061,7 +1108,8 @@ Network_prediction = function(Mset,
       new_nodes_df = all_nodes_df %>%
         filter(steps==(step + sub_step),
                score>propagation_score_threshold) %>%
-        filter(!grepl("\\.", formula))
+        filter(!grepl("\\.", formula)) %>%  # Do not propagate from formula with decimal point
+        filter(!grepl("Ring_artifact", formula)) # Do not propagate from ring artifacts
       
       sub_step = sub_step+0.01
       if(nrow(new_nodes_df)==0){break}
@@ -1071,12 +1119,9 @@ Network_prediction = function(Mset,
                                           edge_artifact$node2 %in% new_nodes_df$id,]
       
       
-      n=231
+      n=9
       for(n in 1:nrow(new_nodes_df)){
         temp_new_node = new_nodes_df[n,]
-        
-        
-        
         flag_id = temp_new_node$id
         flag_formula = temp_new_node$formula
         flag_is_metabolite = temp_new_node$is_metabolite
@@ -1094,10 +1139,10 @@ Network_prediction = function(Mset,
           if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
         }
         
-        #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks
+        #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks or ring artifact
         if(grepl("\\[",flag_formula)){
           temp_edge_list = temp_edge_list %>%
-            filter(grepl("\\[|oligomer",category))
+            filter(grepl("\\[|oligomer|Ring_artifact",category))
           if(nrow(temp_edge_list)==0){next}
         }
         
@@ -1108,19 +1153,22 @@ Network_prediction = function(Mset,
         
         i=8
         for(i in 1:nrow(temp_edge_list)){
-          if(temp_edge_list$category[i] == "Heterodimer"){
-            link_fg = sf[[as.numeric(temp_edge_list$linktype[i])]] 
-            if(nrow(link_fg) == 0){next}
-            temp_fg = link_fg$formula[1]
-            temp_rdbe = link_fg$rdbe[1]
-            temp_edge_list$edge_massdif_score[i] = temp_edge_list$edge_massdif_score[i] * link_fg$score[1]
+          if(temp_edge_list$category[i] == "Ring_artifact"){
+            partner_id = temp_edge_list$node2[i]
+            partner_rdbe = flag_rdbe
+            partner_formula = paste("Ring_artifact", flag_formula, sep="_")
+          } else if(temp_edge_list$category[i] == "Heterodimer"){
+            link_edge = sf[[as.numeric(temp_edge_list$linktype[i])]]
+            link_edge = link_edge[!grepl("Ring_artifact", link_edge$formula),]  # prevent mass artifact form heterodimer
+            if(nrow(link_edge) == 0){next}
+            temp_fg = link_edge$formula[1]
+            temp_rdbe = link_edge$rdbe[1]
+            temp_edge_list$edge_massdif_score[i] = temp_edge_list$edge_massdif_score[i] * link_edge$score[1]
             
             partner_id = temp_edge_list$node2[i]
             partner_rdbe = flag_rdbe + as.numeric(temp_rdbe)
             partner_formula=my_calculate_formula(flag_formula,temp_fg,1,Is_valid = T)
-          } 
-          
-          if(temp_edge_list$category[i] != "Heterodimer"){
+          } else {
             temp_rdbe = temp_edge_list$rdbe[i]
             #If flag is head
             if(temp_edge_list$node1[i] == flag_id){
@@ -1214,8 +1262,10 @@ Network_prediction = function(Mset,
     # Handle biotransform
     {
       all_nodes_df = bind_rows(sf)
-      new_nodes_df = all_nodes_df[all_nodes_df$steps==step
-                                  &all_nodes_df$score>propagation_score_threshold,]
+      new_nodes_df = all_nodes_df %>%
+        filter(steps==step,
+               score>propagation_score_threshold, 
+               is_metabolite)
       print(paste("nrow",nrow(all_nodes_df),"in step",step,"elapsed="))
       print((Sys.time()-timer))
       step = step + 1
@@ -1432,8 +1482,11 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     formula_1 = pred_formula_ls[[node_1]]
     formula_2 = pred_formula_ls[[node_2]]
     
+    
+
     if(temp_edge$category[1] == "Heterodimer"){
       link_fg = pred_formula_ls[[as.numeric(temp_edge$linktype)]]$formula
+      link_fg = link_fg[!grepl("Ring_artifact", link_fg)]  # prevent mass artifact form heterodimer
     } else {
       link_fg = temp_edge$linktype
     }
@@ -1445,6 +1498,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
         #Assuming formula in node_1 is always smaller than node_2
         if(temp_fg==""){
           temp_formula_2 = temp_formula
+        }else if (grepl("Ring_artifact",temp_fg)){
+          temp_formula_2 = paste("Ring_artifact", temp_formula, sep="_")
         }else if (grepl("x",temp_fg)){
           fold = as.numeric(gsub("x","",temp_fg))
           temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = F)
@@ -1616,20 +1671,26 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
 ### Score_formula ####
 Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F)
 {
-  unknown_formula = CPLEXset$data$unknown_formula 
+  unknown_formula = CPLEXset$data$unknown_formula %>%
+    mutate(msr_mass = Mset$NodeSet$mz[id]) %>%
+    mutate(ILP_id = 1:nrow(.))
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
+  unknown_formula_ring_artifact = unknown_formula %>%
+    filter(grepl("Ring_artifact", formula)) %>%
+    mutate(cal_mass = msr_mass,
+           msr_cal_mass_dif = 0,
+           msr_cal_mass_dif_ppm = 0,
+           Mass_score = 1)
+  
   unknown_formula = unknown_formula %>%
-    mutate(msr_mass = Mset$NodeSet$mz[id], cal_mass = formula_mz(formula)) %>%
+    filter(!grepl("Ring_artifact", formula)) %>%
+    mutate(cal_mass = formula_mz(formula)) %>%
     mutate(msr_cal_mass_dif = msr_mass - cal_mass) %>%
-    mutate(msr_cal_mass_dif_ppm = msr_cal_mass_dif / msr_mass * 1e6)
-  
-  # edge_mzdif_FIT <- fitdist(unknown_formula$msr_cal_mass_dif*1000, "norm")    
-  # summary(edge_mzdif_FIT)
-  
-  unknown_formula = unknown_formula %>%
+    mutate(msr_cal_mass_dif_ppm = msr_cal_mass_dif / msr_mass * 1e6) %>%
     mutate(Mass_score = dnorm(msr_cal_mass_dif_ppm, 0, mass_dist_sigma)/dnorm(0, 0, mass_dist_sigma)) %>%
-    mutate(Mass_score = Mass_score+1e-10)
+    mutate(Mass_score = Mass_score+1e-10) %>%
+    rbind(unknown_formula_ring_artifact)
   
   #when rdbe < -1, penalty to each rdbe less
   #unknown_formula["rdbe"] = formula_rdbe(unknown_formula$formula)
@@ -1682,6 +1743,9 @@ Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_pe
     unknown_formula["step_score"] + 
     unknown_formula["rdbe_score"] +
     unknown_formula["sum_iso_penalty_score"]
+  
+  unknown_formula = unknown_formula %>%
+    arrange(ILP_id)
   
   
   # hist(unknown_formula$cplex_score)

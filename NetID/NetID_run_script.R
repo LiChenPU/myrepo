@@ -1,7 +1,7 @@
 # Main Codes ####
 ## Read files ####
 
-# setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function_massartifact_heterodimer.R")
 work_dir = "Xi_new_neg"
 ion_mode = -1
@@ -83,15 +83,19 @@ sink()
   EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 5e5)
   EdgeSet[["Heterodimer"]] = Edge_score(EdgeSet$Heterodimer, mass_dist_sigma = mass_dist_sigma)
   
+  # Mass_ring_artifact
+  EdgeSet[["Ring_artifact"]] = Ring_artifact(Peak_inten_correlation = EdgeSet$Peak_inten_correlation, 
+                                                       ppm_range_lb = 50, 
+                                                       ppm_range_ub = 1000, 
+                                                       ring_fold = 50, 
+                                                       inten_threshold = 1e6)
   
-  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
+  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T)
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
-                                                 edge_biotransform = EdgeSet$Biotransform, 
-                                                 edge_artifact = EdgeSet$Artifacts,
-                                                 edge_heterodimer = EdgeSet$Heterodimer,
-                                                 biotransform_step = 7,
-                                                 artifact_step = 7,
+                                                 EdgeSet,
+                                                 biotransform_step = 5,
+                                                 artifact_step = 5,
                                                  propagation_score_threshold = 0.2,
                                                  max_formula_num = 1e6,
                                                  top_n = 50)
