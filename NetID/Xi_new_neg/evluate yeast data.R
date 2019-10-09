@@ -113,22 +113,24 @@ for(i in 1:length(NetID_files)){
   print(results)
 }
 
-selected_file = 11
+selected_file = 12
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%
   inner_join(evaluate_summary[[selected_file]]$Total_potential_3e5)
-result9 = evaluate_summary[[9]]$Total_potential_3e5 %>%
+result12 = evaluate_summary[[12]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result10 = evaluate_summary[[10]]$Total_potential_3e5 %>%
+result13 = evaluate_summary[[13]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result10_not9 = evaluate_summary[[10]]$Total_potential_3e5 %>%
-  anti_join(result9)
+result13_not12 = evaluate_summary[[13]]$Total_potential_3e5 %>%
+  anti_join(result12) # %>%
+  filter(formula.x == `Ground truth`, ILP_result ==1)
 
-result9_not10 = evaluate_summary[[9]]$Total_potential_3e5 %>%
-  anti_join(result10)
+result12_not13 = evaluate_summary[[12]]$Total_potential_3e5 %>%
+  anti_join(result13) %>%
+  filter(formula.x == `Ground truth`, ILP_result ==1)
 
 
 
@@ -175,6 +177,18 @@ result9_not10 = evaluate_summary[[9]]$Total_potential_3e5 %>%
   
   all_PAVE_unknowns_CN_2match = all_PAVE_unknowns %>%
     filter(abs(C - proposed_C)<=2, abs(N-proposed_N)<=2)
+  
+}
+
+# Evaluate step info 
+{
+  CPLEX_step = formula_list2 %>% 
+    filter(ILP_result == 1) %>%
+    filter(category ==1) %>%  # measured data
+    filter(steps >= 6) %>%
+    pull(steps)
+  
+  table(CPLEX_step)
   
 }
 

@@ -1,5 +1,5 @@
 
-# source("../NetID_function.R")
+source("../NetID_function_massartifact_heterodimer.R")
 library(cplexAPI)
 
 
@@ -108,7 +108,8 @@ g_vertex_edge = determine_is_metabolite()
 formula_list2 = g_vertex_edge$formula_list2
 relation_list2 = g_vertex_edge$relation_list2
 
-
+edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
+write.csv(edge_info_sum, paste(timestamp, "edge.csv"), row.names = F)
 write.csv(formula_list2, paste0(timestamp, ".csv"), row.names = F)
 save.image(paste0(timestamp,".RData"))
 
