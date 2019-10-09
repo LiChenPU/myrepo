@@ -113,7 +113,7 @@ for(i in 1:length(NetID_files)){
   print(results)
 }
 
-selected_file = 12
+selected_file = 19
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%
@@ -161,11 +161,20 @@ result12_not13 = evaluate_summary[[12]]$Total_potential_3e5 %>%
 }
 # Evaluate unknowns
 {
-  all_PAVE_unknowns = merge_result %>%
+  all_PAVE_unknowns_raw = merge_result %>%
     filter(feature...11 == "[]") %>%
     mutate(proposed_C = sapply(formula.x, elem_num_query, "C"),
            proposed_N = sapply(formula.x, elem_num_query, "N")) %>%
-    filter(ILP_result !=0 )
+    arrange(-ILP_result) %>%
+    distinct(ID, .keep_all =T)
+  
+  all_PAVE_unknowns_raw_unconnected = all_PAVE_unknowns_raw %>%
+    filter(is.na(ILP_result) | ILP_result ==0)
+  
+  all_PAVE_unknowns = all_PAVE_unknowns_raw %>%
+    filter(ILP_result !=0)
+  
+  
   
   sum(is.na(all_PAVE_unknowns$formula.x))
   
