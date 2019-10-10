@@ -1045,6 +1045,7 @@ Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T
   }
   
   edge_merge = edge_merge %>%
+    # filter(log10(edge_massdif_score) > filter_log10score) %>%
     mutate(node1_log10_inten = Mset$Data$log10_inten[node1],
            node2_log10_inten = Mset$Data$log10_inten[node2]) %>%
     mutate(edge_id = 1:nrow(.)) %>%
@@ -1071,8 +1072,10 @@ Network_prediction = function(Mset,
   { 
     mnl=Mset$NodeSet
     # edge_artifact = rbind(edge_artifact, edge_heterodimer)
-    edge_biotransform = EdgeSet$Biotransform
-    edge_artifact = rbind(EdgeSet$Artifacts, EdgeSet$Heterodimer, EdgeSet$Ring_artifact)
+    edge_biotransform = EdgeSet$Merge %>%
+      filter(category == "biotransform")
+    edge_artifact = EdgeSet$Merge %>%
+      filter(category != "biotransform")
     # top_formula_n=1
     # edge_list_sub = EdgeSet$Merge
     #Initialize predict_formula from HMDB known formula
@@ -1489,6 +1492,8 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     }
     
     temp_edge = edge_list[n,]
+    
+    
     node_1 = temp_edge$node1
     node_2 = temp_edge$node2
     formula_1 = pred_formula_ls[[node_1]]
@@ -1757,7 +1762,8 @@ Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_pe
     unknown_formula["sum_iso_penalty_score"]
   
   unknown_formula = unknown_formula %>%
-    arrange(ILP_id)
+    arrange(ILP_id) %>%
+    mutate(cplex_score = round(cplex_score, digits = 6))
   
   
   # hist(unknown_formula$cplex_score)
@@ -1898,13 +1904,22 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   
   # Conserve memory true
   setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+  # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
   # setDefaultParmCPLEX(env)
   # getChgParmCPLEX(env)
   
-  tictoc::tic()
+  # Assess parameters
+  # getParmNameCPLEX(env, 1082)
   
+  
+  # Access Relative Objective Gap for a MIP Optimization Description
+  getMIPrelGapCPLEX(env, prob)
+  
+  tictoc::tic()
+  # test = basicPresolveCPLEX(env, prob)
   return_code = mipoptCPLEX(env, prob)
   result_solution=solutionCPLEX(env, prob)
+  # result_solution_info = solnInfoCPLEX(env, prob)
   
   print(paste(return_codeCPLEX(return_code),"-",
               status_codeCPLEX(env, getStatCPLEX(env, prob)),
