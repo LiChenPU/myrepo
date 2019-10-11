@@ -17,13 +17,12 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   # formula_list2 = formula_list_ls[[6]]
 }
 
+# Evaluate Xi's data from annotation ####
+
 evaluate_summary = list()
 for(i in 1:length(NetID_files)){
   formula_list2 = formula_list_ls[[i]]
   
-
-
-# Evaluate Xi's data from annotation ####
 {
   # wl_result = read_csv("WL_190405_both.csv")
   
@@ -72,7 +71,7 @@ for(i in 1:length(NetID_files)){
     filter(feature...11 != "Background")
   
   all_unconnected_non_backgrounds_3e5 = all_unconnected_non_backgrounds %>%
-    filter(log10_inten>log10(3e5))
+    filter(log10_inten>log10(1e5))
 }
 
 
@@ -81,6 +80,9 @@ for(i in 1:length(NetID_files)){
   all_labeled_peaks = merge_result %>%
     filter(feature...11 != "Background") %>%
     arrange(-ILP_result) 
+  
+  all_labeled_peaks_distinct = all_labeled_peaks %>%
+    distinct(ID, .keep_all=T)
   
   all_labeled_peaks_3e5 = all_labeled_peaks %>%
     filter(log10_inten > log10(3e5))
@@ -113,23 +115,23 @@ for(i in 1:length(NetID_files)){
   print(results)
 }
 
-selected_file = 19
+selected_file = 1
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%
   inner_join(evaluate_summary[[selected_file]]$Total_potential_3e5)
-result12 = evaluate_summary[[12]]$Total_potential_3e5 %>%
+result1 = evaluate_summary[[1]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result13 = evaluate_summary[[13]]$Total_potential_3e5 %>%
+result3 = evaluate_summary[[3]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result13_not12 = evaluate_summary[[13]]$Total_potential_3e5 %>%
-  anti_join(result12) # %>%
+result3_not1 = evaluate_summary[[3]]$Total_potential_3e5 %>%
+  anti_join(result1)  %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
 
-result12_not13 = evaluate_summary[[12]]$Total_potential_3e5 %>%
-  anti_join(result13) %>%
+result1_not3 = evaluate_summary[[1]]$Total_potential_3e5 %>%
+  anti_join(result3) %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
 
 

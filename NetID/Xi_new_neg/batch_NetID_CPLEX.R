@@ -1,5 +1,6 @@
 
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+# setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
 
 NetID_files = list.files(pattern = ".RData")
 for(repeating_n in 1:length(NetID_files)){
@@ -61,10 +62,10 @@ for(repeating_n2 in 1:15){
 #   
 #   
 # edge_info_sum = edge_info_sum_ls[[9]]
-formula_list = formula_list_ls[[19]]
+formula_list = formula_list_ls[[3]]
 
 {
-  selected_ID = 2607
+  selected_ID = 804
   edge_selected = edge_info_sum %>% filter(node1==selected_ID|node2==selected_ID)
   formula_selected = formula_list %>% filter(ID == selected_ID)
   formula_selected_in_edges = formula_list %>% filter(ID %in% c(edge_selected$node1, edge_selected$node2))
@@ -76,7 +77,6 @@ formula_list = formula_list_ls[[19]]
      filter(linktype == "H2O1") %>%
     distinct(edge_id, .keep_all = T) %>%
     filter(ILP_result ==1)
-  
 }
 
 
