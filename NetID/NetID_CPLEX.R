@@ -6,7 +6,7 @@ library(cplexAPI)
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
   
-  Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para = c(0,1,7))
+  # Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para = c(0,1,7))
 }
 
 # Read CPLEX result ####

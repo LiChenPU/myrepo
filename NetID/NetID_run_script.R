@@ -3,9 +3,9 @@
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
-work_dir = "Xi_new_neg"
-# work_dir = "yeast_WL190314_pos"
-ion_mode = -1
+# work_dir = "Xi_new_neg"
+work_dir = "yeast_WL190314_pos"
+ion_mode = 1
 print(work_dir)
 print(ion_mode)
 
@@ -81,7 +81,7 @@ sink()
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts, mass_dist_sigma = mass_dist_sigma)
   
   #heterodimer  
-  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 5e5)
+  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 1e6)
   EdgeSet[["Heterodimer"]] = Edge_score(EdgeSet$Heterodimer, mass_dist_sigma = mass_dist_sigma)
   
   # Mass_ring_artifact

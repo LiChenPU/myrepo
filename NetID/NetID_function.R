@@ -1921,9 +1921,8 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   
   # Conserve memory true
   setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
-  # setIntParmCPLEX(env, CPX_PARAM_PROBE, -1)
+  setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
   # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
-  # setIntParmCPLEX(env, CPX_PARAM_PROBE, 2)
   # setDefaultParmCPLEX(env)
   # getChgParmCPLEX(env)
   
