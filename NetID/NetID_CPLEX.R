@@ -1,5 +1,5 @@
 
-source("../NetID_function_massartifact_heterodimer.R")
+source("../NetID_function.R")
 library(cplexAPI)
 
 
@@ -19,8 +19,8 @@ library(cplexAPI)
 }
 
 {
-  unknown_nodes = CPLEXset$data$unknown_nodes[,1:3]
-  unknown_formula = CPLEXset$data$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
+  unknown_nodes = CPLEXset$formula$unknown_nodes[,1:3]
+  unknown_formula = CPLEXset$formula$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
   unknown_formula_CPLEX = unknown_formula %>% filter(ILP_result!=0 )
 
   print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))

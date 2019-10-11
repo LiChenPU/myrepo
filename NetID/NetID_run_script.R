@@ -2,9 +2,10 @@
 ## Read files ####
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-source("NetID_function_massartifact_heterodimer.R")
-work_dir = "Xi_new_neg"
-ion_mode = -1
+source("NetID_function.R")
+# work_dir = "Xi_new_neg"
+work_dir = "yeast_WL190314_pos"
+ion_mode = 1
 print(work_dir)
 print(ion_mode)
 
@@ -90,7 +91,7 @@ sink()
                                                        ring_fold = 50, 
                                                        inten_threshold = 1e6)
   
-  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T)
+  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T) 
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet,
@@ -99,20 +100,23 @@ sink()
                                                  propagation_score_threshold = 0.2,
                                                  max_formula_num = 1e6,
                                                  top_n = 50)
-  
-  CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
 }
 
-# Run CPLEX ####
 {
-  # save.image("temp.RData")
-  CPLEXset$data$unknown_formula = Score_formula(CPLEXset, mass_dist_sigma = mass_dist_sigma,
-                                                rdbe=F, step_score=F, iso_penalty_score=F)
-  edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus, 
-                                   isotope_bonus = edge_bonus,
-                                   artifact_bonus = edge_bonus)
-  obj_cplex = c(CPLEXset$data$unknown_formula$cplex_score, edge_info_sum$edge_score)
+  CPLEXset = list()
+  CPLEXset[["formula"]] = Prepare_CPLEX_formula(Mset, mass_dist_sigma = mass_dist_sigma,
+                                                     rdbe=F, step_score=F, iso_penalty_score=F)
+  CPLEXset[["edge"]] = Prepare_CPLEX_edge(EdgeSet, 
+                                          CPLEXset,
+                                          edge_bonus = edge_bonus, 
+                                          isotope_bonus = edge_bonus,
+                                          artifact_bonus = edge_bonus)
+  CPLEXset[["para"]] = Prepare_CPLEX_para(Mset, EdgeSet, CPLEXset)
+  
+  obj_cplex = c(CPLEXset$formula$unknown_formula$cplex_score, CPLEXset$edge$edge_score)
 }
+
+
 
 
 # ## Feature generation ####

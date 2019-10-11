@@ -1417,11 +1417,11 @@ Network_prediction = function(Mset,
 
 
 # Function for CPLEX ####
-## Prepare_CPLEX parameter ####
-Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
+### Prepare_CPLEX_formula ####
+Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F)
+{
   raw_pred_formula=bind_rows(Mset[["NodeSet_network"]])
   raw_node_list = Mset$NodeSet
-  raw_edge_list = EdgeSet$Merge
   
   #Clean up
   {
@@ -1441,9 +1441,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     merge_formula = rbind(unknown_formula,lib_formula)
     merge_formula["ilp_index"]=1:nrow(merge_formula)
     #Select edge list where it relates only to unknown nodes that have propagated formula
-    edge_list = raw_edge_list[raw_edge_list$node1 %in% unknown_nodes$ID |
-                                raw_edge_list$node2 %in% unknown_nodes$ID,]
-  
+ 
     pred_formula_ls = list()
     merge_formula_id=merge_formula$id
     for(n in 1: max(merge_formula$id)){
@@ -1451,244 +1449,7 @@ Prepare_CPLEX = function(Mset, EdgeSet, read_from_csv = F){
     }
   }
   
-  
-  
-  ##Core codes
-  
-  #Construct constraint matrix 
-  
-  #Unknown nodes
-  triplet_unknown_nodes_ls = list()
-  temp_j=1
-  
-  for(n in 1:nrow(unknown_nodes)){
-    temp_i = n
-    temp_unknown_formula = unknown_formula[unknown_formula$id==unknown_nodes$ID[n],]
-    if(nrow(temp_unknown_formula)==0){next()}
-    triplet_unknown_nodes_ls[[n]]=list(i=rep(temp_i, nrow(temp_unknown_formula)), 
-                                       j=temp_j:(temp_j+nrow(temp_unknown_formula)-1), 
-                                       v=rep(1,nrow(temp_unknown_formula)))
-    temp_j = temp_j+nrow(temp_unknown_formula)
-  }
-  triplet_unknown_node = bind_rows(triplet_unknown_nodes_ls)
-  rm(triplet_unknown_nodes_ls)
-  
-  
-  #Edge list
-  gc()
-  temp_i=temp_j=1
-  triplet_edge_ls_edge=triplet_edge_ls_node=list()
-  edge_info = list()
-  timer=Sys.time()
-  
-  n=7
-  # edge_list = edge_list %>%
-  #   sample_n(1000)
-  for(n in 1:nrow(edge_list)){
-    # for(n in 1:20000){
-    if(n%%10000==0){
-      print(paste("n=",n,"elapsed="))
-      print(Sys.time()-timer)
-    }
-    
-    temp_edge = edge_list[n,]
-    
-    
-    node_1 = temp_edge$node1
-    node_2 = temp_edge$node2
-    formula_1 = pred_formula_ls[[node_1]]
-    formula_2 = pred_formula_ls[[node_2]]
-    
-    
-
-    if(temp_edge$category[1] == "Heterodimer"){
-      link_fg = pred_formula_ls[[as.numeric(temp_edge$linktype)]]$formula
-      link_fg = link_fg[!grepl("Ring_artifact", link_fg)]  # prevent mass artifact form heterodimer
-    } else {
-      link_fg = temp_edge$linktype
-    }
-    
-    temp_score = temp_edge$edge_massdif_score
-    for(temp_formula in unique(formula_1$formula)){
-      
-      for(temp_fg in unique(link_fg)){
-        #Assuming formula in node_1 is always smaller than node_2
-        if(temp_fg==""){
-          temp_formula_2 = temp_formula
-        }else if (grepl("Ring_artifact",temp_fg)){
-          temp_formula_2 = paste("Ring_artifact", temp_formula, sep="_")
-        }else if (grepl("x",temp_fg)){
-          fold = as.numeric(gsub("x","",temp_fg))
-          temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = F)
-        }else {
-          temp_formula_2=my_calculate_formula(temp_formula,temp_fg,1,Is_valid = T)
-        }
-        
-        #Write triplet for edge and corresponding 2 nodes
-        if(any(temp_formula_2 == formula_2$formula)){
-          temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
-          temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
-          
-          #if one node is library node,
-          if(node_1>lib_nodes_cutoff){
-            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                  j=temp_j,
-                                                  v=1)
-            triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
-                                                  j=temp_j2,
-                                                  v=-1)
-            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score= temp_score,
-                                       formula1 = temp_formula,
-                                       formula2 = temp_formula_2,
-                                       ILP_id1 = temp_j1,
-                                       ILP_id2 = temp_j2
-            )
-          }
-          if(node_2>lib_nodes_cutoff){
-            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                  j=temp_j,
-                                                  v=1)
-            triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
-                                                  j=temp_j1,
-                                                  v=-1)
-            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score=temp_score,
-                                       formula1 = temp_formula,
-                                       formula2 = temp_formula_2,
-                                       ILP_id1 = temp_j1,
-                                       ILP_id2 = temp_j2
-            )
-          }
-          
-          #if both nodes are unknown nodes
-          if(node_1<=lib_nodes_cutoff&node_2<=lib_nodes_cutoff){
-            triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
-                                                  j=temp_j,
-                                                  v=2)
-            triplet_edge_ls_node[[temp_i]] = list(i=c(temp_i,temp_i),
-                                                  j=c(temp_j1,temp_j2),
-                                                  v=c(-1,-1))
-            edge_info[[temp_i]] = list(edge_id=temp_edge$edge_id,
-                                       edge_score=temp_score,
-                                       formula1 = temp_formula,
-                                       formula2 = temp_formula_2,
-                                       ILP_id1 = temp_j1,
-                                       ILP_id2 = temp_j2
-            )
-          }
-          temp_i = temp_i+1
-          temp_j = temp_j+1
-        }
-      } 
-      
-    }
-    
-    
-  }
-  
-  
-  
-  triplet_edge_ls_edge_sum = bind_rows(triplet_edge_ls_edge)
-  triplet_edge_ls_edge_sum$i=triplet_edge_ls_edge_sum$i+num_unknown_nodes
-  triplet_edge_ls_edge_sum$j=triplet_edge_ls_edge_sum$j+nrow(unknown_formula)
-  triplet_edge_ls_node_sum = bind_rows(triplet_edge_ls_node)
-  triplet_edge_ls_node_sum$i=triplet_edge_ls_node_sum$i+num_unknown_nodes
-  
-  #Generate sparse matrix on left hand side
-  triplet_df = rbind(
-    triplet_unknown_node, 
-    triplet_edge_ls_edge_sum,
-    triplet_edge_ls_node_sum
-  )
-  
-  
-  ##Objective parameter 
-  {
-    #edge_info_sum = CPLEXset$data$edge_info_sum
-    gc()
-    edge_info_sum = bind_rows(edge_info)
-    # edge_info_sum = rbind(edge_info_sum,edge_info_sum)
-    
-    edge_info_sum["edge_ilp_id"]=1:nrow(edge_info_sum)
-    test = edge_info_sum
-    test1 = test[test$ILP_id2>nrow(unknown_formula)&
-                   test$ILP_id1<=nrow(unknown_formula),]
-    test2 = test[test$ILP_id1>nrow(unknown_formula)&
-                   test$ILP_id2<=nrow(unknown_formula),]
-    colnames(test2)=sub(1,3,colnames(test2))
-    colnames(test2)=sub(2,1,colnames(test2))
-    colnames(test2)=sub(3,2,colnames(test2))
-    
-    test1 = merge(test1,test2,all=T)
-    
-    test1 = test1[duplicated(test1[,c("formula1","ILP_id1")]) | 
-                    duplicated(test1[,c("formula1","ILP_id1")], fromLast=TRUE),]
-    test1 = test1[order(test1$formula1,test1$edge_score,decreasing = T),]
-    #test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])
-    edge_info_sum$edge_score[test1$edge_ilp_id[duplicated(test1[,c("ILP_id1","formula1")])]]=1e-10
-    
-  }
-  
-  
-  
-  # write_csv(triplet_df,"triplet_df.txt")
-  # write_csv(edge_info_sum,"edge_info_sum.txt")
-  mat = simple_triplet_matrix(i=triplet_df$i,
-                              j=triplet_df$j,
-                              v=triplet_df$v)
-  
-  
-  #CPLEX solver parameter
-  {
-    nc <- max(mat$j)
-    obj <- c(rep(0, nrow(unknown_formula)), edge_info_sum$edge_score)
-    lb <- rep(0, nc)
-    ub <- rep(1, nc)
-    ctype <- rep("B",nc)
-    
-    nr <- max(mat$i)
-    rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
-    sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
-    
-    triplet_df=triplet_df[with(triplet_df,order(j)),]
-    cnt=as.vector(table(triplet_df$j))
-    beg=vector()
-    beg[1]=0
-    for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
-    ind=triplet_df$i-1
-    val = triplet_df$v
-  }
-  CPX_MAX = -1
-  CPLEX_para = list(nc = nc,
-                    nr = nr,
-                    CPX_MAX = CPX_MAX,
-                    obj = obj,
-                    rhs = rhs,
-                    sense = sense,
-                    beg = beg,
-                    cnt = cnt,
-                    ind = ind, 
-                    val = val,
-                    lb = lb,
-                    ub = ub,
-                    ctype = ctype
-  )
-  CPLEX_data = list(edge_info_sum = edge_info_sum,
-                    pred_formula_ls = pred_formula_ls,
-                    unknown_nodes = unknown_nodes,
-                    unknown_formula = unknown_formula
-  )
-  print("finish CPLEXset.")
-  return(CPLEX = list(data = CPLEX_data,
-                      para = CPLEX_para)
-  )
-}
-
-### Score_formula ####
-Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F)
-{
-  unknown_formula = CPLEXset$data$unknown_formula %>%
+  unknown_formula = unknown_formula %>%
     mutate(msr_mass = Mset$NodeSet$mz[id]) %>%
     mutate(ILP_id = 1:nrow(.))
   
@@ -1769,12 +1530,115 @@ Score_formula = function(CPLEXset, mass_dist_sigma, rdbe=F, step_score=F, iso_pe
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
   print("Finish scoring formula.")
-  return(unknown_formula)
+  
+  
+  CPLEX_formula = list(pred_formula_ls = pred_formula_ls,
+                    unknown_nodes = unknown_nodes,
+                    unknown_formula = unknown_formula
+  )
+  return(CPLEX_formula)
 }
-### Score_edge_cplex ####
-Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
+
+### Prepare_CPLEX_edge ####
+Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
 {
-  edge_info_sum = CPLEXset$data$edge_info_sum %>%
+  raw_edge_list = EdgeSet$Merge
+  unknown_nodes = CPLEXset$formula$unknown_nodes
+  unknown_formula = CPLEXset$formula$unknown_formula
+  pred_formula_ls = CPLEXset$formula$pred_formula_ls
+  
+  edge_list = raw_edge_list[raw_edge_list$node1 %in% unknown_nodes$ID |
+                              raw_edge_list$node2 %in% unknown_nodes$ID,]
+  
+  
+  edge_info = list()
+  counts_edge_info = 1
+  timer=Sys.time()
+  
+  # edge_list = edge_list %>%
+  #   sample_n(1000)
+  for(n in 1:nrow(edge_list)){
+    if(n%%10000==0){
+      print(paste("n=",n,"elapsed="))
+      print(Sys.time()-timer)
+    }
+    
+    temp_edge = edge_list[n,]
+    
+    node_1 = temp_edge$node1
+    node_2 = temp_edge$node2
+    formula_1 = pred_formula_ls[[node_1]]
+    formula_2 = pred_formula_ls[[node_2]]
+
+    if(temp_edge$category[1] == "Heterodimer"){
+      link_fg = pred_formula_ls[[as.numeric(temp_edge$linktype)]]$formula
+      link_fg = link_fg[!grepl("Ring_artifact", link_fg)]  # prevent mass artifact form heterodimer
+    } else {
+      link_fg = temp_edge$linktype
+    }
+    
+    temp_score = temp_edge$edge_massdif_score
+    for(temp_formula in unique(formula_1$formula)){
+      for(temp_fg in unique(link_fg)){
+        #Assuming formula in node_1 is always smaller than node_2
+        if(temp_fg==""){
+          temp_formula_2 = temp_formula
+        }else if (grepl("Ring_artifact",temp_fg)){
+          temp_formula_2 = paste("Ring_artifact", temp_formula, sep="_")
+        }else if (grepl("x",temp_fg)){
+          fold = as.numeric(gsub("x","",temp_fg))
+          temp_formula_2=my_calculate_formula(temp_formula,temp_formula,fold-1,Is_valid = F)
+        }else {
+          temp_formula_2=my_calculate_formula(temp_formula,temp_fg,1,Is_valid = T)
+        }
+        
+        #Write edge_info for edge and corresponding 2 nodes
+        if(any(temp_formula_2 == formula_2$formula)){
+          temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
+          temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
+          edge_info[[counts_edge_info]] = list(edge_id=temp_edge$edge_id,
+                                     edge_score=temp_score,
+                                     formula1 = temp_formula,
+                                     formula2 = temp_formula_2,
+                                     ILP_id1 = temp_j1,
+                                     ILP_id2 = temp_j2)
+          counts_edge_info = counts_edge_info + 1
+
+        }
+      } 
+    }
+  }
+  
+  ##Objective parameter 
+  {
+    edge_info_sum = bind_rows(edge_info) %>%
+      mutate(edge_ilp_id = 1:nrow(.))
+    
+    edge_info_sum_with_library1 = edge_info_sum %>%
+      filter(ILP_id1>nrow(unknown_formula))
+      
+    edge_info_sum_with_library2 = edge_info_sum %>%
+      filter(ILP_id2>nrow(unknown_formula))
+    colnames(edge_info_sum_with_library2)=sub(1,3,colnames(edge_info_sum_with_library2))
+    colnames(edge_info_sum_with_library2)=sub(2,1,colnames(edge_info_sum_with_library2))
+    colnames(edge_info_sum_with_library2)=sub(3,2,colnames(edge_info_sum_with_library2))
+      
+    library_keep_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
+      arrange(-edge_score) %>%
+      distinct(formula1, ILP_id1, .keep_all = T) %>%
+      pull(edge_ilp_id)
+    
+    library_remove_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
+      filter(!edge_ilp_id %in% library_keep_id) %>%
+      pull(edge_ilp_id)
+  
+    edge_info_sum = edge_info_sum %>%
+      mutate(edge_score = ifelse(edge_ilp_id %in% library_remove_id, 1e-10, edge_score))
+  }
+  
+  
+  
+  edge_info_sum = edge_info_sum %>%
     arrange(edge_ilp_id) %>%
     mutate(node1 = EdgeSet$Merge$node1[edge_id],
            node2 = EdgeSet$Merge$node2[edge_id],
@@ -1782,7 +1646,6 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
            linktype = EdgeSet$Merge$linktype[edge_id],
            category = EdgeSet$Merge$category[edge_id]) %>%
     mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
-  unknown_formula = CPLEXset$data$unknown_formula
   
   # Give artifact bonus to all artifact connections
   {
@@ -1835,9 +1698,7 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
     mutate(isotope_score = isotope_score + isotope_bonus) %>%
     mutate(isotope_score = replace_na(isotope_score, 0)) %>%
     mutate(edge_score = edge_score + isotope_score + artifact_score)
-  
-  
-  
+
   {
     edge_info_sum2 = edge_info_sum %>%
       filter(ILP_id2<=nrow(unknown_formula), 
@@ -1863,18 +1724,164 @@ Score_edge_cplex = function(CPLEXset, edge_bonus, isotope_bonus, artifact_bonus)
     edge_info_dif12 = edge_info_dif12 %>%
       mutate(edge_score = edge_score / sol_mat$div[df_dif12[temp_merge]])
     
-    }
+  }
   
   
   temp_edge_info_sum = rbind(edge_info_same12,edge_info_dif12,edge_info_sum) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%
     arrange(edge_ilp_id) 
   
-  
   print("Finish scoring edges.")
   return(temp_edge_info_sum)
   
 }
+## Prepare_CPLEX parameter ####
+Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
+  unknown_nodes = CPLEXset$formula$unknown_nodes
+  unknown_formula = CPLEXset$formula$unknown_formula
+  pred_formula_ls = CPLEXset$formula$pred_formula_ls
+  lib_nodes_cutoff = nrow(Mset$Data)
+  edge_list = CPLEXset$edge
+  edge_info_sum = CPLEXset$edge
+  
+  ##Core codes
+  #Construct constraint matrix 
+  #Unknown nodes
+  triplet_unknown_nodes_ls = list()
+  temp_j=1
+  
+  for(n in 1:nrow(unknown_nodes)){
+    temp_i = n
+    temp_unknown_formula = unknown_formula[unknown_formula$id==unknown_nodes$ID[n],]
+    if(nrow(temp_unknown_formula)==0){next()}
+    triplet_unknown_nodes_ls[[n]]=list(i=rep(temp_i, nrow(temp_unknown_formula)), 
+                                       j=temp_j:(temp_j+nrow(temp_unknown_formula)-1), 
+                                       v=rep(1,nrow(temp_unknown_formula)))
+    temp_j = temp_j+nrow(temp_unknown_formula)
+  }
+  triplet_unknown_node = bind_rows(triplet_unknown_nodes_ls)
+  rm(triplet_unknown_nodes_ls)
+  
+  #Edge list
+  gc()
+  temp_i=temp_j=1
+  triplet_edge_ls_edge=triplet_edge_ls_node=list()
+  edge_info = list()
+  timer=Sys.time()
+  
+  n=7
+  # edge_list = edge_list %>%
+  #   sample_n(1000)
+  for(n in 1:nrow(edge_list)){
+    # for(n in 1:20000){
+    if(n%%10000==0){
+      # print(paste("n=",n,"elapsed="))
+      # print(Sys.time()-timer)
+    }
+    
+    temp_edge = edge_list[n,]
+    
+    
+    node_1 = temp_edge$node1
+    node_2 = temp_edge$node2
+    # formula_1 = pred_formula_ls[[node_1]]
+    # formula_2 = pred_formula_ls[[node_2]]
+    
+    
+    #Write triplet for edge and corresponding 2 nodes
+  
+    temp_j1 = temp_edge$ILP_id1
+    temp_j2 = temp_edge$ILP_id2
+    
+    #if one node is library node,
+    if(node_1>lib_nodes_cutoff){
+      triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                            j=temp_j,
+                                            v=1)
+      triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
+                                            j=temp_j2,
+                                            v=-1)
+    }
+    if(node_2>lib_nodes_cutoff){
+      triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                            j=temp_j,
+                                            v=1)
+      triplet_edge_ls_node[[temp_i]] = list(i=temp_i,
+                                            j=temp_j1,
+                                            v=-1)
+    }
+    
+    #if both nodes are unknown nodes
+    if(node_1<=lib_nodes_cutoff&node_2<=lib_nodes_cutoff){
+      triplet_edge_ls_edge[[temp_i]] = list(i=temp_i,
+                                            j=temp_j,
+                                            v=2)
+      triplet_edge_ls_node[[temp_i]] = list(i=c(temp_i,temp_i),
+                                            j=c(temp_j1,temp_j2),
+                                            v=c(-1,-1))
+    }
+    temp_i = temp_i+1
+    temp_j = temp_j+1
+  }
+  
+  triplet_edge_ls_edge_sum = bind_rows(triplet_edge_ls_edge) %>%
+    mutate(i = i + nrow(unknown_nodes),
+           j = j + nrow(unknown_formula))
+  triplet_edge_ls_node_sum = bind_rows(triplet_edge_ls_node) %>%
+    mutate(i = i + nrow(unknown_nodes))
+  
+  #Generate sparse matrix on left hand side
+  triplet_df = rbind(
+    triplet_unknown_node, 
+    triplet_edge_ls_edge_sum,
+    triplet_edge_ls_node_sum
+  )
+  
+  mat = simple_triplet_matrix(i=triplet_df$i,
+                              j=triplet_df$j,
+                              v=triplet_df$v)
+  
+  
+  #CPLEX solver parameter
+  {
+    nc <- max(mat$j)
+    obj <- c(rep(0, nrow(unknown_formula)+ nrow(edge_info_sum)))
+    lb <- rep(0, nc)
+    ub <- rep(1, nc)
+    ctype <- rep("B",nc)
+    
+    nr <- max(mat$i)
+    rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
+    sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
+    
+    triplet_df=triplet_df[with(triplet_df,order(j)),]
+    cnt=as.vector(table(triplet_df$j))
+    beg=vector()
+    beg[1]=0
+    for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
+    ind=triplet_df$i-1
+    val = triplet_df$v
+  }
+  CPX_MAX = -1
+  CPLEX_para = list(nc = nc,
+                    nr = nr,
+                    CPX_MAX = CPX_MAX,
+                    obj = obj,
+                    rhs = rhs,
+                    sense = sense,
+                    beg = beg,
+                    cnt = cnt,
+                    ind = ind, 
+                    val = val,
+                    lb = lb,
+                    ub = ub,
+                    ctype = ctype
+  )
+  print("finish CPLEXset parameter.")
+  return(CPLEX_para)
+  
+}
+
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj_cplex){
   # obj = obj_cplex
@@ -1913,7 +1920,7 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   
   
   # Access Relative Objective Gap for a MIP Optimization Description
-  getMIPrelGapCPLEX(env, prob)
+  # getMIPrelGapCPLEX(env, prob)
   
   tictoc::tic()
   # test = basicPresolveCPLEX(env, prob)
@@ -1924,7 +1931,6 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   print(paste(return_codeCPLEX(return_code),"-",
               status_codeCPLEX(env, getStatCPLEX(env, prob)),
               " - OBJ_value =", result_solution$objval))
-  
   tictoc::toc()
   
   # writeProbCPLEX(env, prob, "prob.lp")
