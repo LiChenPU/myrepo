@@ -3,9 +3,9 @@
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
-# work_dir = "Xi_new_neg"
-work_dir = "yeast_WL190314_pos"
-ion_mode = 1
+work_dir = "Xi_new_neg"
+# work_dir = "yeast_WL190314_pos"
+ion_mode = -1
 print(work_dir)
 print(ion_mode)
 
@@ -112,8 +112,6 @@ sink()
                                           isotope_bonus = edge_bonus,
                                           artifact_bonus = edge_bonus)
   CPLEXset[["para"]] = Prepare_CPLEX_para(Mset, EdgeSet, CPLEXset)
-  
-  obj_cplex = c(CPLEXset$formula$unknown_formula$cplex_score, CPLEXset$edge$edge_score)
 }
 
 
