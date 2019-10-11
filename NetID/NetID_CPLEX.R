@@ -1,12 +1,12 @@
-
 source("../NetID_function.R")
 library(cplexAPI)
 
-
 {
-  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex))
+  CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj))
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
+  
+  Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para = c(0,1,7))
 }
 
 # Read CPLEX result ####
@@ -22,7 +22,7 @@ library(cplexAPI)
   unknown_nodes = CPLEXset$formula$unknown_nodes[,1:3]
   unknown_formula = CPLEXset$formula$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
   unknown_formula_CPLEX = unknown_formula %>% filter(ILP_result!=0 )
-
+  edge_info_sum = CPLEXset$edge
   print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   
   # unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
@@ -43,7 +43,20 @@ determine_is_metabolite = function(){
     colors <- c("grey", "white", "red", "yellow", "green")
     formula_list["color"] = colors[formula_list$category+2]
     
-    edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
+    
+    edge_info_sum["ILP_result"] = 0
+      
+    edge_info_sum = edge_info_sum %>%
+      filter(edge_score >=0) %>% 
+      # filter(!category == "Heterodimer") %>%
+      # filter(!category == "Ring_artifact") %>%
+      mutate(ILP_result = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]) %>%
+      rbind(edge_info_sum) %>%
+      distinct(edge_ilp_id, .keep_all = T) %>%
+      arrange(edge_ilp_id)
+      
+    
+    
     
     ilp_id_non0 = formula_list %>%
       filter(ILP_result!=0) %>%
@@ -108,7 +121,15 @@ g_vertex_edge = determine_is_metabolite()
 formula_list2 = g_vertex_edge$formula_list2
 relation_list2 = g_vertex_edge$relation_list2
 
-edge_info_sum["ILP_result"] = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]
+edge_info_sum["ILP_result"] = 0
+edge_info_sum = edge_info_sum %>%
+  filter(edge_score >=0) %>% 
+  # filter(!category == "Heterodimer") %>%
+  # filter(!category == "Ring_artifact") %>%
+  mutate(ILP_result = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]) %>%
+  rbind(edge_info_sum) %>%
+  distinct(edge_ilp_id, .keep_all = T) %>%
+  arrange(edge_ilp_id)
 write.csv(edge_info_sum, paste(timestamp, "edge.csv"), row.names = F)
 write.csv(formula_list2, paste0(timestamp, ".csv"), row.names = F)
 save.image(paste0(timestamp,".RData"))

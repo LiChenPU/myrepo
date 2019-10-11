@@ -1418,7 +1418,7 @@ Network_prediction = function(Mset,
 
 # Function for CPLEX ####
 ### Prepare_CPLEX_formula ####
-Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F)
+Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, iso_penalty_score=F, filter_low_score = -9)
 {
   raw_pred_formula=bind_rows(Mset[["NodeSet_network"]])
   raw_node_list = Mset$NodeSet
@@ -1438,15 +1438,6 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
     lib_formula = lib_formula[lib_formula$steps==0,]
     unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
     
-    merge_formula = rbind(unknown_formula,lib_formula)
-    merge_formula["ilp_index"]=1:nrow(merge_formula)
-    #Select edge list where it relates only to unknown nodes that have propagated formula
- 
-    pred_formula_ls = list()
-    merge_formula_id=merge_formula$id
-    for(n in 1: max(merge_formula$id)){
-      pred_formula_ls[[n]]=merge_formula[merge_formula_id==n,]
-    }
   }
   
   unknown_formula = unknown_formula %>%
@@ -1524,8 +1515,23 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
   
   unknown_formula = unknown_formula %>%
     arrange(ILP_id) %>%
+    filter(cplex_score > filter_low_score) %>%
     mutate(cplex_score = round(cplex_score, digits = 6))
+    
   
+  
+  merge_formula = unknown_formula %>%
+    select(colnames(lib_formula)) %>%
+    rbind(lib_formula) %>%
+    mutate(ilp_index = 1:nrow(.))
+  
+  #Select edge list where it relates only to unknown nodes that have propagated formula
+  
+  pred_formula_ls = list()
+  merge_formula_id=merge_formula$id
+  for(n in 1: max(merge_formula$id)){
+    pred_formula_ls[[n]]=merge_formula[merge_formula_id==n,]
+  }
   
   # hist(unknown_formula$cplex_score)
   # length(unknown_formula$cplex_score[unknown_formula$cplex_score<1])
@@ -1780,7 +1786,9 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     }
     
     temp_edge = edge_list[n,]
-    
+    if(temp_edge$edge_score<0){next}
+    # if(temp_edge$category == "Heterodimer"){next}
+    # if(temp_edge$category == "Ring_artifact"){next}
     
     node_1 = temp_edge$node1
     node_2 = temp_edge$node2
@@ -1845,7 +1853,8 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   #CPLEX solver parameter
   {
     nc <- max(mat$j)
-    obj <- c(rep(0, nrow(unknown_formula)+ nrow(edge_info_sum)))
+    obj <- c(CPLEXset$formula$unknown_formula$cplex_score, 
+                           CPLEXset$edge$edge_score[CPLEXset$edge$edge_score>=0])
     lb <- rep(0, nc)
     ub <- rep(1, nc)
     ctype <- rep("B",nc)
@@ -1884,7 +1893,8 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
 
 ## Run_CPLEX ####
 Run_CPLEX = function(CPLEXset, obj_cplex){
-  # obj = obj_cplex
+  
+  # obj_cplex = CPLEXset$para$obj
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
   
@@ -1911,7 +1921,9 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   
   # Conserve memory true
   setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+  # setIntParmCPLEX(env, CPX_PARAM_PROBE, -1)
   # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
+  # setIntParmCPLEX(env, CPX_PARAM_PROBE, 2)
   # setDefaultParmCPLEX(env)
   # getChgParmCPLEX(env)
   
@@ -1938,6 +1950,84 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
   closeEnvCPLEX(env)
   
   return(list(obj = obj_cplex, result_solution = result_solution))
+}
+## Test_para_CPLEX ####
+Test_para_CPLEX = function(CPLEXset, obj_cplex,  test_para = -1:4){
+  
+  # for(test_para_CPX_PARAM_PROBE in test_para1){
+    for(temp_para in test_para){
+
+    # print(test_para_CPX_PARAM_PROBE)
+      print(temp_para)
+    
+    # obj_cplex = CPLEXset$para$obj
+    env <- openEnvCPLEX()
+    prob <- initProbCPLEX(env)
+    
+    nc = CPLEXset$para$nc
+    nr = CPLEXset$para$nr
+    CPX_MAX = CPLEXset$para$CPX_MAX
+    rhs = CPLEXset$para$rhs
+    sense = CPLEXset$para$sense
+    beg = CPLEXset$para$beg
+    cnt = CPLEXset$para$cnt
+    ind = CPLEXset$para$ind
+    val = CPLEXset$para$val
+    lb = CPLEXset$para$lb
+    ub = CPLEXset$para$ub
+    ctype = CPLEXset$para$ctype
+    
+    
+    
+    copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
+                      beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+    
+    
+    copyColTypeCPLEX(env, prob, ctype)
+    
+    # Conserve memory true
+    setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+    setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
+    
+    # Set time is Dbl not Int
+    setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
+    # setIntParmCPLEX(env, CPX_PARAM_TUNINGTILIM, 200) # run time for each tuning (each optimizatoin run will test serveral tuning)
+    
+    
+    
+    setIntParmCPLEX(env, CPX_PARAM_BBINTERVAL, temp_para)
+    # setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para)
+    
+    # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
+    # setIntParmCPLEX(env, CPX_PARAM_PROBE, 2)
+    # setDefaultParmCPLEX(env)
+    # getChgParmCPLEX(env)
+    
+    # Assess parameters
+    # getParmNameCPLEX(env, 1082)
+    
+    
+    # Access Relative Objective Gap for a MIP Optimization Description
+    # getMIPrelGapCPLEX(env, prob)
+    
+    tictoc::tic()
+    # test = basicPresolveCPLEX(env, prob)
+    return_code = mipoptCPLEX(env, prob)
+    result_solution=solutionCPLEX(env, prob)
+    # result_solution_info = solnInfoCPLEX(env, prob)
+    
+    print(paste(return_codeCPLEX(return_code),"-",
+                status_codeCPLEX(env, getStatCPLEX(env, prob)),
+                " - OBJ_value =", result_solution$objval))
+    tictoc::toc()
+    
+    # writeProbCPLEX(env, prob, "prob.lp")
+    delProbCPLEX(env, prob)
+    closeEnvCPLEX(env)
+  # }
+  }
+  
+  return(0)
 }
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
