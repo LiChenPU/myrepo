@@ -914,7 +914,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
       for(j in 2:10){
         if(abs(temp_mz1*j-temp_mz2)<search_cutoff){
           temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,
-                                                    "oligomer",
+                                                    "Oligomer",
                                                     paste("x",j,sep=""), 
                                                     0,
                                                     paste("x",j,sep=""),
@@ -1154,10 +1154,10 @@ Network_prediction = function(Mset,
           if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
         }
         
-        #If flag is an isotopic peak, then only look for isotopic peaks or oligomer/multi-charge peaks or ring artifact
+        #If flag is an isotopic peak, then only look for isotopic peaks or Oligomer/multi-charge peaks or ring artifact
         if(grepl("\\[",flag_formula)){
           temp_edge_list = temp_edge_list %>%
-            filter(grepl("\\[|oligomer|Ring_artifact",category))
+            filter(grepl("\\[|Oligomer|Ring_artifact",category))
           if(nrow(temp_edge_list)==0){next}
         }
         
@@ -1451,7 +1451,6 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
            msr_cal_mass_dif = 0,
            msr_cal_mass_dif_ppm = 0,
            Mass_score = 1)
-  
   unknown_formula = unknown_formula %>%
     filter(!grepl("Ring_artifact", formula)) %>%
     mutate(cal_mass = formula_mz(formula)) %>%
@@ -1515,15 +1514,13 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
   
   unknown_formula = unknown_formula %>%
     arrange(ILP_id) %>%
-    filter(cplex_score > filter_low_score) %>%
+    # filter(cplex_score > filter_low_score) %>% arrange(ILP_id) %>% # reassigned ILP_id for each formula to avoid gapping in id
     mutate(cplex_score = round(cplex_score, digits = 6))
     
-  
-  
   merge_formula = unknown_formula %>%
     select(colnames(lib_formula)) %>%
     rbind(lib_formula) %>%
-    mutate(ilp_index = 1:nrow(.))
+    mutate(ILP_id = 1:nrow(.))
   
   #Select edge list where it relates only to unknown nodes that have propagated formula
   
@@ -1600,8 +1597,8 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
         
         #Write edge_info for edge and corresponding 2 nodes
         if(any(temp_formula_2 == formula_2$formula)){
-          temp_j1 = formula_1$ilp_index[which(formula_1$formula==temp_formula )]
-          temp_j2 = formula_2$ilp_index[which(formula_2$formula==temp_formula_2 )]
+          temp_j1 = formula_1$ILP_id[which(formula_1$formula==temp_formula )]
+          temp_j2 = formula_2$ILP_id[which(formula_2$formula==temp_formula_2 )]
           edge_info[[counts_edge_info]] = list(edge_id=temp_edge$edge_id,
                                      edge_score=temp_score,
                                      formula1 = temp_formula,
@@ -1989,12 +1986,16 @@ Test_para_CPLEX = function(CPLEXset, obj_cplex,  test_para = -1:4){
     setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
     
     # Set time is Dbl not Int
-    setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
+    # setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
     # setIntParmCPLEX(env, CPX_PARAM_TUNINGTILIM, 200) # run time for each tuning (each optimizatoin run will test serveral tuning)
     
     
     
-    setIntParmCPLEX(env, CPX_PARAM_BBINTERVAL, temp_para)
+    # setIntParmCPLEX(env, CPX_PARAM_BBINTERVAL, temp_para)
+    # setIntParmCPLEX(env, CPX_PARAM_NODESEL, temp_para) # 0:3 No effect
+    setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para) # 0:3 No effect
+    # 
+    
     # setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para)
     
     # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
@@ -2146,6 +2147,158 @@ Read_CPLEX_result = function(solution){
   }
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
+}
+## determine_is_metabolite ####
+determine_is_metabolite = function(){
+  ## Prepare formula list 
+  {
+    # formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
+    
+    pred_formula_df = bind_rows(CPLEXset$formula$pred_formula_ls)
+    nodeset_df = Mset$NodeSet %>% dplyr::select(-MF, -rdbe)
+    
+    formula_list = merge(unknown_formula, pred_formula_df, all = T) %>%
+      merge(nodeset_df, by.x = "id", by.y = "ID", all = T) %>%
+      select(ILP_id, mz, RT, everything()) %>%
+      arrange(ILP_id)
+# 
+#     formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
+#     formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
+#     formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
+
+    formula_list = formula_list %>%
+      select(ILP_id, everything())
+    
+    ilp_id_non0 = formula_list %>%
+      filter(ILP_result!=0) %>%
+      pull(ILP_id)
+  }
+  ## prepare relation list
+  {
+    edge_ilp_id_non0 = edge_info_sum %>%  # Rescue edges that are connected to library, but set at low score before CPLEX optimization
+      filter(ILP_result==0) %>%
+      filter((node1 > nrow(Mset$Data) & ILP_id2 %in% ilp_id_non0) | 
+               (node2 > nrow(Mset$Data) & ILP_id1 %in% ilp_id_non0)) %>%
+      pull(edge_ilp_id)
+    
+    relation_list = edge_info_sum %>%
+      filter(ILP_result!=0 | edge_ilp_id %in% edge_ilp_id_non0) %>%
+      select(ILP_id1, ILP_id2, everything())
+  }
+  ## Define if formula is artifact
+  {
+    artifact_edgeset = relation_list %>%
+      filter(category != "biotransform") 
+    
+    Heterodimer_ILP_id = artifact_edgeset %>% 
+      filter(category == "Heterodimer") %>%
+      pull(ILP_id2)
+    
+    formula_list_step = formula_list %>%
+      dplyr::select(ILP_id, steps) %>%
+      drop_na()
+    formula_list_step$steps[7]
+    formula_list_step$steps[15856]
+    
+    Oligomer_ILP_id = artifact_edgeset %>% 
+      filter(category == "Oligomer") %>%
+      filter(formula_list_step$step[ILP_id1] <= formula_list_step$step[ILP_id2]) %>%
+      pull(ILP_id2)
+    
+    Double_charge_ILP_id = artifact_edgeset %>% 
+      filter(category == "Oligomer") %>%
+      filter(formula_list_step$step[ILP_id1] > formula_list_step$step[ILP_id2]) %>%
+      pull(ILP_id1)
+    
+    Isotope_ILP_id = artifact_edgeset %>% 
+      filter(grepl("\\[", category)) %>%
+      filter(direction == 1) %>%
+      pull(ILP_id2) 
+    
+    Isotope_ILP_id = artifact_edgeset %>% 
+      filter(grepl("\\[", category)) %>%
+      filter(direction != 1) %>%
+      pull(ILP_id1) %>%
+      c(Isotope_ILP_id)
+
+    Ring_artifact_ILP_id = artifact_edgeset %>% 
+      filter(category == "Ring_artifact") %>%
+      pull(ILP_id2)
+    
+    Fragment_ILP_id = artifact_edgeset %>% 
+      filter(direction != 1, 
+             !grepl("\\[", category), 
+             category != "Oligomer") %>%
+      pull(ILP_id1)
+    
+    Adduct_ILP_id_fragment_link = artifact_edgeset %>%
+      filter(direction != 1, 
+             !grepl("\\[", category), 
+             category != "Oligomer") %>%
+      pull(ILP_id2)
+    
+    Adduct_ILP_id = artifact_edgeset %>%
+      filter(category != "Heterodimer",
+             category != "Oligomer",
+             !grepl("\\[", category),
+             category != "Ring_artifact",
+             direction == 1) %>%
+      pull(ILP_id2) %>%
+      c(Adduct_ILP_id_fragment_link)
+    
+    
+    
+    
+    # length((c(Fragment_ILP_id, Ring_artifact_ILP_id, Isotope_ILP_id, Oligomer_ILP_id, Heterodimer_ILP_id)))
+    # length(Adduct_ILP_id)
+    
+    Artifact_assignment = rep("", max(formula_list$ILP_id, na.rm = T))
+    
+    Artifact_assignment[Adduct_ILP_id] = paste0(Artifact_assignment[Adduct_ILP_id],"|","Adduct")
+    Artifact_assignment[Fragment_ILP_id] = paste0(Artifact_assignment[Fragment_ILP_id],"|","Fragment")
+    Artifact_assignment[Heterodimer_ILP_id] = paste0(Artifact_assignment[Heterodimer_ILP_id],"|","Heterodimer")
+    Artifact_assignment[Oligomer_ILP_id] = paste0(Artifact_assignment[Oligomer_ILP_id],"|","Oligomer")
+    Artifact_assignment[Isotope_ILP_id] = paste0(Artifact_assignment[Isotope_ILP_id],"|","Isotope")
+    Artifact_assignment[Ring_artifact_ILP_id] = paste0(Artifact_assignment[Ring_artifact_ILP_id],"|","Ring_artifact")
+    
+    formula_list["Artifact_assignment"] = Artifact_assignment[formula_list$ILP_id]
+  }
+  ## Define if formula is metabolite
+  {
+    biotransform_edgeset = relation_list %>%
+      filter(category == "biotransform") 
+    
+    g_bio = graph_from_data_frame(d = biotransform_edgeset, 
+                                  vertices =  formula_list %>%
+                                    filter(ILP_id %in% c(biotransform_edgeset$ILP_id1, biotransform_edgeset$ILP_id2)),
+                                  directed = F)
+    clu=components(g_bio)
+    # Bio_subnetwork uses all biotransformation to make network
+    # a ILP_id is defined metabolite, if the network contains library metabolites
+    library_ILP_id = formula_list %>% filter(category == 0) %>% pull(ILP_id)
+    g_bio_subnetwork = igraph::groups(clu)
+    g_bio_subnetwork_membership = as.data.frame(clu$membership) %>%
+      filter(as.numeric(row.names(.)) %in% library_ILP_id) %>%
+      pull(1) %>%
+      unique()
+    
+    biotranform_nodes_id = c()
+    for(i in g_bio_subnetwork_membership){
+      biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
+    }
+    
+    #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
+    formula_list = formula_list %>%
+      mutate(Biotransform = ifelse(is.na(formula_list$formula), NA, ILP_id %in% biotranform_nodes_id)) %>%
+      mutate(is_metabolite = case_when(
+        Artifact_assignment == "" & Biotransform ~ "Yes",
+        Artifact_assignment != "" & Biotransform ~ "Maybe",
+        Artifact_assignment != "" & !Biotransform ~ "No",
+        Artifact_assignment == "" & !Biotransform ~ "NA"
+      ))
+  }
+  return(list(formula_list = formula_list,
+              relation_list = relation_list))
 }
 # Function for graph ####
 ## Analysis of Subnetwork  ####
