@@ -6,7 +6,7 @@ library(cplexAPI)
   # CPLEXset[["Screen_solution"]] = CPLEX_screen_edge(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1))
   # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
   
-  # Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para = c(0,1,7))
+  # Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para =c(1,3))
 }
 
 # Read CPLEX result ####
@@ -23,103 +23,47 @@ library(cplexAPI)
   unknown_formula = CPLEXset$formula$unknown_formula %>% mutate(ILP_result = CPLEX_x[1:nrow(.)])
   unknown_formula_CPLEX = unknown_formula %>% filter(ILP_result!=0 )
   edge_info_sum = CPLEXset$edge
+  edge_info_sum["ILP_result"] = 0
+  edge_info_sum = edge_info_sum %>%
+    filter(edge_score >=0) %>% 
+    mutate(ILP_result = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]) %>%
+    rbind(edge_info_sum) %>%
+    distinct(edge_ilp_id, .keep_all = T) %>%
+    arrange(edge_ilp_id)
   print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   
   # unknown_node_CPLEX = merge(unknown_nodes,unknown_formula_CPLEX,by.x = "ID", by.y = "id",all=T)
 }
 
-## determine_is_metabolite - A messy function so far, probably need to clean up
-determine_is_metabolite = function(){
-  data_peak_num = nrow(Mset$Data)
+{
+  select_node_id = 909
+  select_edge_info_sum = edge_info_sum %>%
+    filter(node1 == select_node_id | node2 == select_node_id)
   
-  {
-    formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
-    formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
-    formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
-    formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
-    
-    formula_list["ILP_id"]=NA
-    formula_list$ILP_id[!is.na(formula_list$formula)] = 1: sum(!is.na(formula_list$formula))
-    colors <- c("grey", "white", "red", "yellow", "green")
-    formula_list["color"] = colors[formula_list$category+2]
-    
-    
-    edge_info_sum["ILP_result"] = 0
-      
-    edge_info_sum = edge_info_sum %>%
-      filter(edge_score >=0) %>% 
-      # filter(!category == "Heterodimer") %>%
-      # filter(!category == "Ring_artifact") %>%
-      mutate(ILP_result = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]) %>%
-      rbind(edge_info_sum) %>%
-      distinct(edge_ilp_id, .keep_all = T) %>%
-      arrange(edge_ilp_id)
-      
-    
-    
-    
-    ilp_id_non0 = formula_list %>%
-      filter(ILP_result!=0) %>%
-      pull(ILP_id)
-    
-    
-    edge_ilp_id_non0 = edge_info_sum %>% 
-      filter(ILP_result==0) %>%
-      filter((node1 > nrow(Mset$Data) & node2 %in% ilp_id_non0) | 
-               (node2 > nrow(Mset$Data) & node1 %in% ilp_id_non0)) %>%
-      pull(edge_ilp_id)
-    
-    relation_list = edge_info_sum %>%
-      filter(ILP_result!=0 | edge_ilp_id %in% edge_ilp_id_non0)
-  }
-
-  ## Define if formula comes from artifact or biotransform
-  {
-    formula_list["is_artifact"]=FALSE
-    artifact_edgeset = relation_list[relation_list$category!=1,]
-    artifact_formula = unique(c(artifact_edgeset$ILP_id1[artifact_edgeset$direction==-1], 
-                                artifact_edgeset$ILP_id2[artifact_edgeset$direction!=-1]))
-    formula_list[formula_list$ILP_id %in% artifact_formula,"is_artifact"]=TRUE
-    
-    
-    
-    formula_list2 = cbind(formula_list[,c("ILP_id")], formula_list[,-which(colnames(formula_list) =="ILP_id")])
-    colnames(formula_list2)[1] = "ILP_id"
-    relation_list2 = cbind(relation_list[,c("ILP_id1","ILP_id2")], relation_list[,-which(colnames(relation_list) %in% c("ILP_id1","ILP_id2"))] )
-    
-    formula_list2["is_biotransform"]=FALSE
-    biotranform_edgeset = relation_list2[relation_list2$category==1,]
-    
-    g_bio = graph_from_data_frame(d = biotranform_edgeset, 
-                                  vertices =  formula_list2[formula_list2$ILP_id %in% 
-                                                              c(biotranform_edgeset$ILP_id1, 
-                                                                biotranform_edgeset$ILP_id2),],
-                                  directed = F)
-    clu=components(g_bio)
-    #subnetwork criteria 
-    # g_bio_subnetwork = igraph::groups(clu)[table(clu$membership)<10000]
-    g_bio_subnetwork = igraph::groups(clu)
-    test2 = as.data.frame(clu$membership)
-    test3 = test2[as.numeric(row.names(test2))>nrow(unknown_formula),]
-    biotranform_nodes_id = c()
-    for(i in unique(test3)){
-      biotranform_nodes_id = c(biotranform_nodes_id, as.numeric(g_bio_subnetwork[[i]]))
-    }
-    
-    #biotranform_nodes = unique(c(biotranform_edgeset$node1, biotranform_edgeset$node2))
-    formula_list2[!is.na(formula_list2$formula)& formula_list2$ILP_id %in% biotranform_nodes_id, "is_biotransform"]=TRUE
-    
-    formula_list2["is_metabolite"]=NA
-    formula_list2$is_metabolite[formula_list2$is_artifact & formula_list2$is_biotransform] = "Maybe"
-    formula_list2$is_metabolite[formula_list2$is_artifact & !formula_list2$is_biotransform] = "No"
-    formula_list2$is_metabolite[!formula_list2$is_artifact & formula_list2$is_biotransform] = "Yes"
-    formula_list2$is_metabolite[!formula_list2$is_artifact & !formula_list2$is_biotransform] = "NA"
-  }
-  return(list(formula_list2 = formula_list2, relation_list2 = relation_list2))
 }
+
+{
+  select_ilp_id = 3555
+  select_edge_info_sum = edge_info_sum %>%
+    filter(ILP_id1 == select_ilp_id | ILP_id2 == select_ilp_id)
+  
+}
+
+{
+  pred_formula_ls[[1797]]
+  pred_formula_ls[[5109]]
+}
+
+
 g_vertex_edge = determine_is_metabolite()
-formula_list2 = g_vertex_edge$formula_list2
-relation_list2 = g_vertex_edge$relation_list2
+formula_list = g_vertex_edge$formula_list
+relation_list = g_vertex_edge$relation_list
+
+test = formula_list %>% 
+  filter(ILP_result !=0) %>%
+  filter(ILP_id <= nrow(unknown_formula))  %>%
+  filter(is_metabolite == "NA")
+table()
 
 edge_info_sum["ILP_result"] = 0
 edge_info_sum = edge_info_sum %>%

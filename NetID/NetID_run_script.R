@@ -3,9 +3,9 @@
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
-# work_dir = "Xi_new_neg"
-work_dir = "yeast_WL190314_pos"
-ion_mode = 1
+work_dir = "Xi_new_neg"
+# work_dir = "yeast_WL190314_pos"
+ion_mode = -1
 print(work_dir)
 print(ion_mode)
 
