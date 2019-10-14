@@ -2070,7 +2070,7 @@ Test_para_CPLEX = function(CPLEXset, obj_cplex,  test_para = -1:4){
 }
 ## CPLEX_permutation ####
 CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
-  unknown_formula = CPLEXset$data$unknown_formula
+  unknown_formula = CPLEXset$formula$unknown_formula
   obj = CPLEXset$Init_solution[[1]]$obj
   obj_node = obj[1:nrow(unknown_formula)]
   obj_edge = obj[(nrow(unknown_formula)+1):length(obj)]
@@ -2087,21 +2087,7 @@ CPLEX_permutation = function(CPLEXset, n_pmt = 5, sd_rel_max = 0.5){
   return(solution_ls)
 }
 
-## CPLEX_screen_edge ####
-CPLEX_screen_edge = function(CPLEXset, edge_bonus_range = seq(-.6, -0.9, by=-0.1)){
-  
-  solution_ls = list()
-  #result_solution =1
-  for(edge_bonus in edge_bonus_range){
-    edge_info_sum = Score_edge_cplex(CPLEXset, edge_bonus = edge_bonus)
-    temp_obj = c(CPLEXset$data$unknown_formula$cplex_score,
-                 edge_info_sum$edge_score)
-    result_solution = Run_CPLEX(CPLEXset, obj = temp_obj)
-    solution_ls[[length(solution_ls)+1]] = result_solution
-  }
-  return(solution_ls)
-  
-}
+
 
 
 ## Add_constraint_CPLEX ####
@@ -2214,14 +2200,10 @@ determine_is_metabolite = function(){
   }
   ## prepare relation list
   {
-    edge_ilp_id_non0 = edge_info_sum %>%  # Rescue edges that are connected to library, but set at low score before CPLEX optimization
-      filter(ILP_result==0) %>%
-      filter((node1 > nrow(Mset$Data) & ILP_id2 %in% ilp_id_non0) | 
-               (node2 > nrow(Mset$Data) & ILP_id1 %in% ilp_id_non0)) %>%
-      pull(edge_ilp_id)
-    
+    # Select all connections with both sides are confirmed formula
     relation_list = edge_info_sum %>%
-      filter(ILP_result!=0 | edge_ilp_id %in% edge_ilp_id_non0) %>%
+      filter((ILP_id1 %in% ilp_id_non0 | node1 > nrow(Mset$Data)),
+             (ILP_id2 %in% ilp_id_non0 | node2 > nrow(Mset$Data))) %>%
       select(ILP_id1, ILP_id2, everything())
   }
   ## Define if formula is artifact
