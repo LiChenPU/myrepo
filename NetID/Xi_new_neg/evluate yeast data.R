@@ -31,7 +31,7 @@ for(i in 1:length(NetID_files)){
   wl_result = read_excel("WL_190405_both_190924.xlsx") %>%
     mutate(formula = check_chemform(isotopes, formula)$new_formula)
   merge_result = formula_list2 %>%
-    dplyr::select(ID,formula,is_metabolite, is_artifact, is_biotransform, ILP_result) %>%
+    dplyr::select(ID,formula,is_metabolite, ILP_result) %>%
     merge(wl_result, by.x="ID", by.y = "id", all.y = T)
 }
 

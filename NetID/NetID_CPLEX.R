@@ -43,27 +43,29 @@ library(cplexAPI)
 }
 
 {
-  select_ilp_id = 3555
+  select_ilp_id = 14051
+  select_ilp_id = 229
   select_edge_info_sum = edge_info_sum %>%
     filter(ILP_id1 == select_ilp_id | ILP_id2 == select_ilp_id)
   
 }
 
 {
+  pred_formula_ls = CPLEXset$formula$pred_formula_ls
   pred_formula_ls[[1797]]
   pred_formula_ls[[5109]]
 }
 
 
 g_vertex_edge = determine_is_metabolite()
-formula_list = g_vertex_edge$formula_list
+formula_list = g_vertex_edge$formula_list %>%
+  rename(ID=id)
 relation_list = g_vertex_edge$relation_list
 
 test = formula_list %>% 
   filter(ILP_result !=0) %>%
   filter(ILP_id <= nrow(unknown_formula))  %>%
   filter(is_metabolite == "NA")
-table()
 
 edge_info_sum["ILP_result"] = 0
 edge_info_sum = edge_info_sum %>%
@@ -75,12 +77,8 @@ edge_info_sum = edge_info_sum %>%
   distinct(edge_ilp_id, .keep_all = T) %>%
   arrange(edge_ilp_id)
 write.csv(edge_info_sum, paste(timestamp, "edge.csv"), row.names = F)
-write.csv(formula_list2, paste0(timestamp, ".csv"), row.names = F)
+write.csv(formula_list, paste0(timestamp, ".csv"), row.names = F)
 save.image(paste0(timestamp,".RData"))
-
-
-
-
 
 
 # # Graphic analysis ####
