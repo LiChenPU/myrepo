@@ -1744,8 +1744,11 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   unknown_formula = CPLEXset$formula$unknown_formula
   pred_formula_ls = CPLEXset$formula$pred_formula_ls
   lib_nodes_cutoff = nrow(Mset$Data)
-  edge_list = CPLEXset$edge
+  
   edge_info_sum = CPLEXset$edge
+  edge_list = edge_info_sum %>%
+    filter(edge_score>0)
+    
   
   ##Core codes
   #Construct constraint matrix 
@@ -1768,11 +1771,13 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   #Edge list
   gc()
   temp_i=temp_j=1
-  triplet_edge_ls_edge=triplet_edge_ls_node=list()
+  count_isotope = 1
+  triplet_edge_ls_edge = triplet_edge_ls_node = list()
+  triplet_isotope_ls_edge = triplet_isotope_ls_node = list()
   edge_info = list()
   timer=Sys.time()
   
-  n=7
+  n=37
   # edge_list = edge_list %>%
   #   sample_n(1000)
   for(n in 1:nrow(edge_list)){
@@ -1783,15 +1788,13 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     }
     
     temp_edge = edge_list[n,]
-    if(temp_edge$edge_score<0){next}
+    # Select edges that are included in CPLEX optimization
+    # if(temp_edge$edge_score<0){next}
     # if(temp_edge$category == "Heterodimer"){next}
     # if(temp_edge$category == "Ring_artifact"){next}
     
     node_1 = temp_edge$node1
     node_2 = temp_edge$node2
-    # formula_1 = pred_formula_ls[[node_1]]
-    # formula_2 = pred_formula_ls[[node_2]]
-    
     
     #Write triplet for edge and corresponding 2 nodes
   
@@ -1824,22 +1827,58 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
       triplet_edge_ls_node[[temp_i]] = list(i=c(temp_i,temp_i),
                                             j=c(temp_j1,temp_j2),
                                             v=c(-1,-1))
+      
+
+      # Force a isotope formula comes with an edge connection
+      if(grepl("\\[", temp_edge$category)){
+        if(temp_edge$category != "[10]B"){
+          triplet_isotope_ls_edge[[count_isotope]] = list(i=count_isotope,
+                                                          j=temp_j,
+                                                          v=1)
+          triplet_isotope_ls_node[[count_isotope]] = list(i=count_isotope,
+                                                          j=temp_j2,
+                                                          v=-1)
+        } else{
+          triplet_isotope_ls_edge[[count_isotope]] = list(i=count_isotope,
+                                                          j=temp_j,
+                                                          v=1)
+          triplet_isotope_ls_node[[count_isotope]] = list(i=count_isotope,
+                                                          j=temp_j1,
+                                                          v=-1)
+          
+        }
+
+        count_isotope = count_isotope + 1
+      }
+      
     }
+    
     temp_i = temp_i+1
     temp_j = temp_j+1
   }
   
+
+  ## Because triplet_unknown_node take nrow(unknown_nodes) rows, and nrow(unknown_formula) columns
   triplet_edge_ls_edge_sum = bind_rows(triplet_edge_ls_edge) %>%
     mutate(i = i + nrow(unknown_nodes),
            j = j + nrow(unknown_formula))
   triplet_edge_ls_node_sum = bind_rows(triplet_edge_ls_node) %>%
     mutate(i = i + nrow(unknown_nodes))
   
+  triplet_isotope_ls_edge_sum = bind_rows(triplet_isotope_ls_edge) %>%
+    mutate(i = i + max(triplet_edge_ls_node_sum$i),
+           j = j + nrow(unknown_formula))
+  triplet_isotope_ls_node_sum = bind_rows(triplet_isotope_ls_node) %>%
+    mutate(i = i + max(triplet_edge_ls_node_sum$i))
+
+  
   #Generate sparse matrix on left hand side
   triplet_df = rbind(
     triplet_unknown_node, 
     triplet_edge_ls_edge_sum,
-    triplet_edge_ls_node_sum
+    triplet_edge_ls_node_sum,
+    triplet_isotope_ls_edge_sum,
+    triplet_isotope_ls_node_sum
   )
   
   mat = simple_triplet_matrix(i=triplet_df$i,
@@ -1857,8 +1896,8 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     ctype <- rep("B",nc)
     
     nr <- max(mat$i)
-    rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_info_sum)))
-    sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_info_sum)))
+    rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_list)),rep(0, length(triplet_isotope_ls_edge)))
+    sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_list)), rep("E", length(triplet_isotope_ls_edge)))
     
     triplet_df=triplet_df[with(triplet_df,order(j)),]
     cnt=as.vector(table(triplet_df$j))
@@ -2197,8 +2236,8 @@ determine_is_metabolite = function(){
     formula_list_step = formula_list %>%
       dplyr::select(ILP_id, steps) %>%
       drop_na()
-    formula_list_step$steps[7]
-    formula_list_step$steps[15856]
+    # formula_list_step$steps[7]
+    # formula_list_step$steps[15856]
     
     Oligomer_ILP_id = artifact_edgeset %>% 
       filter(category == "Oligomer") %>%
@@ -2207,7 +2246,8 @@ determine_is_metabolite = function(){
     
     Double_charge_ILP_id = artifact_edgeset %>% 
       filter(category == "Oligomer") %>%
-      filter(formula_list_step$step[ILP_id1] > formula_list_step$step[ILP_id2]) %>%
+      filter(formula_list$steps[ILP_id1] > formula_list$steps[ILP_id2]) %>%
+      filter(grepl("\\.", formula_list$formula[ILP_id1])) %>%
       pull(ILP_id1)
     
     Isotope_ILP_id = artifact_edgeset %>% 
@@ -2260,6 +2300,8 @@ determine_is_metabolite = function(){
     Artifact_assignment[Oligomer_ILP_id] = paste0(Artifact_assignment[Oligomer_ILP_id],"|","Oligomer")
     Artifact_assignment[Isotope_ILP_id] = paste0(Artifact_assignment[Isotope_ILP_id],"|","Isotope")
     Artifact_assignment[Ring_artifact_ILP_id] = paste0(Artifact_assignment[Ring_artifact_ILP_id],"|","Ring_artifact")
+    Artifact_assignment[Double_charge_ILP_id] = paste0(Artifact_assignment[Double_charge_ILP_id],"|","Double_charge")
+    
     
     formula_list["Artifact_assignment"] = Artifact_assignment[formula_list$ILP_id]
   }
