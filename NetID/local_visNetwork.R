@@ -8,6 +8,24 @@ library(dplyr)
 library(RColorBrewer)
 library(stringr)
 
+## function ####
+interest_node_graph = function(g, peak_id, formula_select, step = 1)
+{
+  if(!is_igraph(g)) {return(NULL)}
+  # interested_node = 122
+  interested_node = peak_id
+  
+  g_vertex = igraph::as_data_frame(g, "vertices")
+  g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
+  
+  # interested_node = as.character(g_id[1])
+  # g.degree <- degree(g, mode = c("all"))
+  g_interest <- make_ego_graph(g, 
+                               step, 
+                               nodes = as.character(g_id[1]), 
+                               mode = c("all"))[[1]]
+  return(g_interest)
+}
 
 # options(shiny.reactlog=TRUE) 
 # Read in files ####
@@ -32,7 +50,7 @@ test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2",
 display.brewer.all()
 my_palette = brewer.pal(4, "Set3")
 
-# test_g = interest_node_graph(g, peak_id = 178, formula_select = "C6H12O6", step=1)
+test_g = interest_node_graph(g, peak_id = 178, formula_select = "C6H12O6", step=1)
 nodes = igraph::as_data_frame(test_g, "vertices") %>%
   # dplyr::select(name) %>%
   mutate(id = name) %>%
