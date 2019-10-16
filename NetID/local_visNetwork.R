@@ -45,11 +45,11 @@ g_vertex = igraph::as_data_frame(g, "vertices")
 g_edge = igraph::as_data_frame(g, "edges")
 
 # test_g = interest_node_graph(g, peak_id = 122, formula_select = "C4H7K3O8S1", step=1)
-test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
+# test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
 
-display.brewer.all()
-my_palette = brewer.pal(4, "Set3")
-
+# display.brewer.all()
+# my_palette = brewer.pal(4, "Set3")
+# 
 test_g = interest_node_graph(g, peak_id = 178, formula_select = "C6H12O6", step=1)
 nodes = igraph::as_data_frame(test_g, "vertices") %>%
   # dplyr::select(name) %>%

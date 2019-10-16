@@ -27,58 +27,9 @@ g_vertex = igraph::as_data_frame(g, "vertices")
 g_edge = igraph::as_data_frame(g, "edges")
 
 # test_g = interest_node_graph(g, peak_id = 122, formula_select = "C4H7K3O8S1", step=1)
-test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
-
-display.brewer.all()
-my_palette = brewer.pal(4, "Set3")
-
+# test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
 # test_g = interest_node_graph(g, peak_id = 178, formula_select = "C6H12O6", step=1)
-nodes = igraph::as_data_frame(test_g, "vertices") %>%
-  # dplyr::select(name) %>%
-  mutate(id = name) %>%
-  mutate(label = ifelse(is_metabolite == "Yes", formula, "")) %>%
-  # mutate(group = is_metabolite) %>%
-  mutate(size = ifelse(is.na(intensity), 5, log10(intensity)) * 2) %>%
-  mutate(color = case_when(
-    is_metabolite == "Yes" ~ my_palette[1],
-    is_metabolite == "Maybe" ~ my_palette[2],
-    is_metabolite == "No" ~ "AAAAAA",
-    is.na(is_metabolite) ~ "AAAAAA"
-  )) %>%
-  # [:digit:] means 0-9, \\. means ".", + means one or more, \\1 means the content in (), <sub> is HTML language
-  mutate(formula_sub = str_replace_all(formula,"([[:digit:]|\\.|-]+)","<sub>\\1</sub>")) %>%
-  mutate(title = paste0("Formula:", formula_sub, "<br>",
-                        "ID:", ID, "<br>",
-                        "mz:", mz, "<br>",
-                        "RT:", RT, "<br>",
-                        "TIC:", intensity)
-         )
 
-edges = igraph::as_data_frame(test_g, "edges") %>%
-  # dplyr::select(from, to) %>%
-  mutate(arrows = ifelse(direction==-1, "from", "to")) %>%
-  # mutate(length = 100) %>%
-  mutate(label = ifelse(category == "biotransform", linktype, "")) %>%
-  mutate(color = case_when(
-    category == "biotransform" ~ my_palette[1],
-    category != "biotransform" ~ "AAAAAA"
-  )) %>%
-  mutate(title = paste0(category, "<br>",
-                        ifelse(direction==-1, paste0("-",linktype), linktype), "<br>"
-                        )
-         )
-
-visNetwork(nodes, edges, height = "100%", width = "100%") %>% 
-  visLegend() %>%
-  visOptions(manipulation = TRUE, 
-             highlightNearest = TRUE, 
-             nodesIdSelection = TRUE,
-             selectedBy = "is_metabolite"
-             ) %>%
-  visGroups(groupname = "Yes", color = my_palette[1]) %>%
-  visGroups(groupname = "Maybe", color = my_palette[2]) %>%
-  visGroups(groupname = "No", color = my_palette[3]) %>%
-  visInteraction(navigationButtons = TRUE)
   
 
 
@@ -95,29 +46,25 @@ filter_graph = function(g,
                         rt_lb = 0, rt_ub = 30,
                         is_metabolite_group)
 {
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_edge = igraph::as_data_frame(g, "edges")
+  # print(is_metabolite_group)
+  g_vertex = igraph::as_data_frame(g, "vertices") %>%
+    filter(ILP_result != 0, !is.na(ILP_result)) %>%
+    filter(is.na(intensity) | (intensity > 10^intensity_lb & intensity < 10^intensity_ub)) %>%
+    filter(mz > mz_lb, mz < mz_ub) %>%
+    filter(RT > rt_lb, RT < rt_ub) %>%
+    filter(is_metabolite %in% is_metabolite_group)
+    
   
-  g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
-  g_vertex = g_vertex[is.na(g_vertex$intensity) |
-                        g_vertex$intensity > 10^intensity_lb &
-                        g_vertex$intensity < 10^intensity_ub,]
-  g_vertex = g_vertex[g_vertex$mz>mz_lb & 
-                        g_vertex$mz<mz_ub,]
-  g_vertex = g_vertex[g_vertex$RT>rt_lb & 
-                        g_vertex$RT<rt_ub,]
-  
-  is_metabolite_group = unique(g_vertex$is_metabolite)
-  is_metabolite_group[is_metabolite_group==""] = NA
-  g_vertex = g_vertex[g_vertex$is_metabolite %in% is_metabolite_group,]
-  
-  g_edge = g_edge[g_edge$from %in% g_vertex$name &
-                    g_edge$to %in% g_vertex$name, ]
+  g_edge = igraph::as_data_frame(g, "edges") %>%
+    filter(from %in% g_vertex$name, 
+           to %in% g_vertex$name)
   
   g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
   
   return(g_filter)
 }
+
+
 ## search_peak ####
 search_peak = function(g, mz_interest, mz_ppm)
 {
@@ -175,6 +122,7 @@ search_partner = function(g, peak_id, formula_select, step = 5 ){
   interested_node = peak_id
   
   g_vertex = igraph::as_data_frame(g, "vertices")
+  print(nrow(g_vertex))
   g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
   # print(g_id)
   if(length(g_id) == 0){
@@ -231,39 +179,90 @@ interest_node_graph = function(g, peak_id, formula_select, step = 1)
 ## Plot_g_interest ####
 Plot_g_interest = function(g_interest, interested_node, formula_select)
 {
-  
+  # browser()
   # interested_node=178
   # formula_select="C6H12O6"
   # g_interest = g_temp
+  # display.brewer.all()
+  my_palette = brewer.pal(4, "Set3")
+  nodes = igraph::as_data_frame(g_interest, "vertices") %>%
+    # dplyr::select(name) %>%
+    mutate(id = name) %>%
+    mutate(label = ifelse(is_metabolite == "Yes", formula, "")) %>%
+    # mutate(group = is_metabolite) %>%
+    mutate(size = ifelse(is.na(intensity), 5, log10(intensity)) * 2) %>%
+    mutate(color = case_when(
+      is_metabolite == "Yes" ~ my_palette[1],
+      is_metabolite == "Maybe" ~ my_palette[2],
+      is_metabolite == "No" ~ "AAAAAA",
+      is.na(is_metabolite) ~ "AAAAAA"
+    )) %>%
+    # [:digit:] means 0-9, \\. means ".", + means one or more, \\1 means the content in (), <sub> is HTML language
+    mutate(formula_sub = str_replace_all(formula,"([[:digit:]|\\.|-]+)","<sub>\\1</sub>")) %>%
+    mutate(title = paste0("Formula:", formula_sub, "<br>",
+                          "ID:", ID, "<br>",
+                          "mz:", mz, "<br>",
+                          "RT:", RT, "<br>",
+                          "TIC:", intensity)
+    )
   
-  if(!is_igraph(g_interest)) {return(NULL)}
-  vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
+  edges = igraph::as_data_frame(g_interest, "edges") %>%
+    # dplyr::select(from, to) %>%
+    mutate(arrows = ifelse(direction==-1, "from", "to")) %>%
+    # mutate(length = 100) %>%
+    mutate(label = ifelse(category == "biotransform", linktype, "")) %>%
+    mutate(color = case_when(
+      category == "biotransform" ~ my_palette[1],
+      category != "biotransform" ~ "AAAAAA"
+    )) %>%
+    mutate(title = paste0(category, "<br>",
+                          ifelse(direction==-1, paste0("-",linktype), linktype), "<br>"
+    )
+    )
   
-  # dists = distances(g_interest, g_id)
-  colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
+  visNetwork(nodes, edges, height = "100%", width = "100%") %>% 
+    visLegend() %>%
+    visOptions(manipulation = TRUE, 
+               highlightNearest = TRUE, 
+               nodesIdSelection = TRUE,
+               selectedBy = "is_metabolite"
+    ) %>%
+    visGroups(groupname = "Yes", color = my_palette[1]) %>%
+    visGroups(groupname = "Maybe", color = my_palette[2]) %>%
+    visGroups(groupname = "No", color = my_palette[3]) %>%
+    visInteraction(navigationButtons = TRUE)
   
-  plot(g_interest,
-       #vertex.color = 'white',
-       vertex.label = vertex.attributes(g_interest)$formula,
-       #vertex.label = vertex.attributes(g_interest)$medRt,
-       vertex.color = "orange",
-       vertex.label.color = "black",
-       vertex.label.cex = 1,
-       #vertex.label.dist = 2,
-       vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
-       #edge.width = edge.attributes(g_interest)$Confidence*2-2,
-       # edge.color = color_palette[edge.attributes(g_interest)$color],
-       #edge.label = edge.attributes(g_interest)$mz_dif,
-       edge.label = edge.attributes(g_interest)$linktype,
-       edge.label.color = "red",
-       edge.label.cex = 1,
-       edge.arrow.size = 0.5,
-       edge.arrow.width = 1,
-       main = paste("Subnetwork of peak", interested_node, formula_select),
-       layout = layout_nicely(g_interest)
-       #layout = layout_as_tree(g_interest)
-  )
-  # dev.off()
+  
+  # 
+  # 
+  # if(!is_igraph(g_interest)) {return(NULL)}
+  # vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
+  # 
+  # # dists = distances(g_interest, g_id)
+  # colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
+  # 
+  # plot(g_interest,
+  #      #vertex.color = 'white',
+  #      vertex.label = vertex.attributes(g_interest)$formula,
+  #      #vertex.label = vertex.attributes(g_interest)$medRt,
+  #      vertex.color = "orange",
+  #      vertex.label.color = "black",
+  #      vertex.label.cex = 1,
+  #      #vertex.label.dist = 2,
+  #      vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
+  #      #edge.width = edge.attributes(g_interest)$Confidence*2-2,
+  #      # edge.color = color_palette[edge.attributes(g_interest)$color],
+  #      #edge.label = edge.attributes(g_interest)$mz_dif,
+  #      edge.label = edge.attributes(g_interest)$linktype,
+  #      edge.label.color = "red",
+  #      edge.label.cex = 1,
+  #      edge.arrow.size = 0.5,
+  #      edge.arrow.width = 1,
+  #      main = paste("Subnetwork of peak", interested_node, formula_select),
+  #      layout = layout_nicely(g_interest)
+  #      #layout = layout_as_tree(g_interest)
+  # )
+  # # dev.off()
 }
 
 
@@ -289,7 +288,7 @@ g_show_edge = function(g_interest)
 
 ## two_formula_neighbor_graph####
 
-two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist = 3)
+two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist)
 {
   # node1 = 178
   # node2 = 2
@@ -330,7 +329,7 @@ two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist 
   if(length(all_names_in_connect_graph)==0){return(NULL)}
   g_temp_vertex = g_vertex[g_vertex$name %in% all_names_in_connect_graph,]
   g_temp_edge = g_edge[g_edge$from %in% all_names_in_connect_graph & g_edge$to %in% all_names_in_connect_graph,]
-  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = T)
+  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = F)
   
   return(g_temp)
 }
@@ -360,7 +359,7 @@ two_formula_shortest_path_graph = function(g, node1, node2, formula1, formula2)
   if(length(all_names_in_connect_graph)==0){return(NULL)}
   g_temp_vertex = g_vertex[g_vertex$name %in% all_names_in_connect_graph,]
   g_temp_edge = g_edge[g_edge$from %in% all_names_in_connect_graph & g_edge$to %in% all_names_in_connect_graph,]
-  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = T)
+  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = F)
 
   return(g_temp)
 }
@@ -443,9 +442,9 @@ ui <- fluidPage(
     tabsetPanel(type = "tabs",
                 tabPanel("Peak_table", dataTableOutput("peak_table")),
                 tabPanel("Partner_table", dataTableOutput("Partner_table")),
-                tabPanel("Plot",  plotOutput("graph"
-                                             , width = "100%"
-                )),
+                tabPanel("Network_plot",  
+                         visNetworkOutput("network_proxy_nodes", height = "400px")
+                ),
                 tabPanel("Nodes", dataTableOutput("nodetable")),
                 tabPanel("Edges", dataTableOutput("edgetable"))
     )
@@ -602,18 +601,11 @@ server <- function(input, output, session) {
   })
   
   
-  # g_interest <- reactive({
-  #   print("enter g_interest two_formula_shortest_path_graph")
-  #   two_formula_shortest_path_graph(isolate(g_partner()), isolate(input$Peak_id), isolate(input$Partner_id), isolate(input$formula_select), input$Partner_formula)
-  # })
   ## output graph, related node & edge table
-  output$graph <- renderPlot({
+  output$network_proxy_nodes <- renderVisNetwork({
     print("enter Plot_g_interest")
     Plot_g_interest(g_interest$data, isolate(input$Peak_id), isolate(input$formula_select))
-    # tkplot(g_interest())
-  }
-  # ,height = 400, width = 800
-  )
+  })
   
   output$nodetable <- renderDataTable({
     print("enter show g_interest_vertice")
@@ -623,8 +615,6 @@ server <- function(input, output, session) {
     print("enter show g_interest_edge")
     g_interest_edge = g_show_edge(g_interest$data)
   })
-  
-  
 }
 
 ## Run shiny ####
