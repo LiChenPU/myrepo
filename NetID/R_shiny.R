@@ -9,12 +9,11 @@ library(RColorBrewer)
 library(stringr)
 
 
-# options(shiny.reactlog=TRUE) 
+# options(shiny.reactlog=TRUE) # Enable reactlog here
 # Read in files ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 datapath = ("./Xi_new_neg")
 setwd(datapath)
-
 
 g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F) %>%
   mutate(mz = round(mz, 4)) %>%
@@ -22,21 +21,13 @@ g_vertex = read.csv("g_vertex.txt", stringsAsFactors = F) %>%
   mutate(intensity = signif(intensity, 6))
 g_edge = read.csv("g_edge.txt", stringsAsFactors = F)
 
-g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
+g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
 g_vertex = igraph::as_data_frame(g, "vertices")
 g_edge = igraph::as_data_frame(g, "edges")
 
-# test_g = interest_node_graph(g, peak_id = 122, formula_select = "C4H7K3O8S1", step=1)
-# test_g = interest_node_graph(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
-# test_g = interest_node_graph(g, peak_id = 178, formula_select = "C6H12O6", step=1)
-
-  
-
-
-
-
-# g_vertex_ILP = g_vertex[g_vertex$ILP_result != 0 & !is.na(g_vertex$ILP_result),]
-# write.csv(g_vertex_ILP, "g_vertex_ILP.txt", row.names = F)
+# test_g = search_partner(g, peak_id = 122, formula_select = "C4H7K3O8S1", step=1)
+# test_g = search_partner(g, peak_id = 127, formula_select = "C20H32N6O12S2", step=1)
+# test_g = search_partner(g, peak_id = 178, formula_select = "C6H12O6", step=1)
 
 # function ####
 ## filter_graph ####
@@ -44,22 +35,45 @@ filter_graph = function(g,
                         intensity_lb = 3, intensity_ub= 7, 
                         mz_lb = 0, mz_ub = 1500, 
                         rt_lb = 0, rt_ub = 30,
-                        is_metabolite_group)
+                        is_metabolite_group, 
+                        artifact_edge = T)
 {
-  # print(is_metabolite_group)
+  # intensity_lb = 3
+  # intensity_ub= 7
+  # mz_lb = 0
+  # mz_ub = 1500
+  # rt_lb = 0
+  # rt_ub = 30
+  # is_metabolite_group = c("Yes", "No", "Maybe", "")
+  # artifact_edge = T
+  
+  is_metabolite_group[is_metabolite_group==""]=NA
+  
+  # Select which peaks to retain, and include all library nodes
   g_vertex = igraph::as_data_frame(g, "vertices") %>%
-    filter(ILP_result != 0, !is.na(ILP_result)) %>%
+    filter((ILP_result != 0 & !is.na(ILP_result)) | RT == -1) %>%
     filter(is.na(intensity) | (intensity > 10^intensity_lb & intensity < 10^intensity_ub)) %>%
     filter(mz > mz_lb, mz < mz_ub) %>%
-    filter(RT > rt_lb, RT < rt_ub) %>%
+    filter((RT > rt_lb & RT < rt_ub) | RT == -1) %>%
     filter(is_metabolite %in% is_metabolite_group)
     
   
+  metabolite_id = g_vertex %>%
+    filter(Biotransform) %>%
+    pull(name)
+  
   g_edge = igraph::as_data_frame(g, "edges") %>%
     filter(from %in% g_vertex$name, 
-           to %in% g_vertex$name)
+           to %in% g_vertex$name) %>%
+    # Filter out biotransform connect between artifacts
+    filter(category != "biotransform" | (from %in% metabolite_id & to %in% metabolite_id))
   
-  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = F)
+  if(!artifact_edge){
+    g_edge = g_edge %>%
+      filter(category == "biotransform")
+  }
+  
+  g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
   
   return(g_filter)
 }
@@ -68,27 +82,14 @@ filter_graph = function(g,
 ## search_peak ####
 search_peak = function(g, mz_interest, mz_ppm)
 {
-  
-  # mz_interest = 558.51
+  # mz_interest = 180.0631
   # mz_ppm = 5
-  # mz_lb = 0
-  # mz_ub = 1500
-  # rt_lb = 0
-  # rt_ub = 20
-  
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  # g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
-  
-  # filter
-  g_vertex = g_vertex[g_vertex$mz<mz_interest*(1+mz_ppm/10^6) & 
-                        g_vertex$mz>mz_interest*(1-mz_ppm/10^6),]
-  
-  # ranking
-  g_vertex = g_vertex[with(g_vertex, order(abs(mz-mz_interest)), -ILP_result, abs(cal_mass - mz_interest)),]
-  
-  
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "is_metabolite")
-  g_vertex = g_vertex[,colname_vertice]
+ 
+  g_vertex = igraph::as_data_frame(g, "vertices") %>%
+    filter(mz < mz_interest*(1+mz_ppm/10^6),
+           mz > mz_interest*(1-mz_ppm/10^6)) %>%
+    arrange(-intensity, abs(mz-mz_interest), -ILP_result, abs(cal_mass - mz_interest)) %>%
+    dplyr::select("ID", "mz", "RT", "formula", "compound_name", "intensity", "is_metabolite")
   
   return(g_vertex)
 }
@@ -96,49 +97,45 @@ search_peak = function(g, mz_interest, mz_ppm)
 ## search_formula ####
 search_formula = function(g, peak_id){
   if(is.na(peak_id)){return(NULL)}
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  
-  # filter
-  # g_vertex = g_vertex[g_vertex$ILP_result!=0 & (!is.na(g_vertex$ILP_result)),]
-  g_vertex = g_vertex[g_vertex$ID==peak_id,]
-
-  
-  # ranking
-  g_vertex = g_vertex[with(g_vertex, order(-ILP_result, -cplex_score)),]
-  
-  colname_vertice = c("ID", "mz", "RT", "formula", "compound_name", "intensity", "is_metabolite")
-  g_vertex = g_vertex[,colname_vertice]
-  
+  g_vertex = igraph::as_data_frame(g, "vertices") %>%
+    filter(ID==peak_id) %>%
+    arrange(-ILP_result, -cplex_score) %>%
+    dplyr::select("ID", "mz", "RT", "formula", "compound_name", "intensity", "is_metabolite")
+    
   return(g_vertex)
   
 }
 
 ## search_partner ####
-search_partner = function(g, peak_id, formula_select, step = 5 ){
-
-  if(!is_igraph(g)) {print("return !is_igraph")
-    return(NULL)}
-  
-  interested_node = peak_id
-  
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  print(nrow(g_vertex))
-  g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
-  # print(g_id)
-  if(length(g_id) == 0){
-    # print("return g_id ==0")
-    return(NULL)}
-    
-  
-  # interested_node = as.character(g_id[1])
-  # g.degree <- degree(g, mode = c("all"))
-  g_partner <- make_ego_graph(g, 
-                               step, 
-                               nodes = as.character(g_id[1]), 
-                               mode = c("all"))[[1]]
-  
-  return(g_partner)
-}
+# search_partner = function(g_filter, peak_id, formula_select, step = 5 ){
+# 
+#   if(!is_igraph(g_filter)) {print("return !is_igraph")
+#     return(NULL)}
+#   
+#   interested_node = peak_id
+#   
+#   g_vertex = igraph::as_data_frame(g_filter, "vertices")
+#   g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
+#   
+#   if(length(g_id) == 0){
+#     # print("return g_id ==0")
+#     return(NULL)}
+#     
+#   g_partner <- make_ego_graph(g_filter, 
+#                                step, 
+#                                nodes = as.character(g_id[1]), 
+#                                mode = c("all"))[[1]]
+#   
+#   g_interest_vertex = igraph::as_data_frame(g_interest, "vertices") 
+#   
+#   g_interest_edge = igraph::as_data_frame(g_partner, "edges") %>%
+#     filter(from %in% g_interest_vertex$name, 
+#            to %in% g_interest_vertex$name) 
+#   
+#   g_interest = graph_from_data_frame(g_interest_edge, vertices = g_interest_vertex, directed = F)
+#   
+#   return(g_partner)
+# }
 
 
 ## g_show_vertice_rankIntensity ####
@@ -157,22 +154,39 @@ g_show_vertice_rankIntensity = function(g_interest)
 
 
 
-## interest_node_graph ####
-interest_node_graph = function(g, peak_id, formula_select, step = 1)
+## search_partner ####
+search_partner = function(g_filter, peak_id, formula_select, step = 1)
 {
-  if(!is_igraph(g)) {return(NULL)}
-  # interested_node = 122
-  interested_node = peak_id
+  # peak_id = 178
+  # formula_select = "C6H12O6"
+  # step = 1
+  # g_filter = filter_graph(g, is_metabolite_group = c("Yes", "No", "Maybe", NA))
+  # g_partner = search_partner(g_filter, peak_id, formula_select, 5)
+  # browser()
+  if(!is_igraph(g_filter)) {return(NULL)}
 
-  g_vertex = igraph::as_data_frame(g, "vertices")
-  g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
+  g_vertex = igraph::as_data_frame(g_filter, "vertices") 
+  g_edge = igraph::as_data_frame(g_filter, "edges") 
+  g_id = g_vertex %>%
+    filter(ID==peak_id, formula == formula_select) %>%
+    pull(name)
   
-  # interested_node = as.character(g_id[1])
-  # g.degree <- degree(g, mode = c("all"))
-  g_interest <- make_ego_graph(g, 
+  if(length(g_id) == 0){
+    # print("return g_id ==0")
+    return(NULL)}
+  
+  g_interest <- make_ego_graph(g_filter, 
                                step, 
                                nodes = as.character(g_id[1]), 
                                mode = c("all"))[[1]]
+  
+  g_interest_vertex = igraph::as_data_frame(g_interest, "vertices") 
+  
+  g_interest_edge = igraph::as_data_frame(g_filter, "edges") %>%
+    filter(from %in% g_interest_vertex$name, 
+           to %in% g_interest_vertex$name) 
+  
+  g_interest = graph_from_data_frame(g_interest_edge, vertices = g_interest_vertex, directed = T)
   return(g_interest)
 }
 
@@ -184,18 +198,24 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
   # formula_select="C6H12O6"
   # g_interest = g_temp
   # display.brewer.all()
+  # display.brewer.pal(4, "Set3")
+  # g_interest = search_partner(g, peak_id = 178, formula_select = "C6H12O6", step=1)
+  
+  # g_interest = g_temp
   my_palette = brewer.pal(4, "Set3")
   nodes = igraph::as_data_frame(g_interest, "vertices") %>%
     # dplyr::select(name) %>%
     mutate(id = name) %>%
-    mutate(label = ifelse(is_metabolite == "Yes", formula, "")) %>%
+    mutate(label = ifelse(is_metabolite %in% c("Yes", "Maybe"), formula, "")) %>%
     # mutate(group = is_metabolite) %>%
     mutate(size = ifelse(is.na(intensity), 5, log10(intensity)) * 2) %>%
     mutate(color = case_when(
+      # assigned to the first color, not overwitten by later assignment
+      is_metabolite == "No" ~ my_palette[3],
+      RT == -1 ~ my_palette[4],
       is_metabolite == "Yes" ~ my_palette[1],
       is_metabolite == "Maybe" ~ my_palette[2],
-      is_metabolite == "No" ~ "AAAAAA",
-      is.na(is_metabolite) ~ "AAAAAA"
+      is.na(is_metabolite) ~ my_palette[3]
     )) %>%
     # [:digit:] means 0-9, \\. means ".", + means one or more, \\1 means the content in (), <sub> is HTML language
     mutate(formula_sub = str_replace_all(formula,"([[:digit:]|\\.|-]+)","<sub>\\1</sub>")) %>%
@@ -208,19 +228,23 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
   
   edges = igraph::as_data_frame(g_interest, "edges") %>%
     # dplyr::select(from, to) %>%
+    ## it may be due to the "interest_graph" function rearrange all edges in terms of direction...
+    ## Biotransform DO have direction
+    ## 
     mutate(arrows = ifelse(direction==-1, "from", "to")) %>%
+    # mutate(arrows = "from") %>%
     # mutate(length = 100) %>%
     mutate(label = ifelse(category == "biotransform", linktype, "")) %>%
     mutate(color = case_when(
       category == "biotransform" ~ my_palette[1],
-      category != "biotransform" ~ "AAAAAA"
+      category != "biotransform" ~ my_palette[3]
     )) %>%
     mutate(title = paste0(category, "<br>",
                           ifelse(direction==-1, paste0("-",linktype), linktype), "<br>"
     )
     )
   
-  visNetwork(nodes, edges, height = "100%", width = "100%") %>% 
+  visNetwork(nodes, edges, height = "200%", width = "200%") %>% 
     visLegend() %>%
     visOptions(manipulation = TRUE, 
                highlightNearest = TRUE, 
@@ -287,7 +311,6 @@ g_show_edge = function(g_interest)
 
 
 ## two_formula_neighbor_graph####
-
 two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist)
 {
   # node1 = 178
@@ -327,9 +350,11 @@ two_formula_neighbor_graph = function(g, node1, node2, formula1, formula2, dist)
   all_names_in_connect_graph = unique(all_names_in_connect_graph)
 
   if(length(all_names_in_connect_graph)==0){return(NULL)}
-  g_temp_vertex = g_vertex[g_vertex$name %in% all_names_in_connect_graph,]
-  g_temp_edge = g_edge[g_edge$from %in% all_names_in_connect_graph & g_edge$to %in% all_names_in_connect_graph,]
-  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = F)
+  g_temp_vertex = g_vertex %>% 
+    filter(name %in% all_names_in_connect_graph)
+  g_temp_edge = g_edge %>%
+    filter(from %in% all_names_in_connect_graph & to %in% all_names_in_connect_graph)
+  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = T)
   
   return(g_temp)
 }
@@ -359,13 +384,10 @@ two_formula_shortest_path_graph = function(g, node1, node2, formula1, formula2)
   if(length(all_names_in_connect_graph)==0){return(NULL)}
   g_temp_vertex = g_vertex[g_vertex$name %in% all_names_in_connect_graph,]
   g_temp_edge = g_edge[g_edge$from %in% all_names_in_connect_graph & g_edge$to %in% all_names_in_connect_graph,]
-  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = F)
+  g_temp = graph_from_data_frame(d = g_temp_edge, vertices = g_temp_vertex, directed = T)
 
   return(g_temp)
 }
-
-
-
 
 # Shiny R --------------------####
 ## ui ####
@@ -429,6 +451,9 @@ ui <- fluidPage(
                    checkboxGroupInput("is_metabolite", "Select whether to include:",
                                       choices = unique(g_vertex$is_metabolite), 
                                       selected = unique(g_vertex$is_metabolite)
+                   ),
+                   checkboxInput("artifact_edge", "Select whether to artifact edge:",
+                                 value = T
                    )
                 )
                 
@@ -454,14 +479,14 @@ ui <- fluidPage(
 
 ## server ####
 server <- function(input, output, session) {
-  ## Filter graph based on intensity, mz range and rt range
+  ## Filter graph based on intensity, mz range and rt range ####
   g_filter <- reactive({
     print("enter g_filter")
     filter_graph(g,
                  input$Peak_inten_range[1], input$Peak_inten_range[2],
                  mz_lb = input$mz_range[1], mz_ub = input$mz_range[2], 
                  rt_lb = input$rt_range[1], rt_ub = input$rt_range[2],
-                 input$is_metabolite)
+                 input$is_metabolite, input$artifact_edge)
   })
   
   ## adjust mz based on ionization and ppm
@@ -516,12 +541,9 @@ server <- function(input, output, session) {
     )
   })
   
-  
-  ## Partner graph
+  ## Partner graph ####
   g_partner <- reactive({
     print("enter g_partner")
-    # g_partner <-   eventReactive(input$mz_interest, {
-    # req(input$formula_select, cancelOutput = F)
     search_partner(isolate(g_filter()), isolate(input$Peak_id), input$formula_select, 5)
   })
   
@@ -570,15 +592,14 @@ server <- function(input, output, session) {
   
   
   ## select graph of interest 
-  
   g_interest <- reactiveValues(data = NULL)
   observeEvent(input$one_node_graph, {
-    print("enter g_interest interest_node_graph")
+    print("enter g_interest search_partner")
     ### basic graph based on selected peak and formula
-    g_interest$data = interest_node_graph(g_partner(), 
-                                          isolate(input$Peak_id), 
-                                          isolate(input$formula_select), 
-                                          step = 1)
+    g_interest$data = search_partner(g_partner(), 
+                                     isolate(input$Peak_id), 
+                                     isolate(input$formula_select), 
+                                     step = 1)
   })
 
   observeEvent(input$two_nodes_shortest, {
@@ -700,7 +721,7 @@ shinyApp(ui = ui, server = server)
 # 
 #   g_filter_vertex = igraph::as_data_frame(g_filter, "vertice")
 # 
-#   g_interest <- interest_node_graph(g_filter,input$Peak_id,input$formula_select$selected, step = 1)
+#   g_interest <- search_partner(g_filter,input$Peak_id,input$formula_select$selected, step = 1)
 # 
 # 
 # 
