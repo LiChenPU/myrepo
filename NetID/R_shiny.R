@@ -34,9 +34,7 @@ g_edge = igraph::as_data_frame(g, "edges")
 filter_graph = function(g, 
                         intensity_lb = 3, intensity_ub= 7, 
                         mz_lb = 0, mz_ub = 1500, 
-                        rt_lb = 0, rt_ub = 30,
-                        is_metabolite_group, 
-                        artifact_edge = T)
+                        rt_lb = 0, rt_ub = 30)
 {
   # intensity_lb = 3
   # intensity_ub= 7
@@ -44,19 +42,13 @@ filter_graph = function(g,
   # mz_ub = 1500
   # rt_lb = 0
   # rt_ub = 30
-  # is_metabolite_group = c("Yes", "No", "Maybe", "")
-  # artifact_edge = T
-  
-  is_metabolite_group[is_metabolite_group==""]=NA
-  
+
   # Select which peaks to retain, and include all library nodes
   g_vertex = igraph::as_data_frame(g, "vertices") %>%
     filter((ILP_result != 0 & !is.na(ILP_result)) | RT == -1) %>%
     filter(is.na(intensity) | (intensity > 10^intensity_lb & intensity < 10^intensity_ub)) %>%
     filter(mz > mz_lb, mz < mz_ub) %>%
-    filter((RT > rt_lb & RT < rt_ub) | RT == -1) %>%
-    filter(is_metabolite %in% is_metabolite_group)
-    
+    filter((RT > rt_lb & RT < rt_ub) | RT == -1) 
   
   metabolite_id = g_vertex %>%
     filter(Biotransform) %>%
@@ -67,11 +59,6 @@ filter_graph = function(g,
            to %in% g_vertex$name) %>%
     # Filter out biotransform connect between artifacts
     filter(category != "biotransform" | (from %in% metabolite_id & to %in% metabolite_id))
-  
-  if(!artifact_edge){
-    g_edge = g_edge %>%
-      filter(category == "biotransform")
-  }
   
   g_filter = graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
   
@@ -106,38 +93,6 @@ search_formula = function(g, peak_id){
   
 }
 
-## search_partner ####
-# search_partner = function(g_filter, peak_id, formula_select, step = 5 ){
-# 
-#   if(!is_igraph(g_filter)) {print("return !is_igraph")
-#     return(NULL)}
-#   
-#   interested_node = peak_id
-#   
-#   g_vertex = igraph::as_data_frame(g_filter, "vertices")
-#   g_id = g_vertex$name[g_vertex$ID==interested_node & g_vertex$formula == formula_select]
-#   
-#   if(length(g_id) == 0){
-#     # print("return g_id ==0")
-#     return(NULL)}
-#     
-#   g_partner <- make_ego_graph(g_filter, 
-#                                step, 
-#                                nodes = as.character(g_id[1]), 
-#                                mode = c("all"))[[1]]
-#   
-#   g_interest_vertex = igraph::as_data_frame(g_interest, "vertices") 
-#   
-#   g_interest_edge = igraph::as_data_frame(g_partner, "edges") %>%
-#     filter(from %in% g_interest_vertex$name, 
-#            to %in% g_interest_vertex$name) 
-#   
-#   g_interest = graph_from_data_frame(g_interest_edge, vertices = g_interest_vertex, directed = F)
-#   
-#   return(g_partner)
-# }
-
-
 ## g_show_vertice_rankIntensity ####
 g_show_vertice_rankIntensity = function(g_interest)
 {
@@ -160,9 +115,9 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
   # peak_id = 178
   # formula_select = "C6H12O6"
   # step = 1
-  # g_filter = filter_graph(g, is_metabolite_group = c("Yes", "No", "Maybe", NA))
+  # g_filter = filter_graph(g)
   # g_partner = search_partner(g_filter, peak_id, formula_select, 5)
-  # browser()
+  # # browser()
   if(!is_igraph(g_filter)) {return(NULL)}
 
   g_vertex = igraph::as_data_frame(g_filter, "vertices") 
@@ -175,19 +130,57 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
     # print("return g_id ==0")
     return(NULL)}
   
-  g_interest <- make_ego_graph(g_filter, 
+  g_partner <- make_ego_graph(g_filter, 
                                step, 
                                nodes = as.character(g_id[1]), 
                                mode = c("all"))[[1]]
   
-  g_interest_vertex = igraph::as_data_frame(g_interest, "vertices") 
+  g_partner_vertex = igraph::as_data_frame(g_partner, "vertices") 
   
-  g_interest_edge = igraph::as_data_frame(g_filter, "edges") %>%
+  g_partner_edge = igraph::as_data_frame(g_filter, "edges") %>%
+    filter(from %in% g_partner_vertex$name, 
+           to %in% g_partner_vertex$name) 
+  
+  g_partner = graph_from_data_frame(g_partner_edge, vertices = g_partner_vertex, directed = T)
+  return(g_partner)
+}
+
+## Apply aesthetic filtering before plotting ####
+aesthetic_filter = function(g_partner,
+                            show_metabolite_group, 
+                            show_artifact_edge = T,
+                            show_library_node = T)
+{
+  
+  # show_metabolite_group = c("Yes", "No", "Maybe", "")
+  # show_artifact_edge = F
+  # show_library_node = F
+  
+  show_metabolite_group[show_metabolite_group == ""] = NA
+  
+  g_interest_vertex = igraph::as_data_frame(g_partner, "vertices") %>%
+    filter(is_metabolite %in% show_metabolite_group) 
+  
+  if(!show_library_node){
+    g_interest_vertex = g_interest_vertex %>%
+      filter(RT != -1)
+  }
+  
+  g_interest_edges = igraph::as_data_frame(g_partner, "edges") %>%
     filter(from %in% g_interest_vertex$name, 
            to %in% g_interest_vertex$name) 
   
-  g_interest = graph_from_data_frame(g_interest_edge, vertices = g_interest_vertex, directed = T)
-  return(g_interest)
+  if(!show_artifact_edge){
+    g_interest_edges = g_interest_edges %>%
+      filter(category == "biotransform")
+  }
+  
+ 
+  
+  g_aesthetic_filter = graph_from_data_frame(g_interest_edges, vertice = g_interest_vertex, directed = T)
+  
+  return(g_aesthetic_filter)
+  
 }
 
 ## Plot_g_interest ####
@@ -256,37 +249,6 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
     visGroups(groupname = "No", color = my_palette[3]) %>%
     visInteraction(navigationButtons = TRUE)
   
-  
-  # 
-  # 
-  # if(!is_igraph(g_interest)) {return(NULL)}
-  # vertex.attributes(g_interest)$intensity[is.na(vertex.attributes(g_interest)$intensity)]=1e5
-  # 
-  # # dists = distances(g_interest, g_id)
-  # colors <- c("black", "red", "orange", "blue", "dodgerblue", "cyan")
-  # 
-  # plot(g_interest,
-  #      #vertex.color = 'white',
-  #      vertex.label = vertex.attributes(g_interest)$formula,
-  #      #vertex.label = vertex.attributes(g_interest)$medRt,
-  #      vertex.color = "orange",
-  #      vertex.label.color = "black",
-  #      vertex.label.cex = 1,
-  #      #vertex.label.dist = 2,
-  #      vertex.size = log(vertex.attributes(g_interest)$intensity)-3,
-  #      #edge.width = edge.attributes(g_interest)$Confidence*2-2,
-  #      # edge.color = color_palette[edge.attributes(g_interest)$color],
-  #      #edge.label = edge.attributes(g_interest)$mz_dif,
-  #      edge.label = edge.attributes(g_interest)$linktype,
-  #      edge.label.color = "red",
-  #      edge.label.cex = 1,
-  #      edge.arrow.size = 0.5,
-  #      edge.arrow.width = 1,
-  #      main = paste("Subnetwork of peak", interested_node, formula_select),
-  #      layout = layout_nicely(g_interest)
-  #      #layout = layout_as_tree(g_interest)
-  # )
-  # # dev.off()
 }
 
 
@@ -392,6 +354,7 @@ two_formula_shortest_path_graph = function(g, node1, node2, formula1, formula2)
 # Shiny R --------------------####
 ## ui ####
 ui <- fluidPage(
+  ## sidebarPanel ####
   sidebarPanel(
     tabsetPanel(type = "tabs",
                 tabPanel("Setting",
@@ -452,7 +415,10 @@ ui <- fluidPage(
                                       choices = unique(g_vertex$is_metabolite), 
                                       selected = unique(g_vertex$is_metabolite)
                    ),
-                   checkboxInput("artifact_edge", "Select whether to artifact edge:",
+                   checkboxInput("show_artifact_edges", "show_artifact_edges",
+                                 value = T
+                   ),
+                   checkboxInput("show_library_nodes", "show_library_nodes",
                                  value = T
                    )
                 )
@@ -463,6 +429,8 @@ ui <- fluidPage(
     actionButton("two_nodes_all_graph", "two_nodes_all_graph")
     
   ),
+  
+  ## mainPanel ####
   mainPanel(
     tabsetPanel(type = "tabs",
                 tabPanel("Peak_table", dataTableOutput("peak_table")),
@@ -485,8 +453,7 @@ server <- function(input, output, session) {
     filter_graph(g,
                  input$Peak_inten_range[1], input$Peak_inten_range[2],
                  mz_lb = input$mz_range[1], mz_ub = input$mz_range[2], 
-                 rt_lb = input$rt_range[1], rt_ub = input$rt_range[2],
-                 input$is_metabolite, input$artifact_edge)
+                 rt_lb = input$rt_range[1], rt_ub = input$rt_range[2])
   })
   
   ## adjust mz based on ionization and ppm
@@ -591,7 +558,7 @@ server <- function(input, output, session) {
   })
   
   
-  ## select graph of interest 
+  ## select graph of interest ####
   g_interest <- reactiveValues(data = NULL)
   observeEvent(input$one_node_graph, {
     print("enter g_interest search_partner")
@@ -621,8 +588,16 @@ server <- function(input, output, session) {
                                                  dist = input$Partner_level)
   })
   
+  observe({
+    print("enter g_interest aesthetic_filter")
+    g_interest$data = aesthetic_filter(isolate(g_interest$data),
+                                       show_metabolite_group = input$is_metabolite, 
+                                       show_artifact_edge = input$show_artifact_edges,
+                                       show_library_node = input$show_library_nodes)
+  })
   
-  ## output graph, related node & edge table
+  
+  ## output graph, related node & edge table ####
   output$network_proxy_nodes <- renderVisNetwork({
     print("enter Plot_g_interest")
     Plot_g_interest(g_interest$data, isolate(input$Peak_id), isolate(input$formula_select))
