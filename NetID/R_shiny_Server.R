@@ -145,8 +145,10 @@ server <- function(input, output, session) {
     print("enter g_interest aesthetic_filter")
     aesthetic_filter(g_interest$data,
                      show_metabolite_group = input$is_metabolite, 
-                     show_artifact_edge = input$show_artifact_edges,
-                     show_library_node = input$show_library_nodes)
+                     show_artifact_edges = input$show_artifact_edges,
+                     show_biotransform_edges = input$show_biotransform_edges,
+                     show_duplicated_formulas = input$show_duplicated_formulas,
+                     show_library_nodes = input$show_library_nodes)
   })
   
   

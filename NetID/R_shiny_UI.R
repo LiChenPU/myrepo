@@ -61,14 +61,22 @@ ui <- shinyUI({
                                value = c(0,20)),
                    checkboxGroupInput("is_metabolite", "Select whether to include:",
                                       choices = c("Yes", "No", "Maybe", NA), 
-                                      selected = c("Yes", "No", "Maybe", NA)
+                                      selected = c("Yes","Maybe")
+                   ),
+                   checkboxInput("show_biotransform_edges", "show_biotransform_edges",
+                                 value = T
                    ),
                    checkboxInput("show_artifact_edges", "show_artifact_edges",
-                                 value = T
+                                 value = F
+                   ),
+                   checkboxInput("show_duplicated_formulas", "remove_duplicated_formulas",
+                                 value = F
                    ),
                    checkboxInput("show_library_nodes", "show_library_nodes",
-                                 value = T
+                                 value = F
                    )
+                   
+                   
                 )
                 
     ),

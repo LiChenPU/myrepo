@@ -1,12 +1,16 @@
-library(shiny)
-library(igraph)
-library(reactlog)
-library(ShinyTester)
-# install.packages("visNetwork")
-library(visNetwork)
-library(dplyr)
-library(RColorBrewer)
-library(stringr)
+# Load library ####
+{
+  library(shiny)
+  library(igraph)
+  library(reactlog)
+  library(ShinyTester)
+  # install.packages("visNetwork")
+  library(visNetwork)
+  library(dplyr)
+  library(RColorBrewer)
+  library(stringr)
+}
+
 
 
 # options(shiny.reactlog=TRUE) # Enable reactlog here
@@ -30,7 +34,6 @@ g_edge = igraph::as_data_frame(g, "edges")
 # test_g = search_partner(g, peak_id = 178, formula_select = "C6H12O6", step=1)
 
 
-# Shiny R --------------------####
 ## Run shiny ####
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source('R_shiny_functions.R')

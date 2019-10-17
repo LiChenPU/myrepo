@@ -85,8 +85,8 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
   # formula_select = "C6H12O6"
   # step = 1
   # g_filter = filter_graph(g)
-  # g_partner = search_partner(g_filter, peak_id, formula_select, 5)
-  # # browser()
+  
+
   if(!is_igraph(g_filter)) {return(NULL)}
   
   g_vertex = igraph::as_data_frame(g_filter, "vertices") 
@@ -117,13 +117,17 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
 ## aesthetic_filter ####
 aesthetic_filter = function(g_partner,
                             show_metabolite_group, 
-                            show_artifact_edge = T,
-                            show_library_node = T)
+                            show_artifact_edges = T,
+                            show_biotransform_edges = T,
+                            show_library_nodes = T,
+                            show_duplicated_formulas = T)
 {
   
-  # show_metabolite_group = c("Yes", "No", "Maybe", "")
-  # show_artifact_edge = F
-  # show_library_node = F
+  # show_metabolite_group = c("Yes", "Maybe")
+  # show_artifact_edges = F
+  # show_library_nodes = F
+  # show_biotransform_edges = T
+  # remove_duplicated_formulas = F
   if(!is.igraph(g_partner)){return (NULL)}
   
   show_metabolite_group[show_metabolite_group == ""] = NA
@@ -131,22 +135,37 @@ aesthetic_filter = function(g_partner,
   g_interest_vertex = igraph::as_data_frame(g_partner, "vertices") %>%
     filter(is_metabolite %in% show_metabolite_group) 
   
-  if(!show_library_node){
+  if(!show_library_nodes){
     g_interest_vertex = g_interest_vertex %>%
       filter(RT != -1)
+  }
+  
+  if(!show_duplicated_formulas){
+    g_interest_vertex_library = g_interest_vertex %>%
+      filter(RT == -1)
+    g_interest_vertex = g_interest_vertex %>%
+      arrange(-intensity) %>%
+      distinct(formula, .keep_all=T) %>%
+      rbind(g_interest_vertex_library) %>%
+      distinct()
   }
   
   g_interest_edges = igraph::as_data_frame(g_partner, "edges") %>%
     filter(from %in% g_interest_vertex$name, 
            to %in% g_interest_vertex$name) 
   
-  if(!show_artifact_edge){
+  if(!show_artifact_edges){
     g_interest_edges = g_interest_edges %>%
       filter(category == "biotransform")
   }
   
+  if(!show_biotransform_edges){
+    g_interest_edges = g_interest_edges %>%
+      filter(category != "biotransform")
+  }
+  
   g_interest_vertex = g_interest_vertex %>%
-    filter(names %in% g_interest_edges$from | names %in% g_interest_edges$to)
+    filter(name %in% g_interest_edges$from | name %in% g_interest_edges$to)
   
   
   g_aesthetic_filter = graph_from_data_frame(g_interest_edges, vertice = g_interest_vertex, directed = T)
