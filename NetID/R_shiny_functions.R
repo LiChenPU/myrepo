@@ -86,7 +86,6 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
   # step = 1
   # g_filter = filter_graph(g)
   
-
   if(!is_igraph(g_filter)) {return(NULL)}
   
   g_vertex = igraph::as_data_frame(g_filter, "vertices") 
@@ -116,6 +115,8 @@ search_partner = function(g_filter, peak_id, formula_select, step = 1)
 
 ## aesthetic_filter ####
 aesthetic_filter = function(g_partner,
+                            peak_id,
+                            formula_select,
                             show_metabolite_group, 
                             show_artifact_edges = T,
                             show_biotransform_edges = T,
@@ -123,16 +124,20 @@ aesthetic_filter = function(g_partner,
                             show_duplicated_formulas = T)
 {
   
-  # show_metabolite_group = c("Yes", "Maybe")
+  # show_metabolite_group = c("No", NA)
   # show_artifact_edges = F
   # show_library_nodes = F
   # show_biotransform_edges = T
-  # remove_duplicated_formulas = F
+  # show_duplicated_formulas = F
   if(!is.igraph(g_partner)){return (NULL)}
   
-  show_metabolite_group[show_metabolite_group == ""] = NA
+  g_interest_vertex = igraph::as_data_frame(g_partner, "vertices") 
   
-  g_interest_vertex = igraph::as_data_frame(g_partner, "vertices") %>%
+  center_vertex = g_interest_vertex %>%
+    filter(ID == peak_id, formula == formula_select)
+  
+  show_metabolite_group[show_metabolite_group == ""] = NA
+  g_interest_vertex = g_interest_vertex %>%
     filter(is_metabolite %in% show_metabolite_group) 
   
   if(!show_library_nodes){
@@ -150,6 +155,10 @@ aesthetic_filter = function(g_partner,
       distinct()
   }
   
+  g_interest_vertex = g_interest_vertex %>%
+    rbind(center_vertex) %>%
+    distinct()
+  
   g_interest_edges = igraph::as_data_frame(g_partner, "edges") %>%
     filter(from %in% g_interest_vertex$name, 
            to %in% g_interest_vertex$name) 
@@ -166,6 +175,7 @@ aesthetic_filter = function(g_partner,
   
   g_interest_vertex = g_interest_vertex %>%
     filter(name %in% g_interest_edges$from | name %in% g_interest_edges$to)
+
   
   
   g_aesthetic_filter = graph_from_data_frame(g_interest_edges, vertice = g_interest_vertex, directed = T)
@@ -175,7 +185,8 @@ aesthetic_filter = function(g_partner,
 }
 
 ## Plot_g_interest ####
-Plot_g_interest = function(g_interest, interested_node, formula_select)
+Plot_g_interest = function(g_interest, show_metabolite_labels = T, show_artifact_labels = F,
+                           show_biotransform_edge_labels = T, show_artifact_edge_labels = F)
 {
   # browser()
   # interested_node=178
@@ -190,11 +201,9 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
   
   my_palette = brewer.pal(4, "Set3")
   nodes = igraph::as_data_frame(g_interest, "vertices") %>%
-    # dplyr::select(name) %>%
     mutate(id = name) %>%
-    mutate(label = ifelse(is_metabolite %in% c("Yes", "Maybe"), formula, "")) %>%
-    # mutate(group = is_metabolite) %>%
     mutate(size = ifelse(is.na(intensity), 5, log10(intensity)) * 2) %>%
+    mutate(label = "") %>%
     mutate(color = case_when(
       # assigned to the first color, not overwitten by later assignment
       is_metabolite == "No" ~ my_palette[3],
@@ -202,7 +211,7 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
       is_metabolite == "Yes" ~ my_palette[1],
       is_metabolite == "Maybe" ~ my_palette[2],
       is.na(is_metabolite) ~ my_palette[3]
-    )) %>%
+      )) %>%
     # [:digit:] means 0-9, \\. means ".", + means one or more, \\1 means the content in (), <sub> is HTML language
     mutate(formula_sub = str_replace_all(formula,"([[:digit:]|\\.|-]+)","<sub>\\1</sub>")) %>%
     mutate(title = paste0("Formula:", formula_sub, "<br>",
@@ -212,15 +221,18 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
                           "TIC:", intensity)
     )
   
+  if(show_metabolite_labels){
+    nodes = nodes %>% 
+      mutate(label = ifelse(is_metabolite %in% c("Yes", "Maybe"), formula, label))
+  }
+  if(show_artifact_labels){
+    nodes = nodes %>% 
+      mutate(label = ifelse(is_metabolite %in% c("Maybe", "No", "NA"), formula, label))
+  }
+  
   edges = igraph::as_data_frame(g_interest, "edges") %>%
-    # dplyr::select(from, to) %>%
-    ## it may be due to the "interest_graph" function rearrange all edges in terms of direction...
-    ## Biotransform DO have direction
-    ## 
     mutate(arrows = ifelse(direction==-1, "from", "to")) %>%
-    # mutate(arrows = "from") %>%
-    # mutate(length = 100) %>%
-    mutate(label = ifelse(category == "biotransform", linktype, "")) %>%
+    mutate(label = "") %>%
     mutate(color = case_when(
       category == "biotransform" ~ my_palette[1],
       category != "biotransform" ~ my_palette[3]
@@ -229,6 +241,16 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
                           ifelse(direction==-1, paste0("-",linktype), linktype), "<br>"
     )
     )
+  
+  if(show_biotransform_edge_labels){
+    edges = edges %>% 
+      mutate(label = ifelse(category == "biotransform", linktype, label))
+  }
+  if(show_artifact_edge_labels){
+    edges = edges %>% 
+      mutate(label = ifelse(category != "biotransform", linktype, label))
+  }
+  
   
   visNetwork(nodes, edges, height = "200%", width = "200%") %>% 
     visLegend() %>%
@@ -240,7 +262,11 @@ Plot_g_interest = function(g_interest, interested_node, formula_select)
     visGroups(groupname = "Yes", color = my_palette[1]) %>%
     visGroups(groupname = "Maybe", color = my_palette[2]) %>%
     visGroups(groupname = "No", color = my_palette[3]) %>%
-    visInteraction(navigationButtons = TRUE)
+    visInteraction(navigationButtons = TRUE) %>%
+    visPhysics(stabilization = FALSE) %>%
+    visLayout(randomSeed = 123)
+    # visLayout(hierarchical = TRUE) 
+    # visIgraphLayout(layout = "layout_in_circle")
   
 }
 

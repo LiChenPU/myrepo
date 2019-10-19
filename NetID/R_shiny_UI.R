@@ -59,6 +59,10 @@ ui <- shinyUI({
                                label = "RT range",
                                min = 0, max = 20, step = .01,
                                value = c(0,20)),
+                   numericInput(inputId = "depth", 
+                                label = "Graph depth",
+                                value = 1
+                   ),
                    checkboxGroupInput("is_metabolite", "Select whether to include:",
                                       choices = c("Yes", "No", "Maybe", NA), 
                                       selected = c("Yes","Maybe")
@@ -69,10 +73,22 @@ ui <- shinyUI({
                    checkboxInput("show_artifact_edges", "show_artifact_edges",
                                  value = F
                    ),
-                   checkboxInput("show_duplicated_formulas", "remove_duplicated_formulas",
+                   checkboxInput("show_duplicated_formulas", "show_duplicated_formulas",
                                  value = F
                    ),
                    checkboxInput("show_library_nodes", "show_library_nodes",
+                                 value = F
+                   ),
+                   checkboxInput("show_metabolite_labels", "show_metabolite_labels",
+                                 value = T
+                   ),
+                   checkboxInput("show_artifact_labels", "show_artifact_labels",
+                                 value = F
+                   ),
+                   checkboxInput("show_biotransform_edge_labels", "show_biotransform_edge_labels",
+                                 value = T
+                   ),
+                   checkboxInput("show_artifact_edge_labels", "show_artifact_edge_labels",
                                  value = F
                    )
                    
@@ -92,7 +108,7 @@ ui <- shinyUI({
                 tabPanel("Peak_table", dataTableOutput("peak_table")),
                 tabPanel("Partner_table", dataTableOutput("Partner_table")),
                 tabPanel("Network_plot",  
-                         visNetworkOutput("network_proxy_nodes", height = "400px")
+                         visNetworkOutput("network_proxy_nodes", height = "800px")
                 ),
                 tabPanel("Nodes", dataTableOutput("nodetable")),
                 tabPanel("Edges", dataTableOutput("edgetable"))

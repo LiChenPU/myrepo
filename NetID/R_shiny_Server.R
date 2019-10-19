@@ -1,4 +1,4 @@
-## server ####
+## server ##
 server <- function(input, output, session) {
   ## Filter graph based on intensity, mz range and rt range ####
   g_filter <- reactive({
@@ -11,7 +11,6 @@ server <- function(input, output, session) {
   
   ## adjust mz based on ionization and ppm
   mz_interest <- reactive({
-    
     print("enter mz_interest")
     ion_form = input$ion_form
     if(ion_form == "M"){mz_adjust = input$mz_interest}
@@ -119,7 +118,7 @@ server <- function(input, output, session) {
     g_interest$data = search_partner(g_partner(), 
                                      isolate(input$Peak_id), 
                                      isolate(input$formula_select), 
-                                     step = 1)
+                                     isolate(input$depth))
   })
 
   observeEvent(input$two_nodes_shortest, {
@@ -144,6 +143,8 @@ server <- function(input, output, session) {
   g_aesthetic <- reactive({
     print("enter g_interest aesthetic_filter")
     aesthetic_filter(g_interest$data,
+                     isolate(input$Peak_id), 
+                     isolate(input$formula_select), 
                      show_metabolite_group = input$is_metabolite, 
                      show_artifact_edges = input$show_artifact_edges,
                      show_biotransform_edges = input$show_biotransform_edges,
@@ -155,7 +156,11 @@ server <- function(input, output, session) {
   ## output graph, related node & edge table ####
   output$network_proxy_nodes <- renderVisNetwork({
     print("enter Plot_g_interest")
-    Plot_g_interest(g_aesthetic(), isolate(input$Peak_id), isolate(input$formula_select))
+    Plot_g_interest(g_aesthetic(),
+                    show_metabolite_labels = input$show_metabolite_labels, 
+                    show_artifact_labels = input$show_artifact_labels,
+                    show_biotransform_edge_labels = input$show_biotransform_edge_labels, 
+                    show_artifact_edge_labels = input$show_artifact_edge_labels)
   })
   
   output$nodetable <- renderDataTable({
