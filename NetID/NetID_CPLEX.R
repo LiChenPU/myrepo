@@ -1,9 +1,9 @@
-source("../NetID_function.R")
+source("NetID_function.R")
 library(cplexAPI)
 
 {
   CPLEXset[["Init_solution"]] = list(Run_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj))
-  # CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 20, sd_rel_max = 0.2)
+  CPLEXset[["Pmt_solution"]] = CPLEX_permutation(CPLEXset, n_pmt = 10, sd_rel_max = 0.2)
   
   # Test_para_CPLEX(CPLEXset, obj_cplex = CPLEXset$para$obj, test_para =c(1,3))
 }
@@ -56,8 +56,8 @@ save.image(paste0(timestamp,".RData"))
   g_edge = relation_list
   g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
 
-  write.csv(g_vertex, "g_vertex.txt", row.names = F)
-  write.csv(g_edge, "g_edge.txt", row.names = F)
+  write.csv(g_vertex, "g_vertex2.txt", row.names = F)
+  write.csv(g_edge, "g_edge2.txt", row.names = F)
 }
 # 
 # Mset[["Summary"]] = Summary_Mset(Mset)
@@ -75,20 +75,20 @@ save.image(paste0(timestamp,".RData"))
 
 # ## Debug ####
 # {
-#   select_node_id = 871
+#   select_node_id = 177
 #   select_formula_ls = formula_list %>%
 #     filter(ID == select_node_id)
 #   # select_edge_info_sum = edge_info_sum %>%
 #   #   filter(node1 == select_node_id | node2 == select_node_id)
-#   
+# 
 # }
 # 
 # {
 #   select_ilp_id = 14051
-#   select_ilp_id = 21374
+#   select_ilp_id = 359
 #   select_edge_info_sum = edge_info_sum %>%
 #     filter(ILP_id1 == select_ilp_id | ILP_id2 == select_ilp_id)
-#   
+# 
 # }
 # 
 # {

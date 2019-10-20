@@ -2223,12 +2223,12 @@ determine_is_metabolite = function(){
     
     Oligomer_ILP_id = artifact_edgeset %>% 
       filter(category == "Oligomer") %>%
-      filter(formula_list_step$step[ILP_id1] <= formula_list_step$step[ILP_id2]) %>%
+      filter(formula_list_step$step[ILP_id1] %% 1 <= formula_list_step$step[ILP_id2] %% 1) %>%
       pull(ILP_id2)
     
     Double_charge_ILP_id = artifact_edgeset %>% 
       filter(category == "Oligomer") %>%
-      filter(formula_list$steps[ILP_id1] > formula_list$steps[ILP_id2]) %>%
+      filter(formula_list$steps[ILP_id1] %% 1 > formula_list$steps[ILP_id2] %% 1) %>%
       filter(grepl("\\.", formula_list$formula[ILP_id1])) %>%
       pull(ILP_id1)
     
