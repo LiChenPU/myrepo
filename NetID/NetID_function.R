@@ -3,6 +3,7 @@
 # Import library ####
 
 {
+  # devtools::install_github("LiChenPU/Formula_manipulation")
   library(lc8)
   library(enviPat)
   library(dplyr)
@@ -14,32 +15,8 @@
   library(stringi)
   library(pracma)
   library(igraph)
+  # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
-
-# {
-#   library(MetaboAnalystR)
-#   library(readr)
-#   library(igraph)
-#   library(fitdistrplus)
-#   library(tidyr)
-#   library(dplyr)
-#   library(enviPat)
-#   library(stringi)
-#   library(matrixStats)
-#   library(Matrix)
-#   library(slam)
-#   # library(cplexAPI)
-#   
-#   library(pracma)
-#   library(tictoc)
-#   library(janitor)
-#   
-#   devtools::install_github("LiChenPU/Formula_manipulation")
-#   library(lc8)
-#   library(profvis)
-#   
-#   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-# }
 
 # Fucntions ####
 # Function for parsing#### 
@@ -118,8 +95,6 @@ Peak_cleanup = function(Mset,
 )
 {
   
-  #raw = raw[complete.cases(raw[, (1+which(colnames(raw)=="parent")):ncol(raw)]),]
-  # colnames(raw)[colnames(raw)=="groupId"] = "ID"
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
@@ -407,9 +382,6 @@ my_PlotSubHeatMap = function (mSetObj = NA, imgName, format = "png", dpi = 72, w
 }
 
 
-
-
-
 ## Summary_Mset ####
 Summary_Mset = function(Mset){
   Mdata = Mset$Data[,c(3:7,14:ncol(Mset$Data))]
@@ -576,38 +548,7 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_t
   # shapiro.test(b)
   # 
   # 
-  # # selected_ppm_error = Biotransform %>%
-  # #   mutate(mass_dif = mass_dif * ifelse(node1>node2, 1, -1)) %>%
-  # #   pull(mass_dif)
-  # # 
-  # # selected_abs_error = Biotransform %>%
-  # #   mutate(abs_mass_dif = Mset$NodeSet$mz[node2] - Mset$NodeSet$mz[node1]) %>%
-  # #   mutate(abs_mass_dif = abs_mass_dif * ifelse(node1>node2, 1, -1)) %>%
-  # #   pull(abs_mass_dif)
-  # 
-  # # shapiro.test(selected_abs_error)
-  # # fitdistData = fitdistrplus::fitdist(selected_ppm_error , "norm")
-  # # fitdistData = fitdistrplus::fitdist(selected_abs_error * 1000, "norm")
-  # 
-  # 
-  # 
-  # ## fit a abs adjust and a ppm adjust to minimize difference between true values
-  # A_col_1 = - Mset$NodeSet$mz[Biotransform$node1]*as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  # A_col_2 = Mset$NodeSet$mz[Biotransform$node2]*as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  # A_col_3 = - as.numeric(Biotransform$node1<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  # A_col_4 = as.numeric(Biotransform$node2<=nrow(Mset$Data))/Mset$NodeSet$mz[Biotransform$node2]
-  # 
-  # ## Col1,2 gives ppm_adjust, 3,4 gives abs adjust
-  # ## Example: [-mz1/mz2, 0, -1/mz2, 0] * [ppm_adjust, ppm_adjust, abs_adjust, abs_adjust]' = -(mz2-mz1)/mz2
-  # A = cbind(A_col_1,A_col_2,A_col_3,A_col_4)
-  # b = - Biotransform$mass_dif
-  # # minimizes ||A*x - b|| (i.e., in the least-squares sense) subject to C*x = d.
-  # # i.e. ppm_adjust or abs_adjust apply to mz1 and mz2 equally,
-  # C = matrix(c(1,0,-1,0,0,1,0,-1), nrow = 2)
-  # d = matrix(c(0,0), nrow=2)
-  # x <- lsqlin(A, b, C,d) 
-  
-  
+ 
   
   if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
     print(paste("expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust ))
@@ -655,24 +596,6 @@ Edge_score = function(Biotransform, mass_dist_sigma,plot_graph = F){
   
   Biotransform = rbind(Biotransform1, Biotransform2)
   
-  
-  # if(fix_distribution_sigma){
-  #   temp_sigma = ppm_error
-  # } else {
-  #   if(nrow(Biotransform)>10000){
-  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif[base::sample(nrow(Biotransform),10000)]), "norm")    
-  #   } else {
-  #     edge_mzdif_FIT <- fitdist(as.numeric(Biotransform$mass_dif), "norm")    
-  #   }
-  #   
-  #   if(plot_graph){
-  #     plot(edge_mzdif_FIT)
-  #     print(summary(edge_mzdif_FIT))
-  #   }
-  #   temp_sigma = edge_mzdif_FIT$estimate[2]
-  # }
-  # Biotransform["edge_massdif_score"]=dnorm(Biotransform$mass_dif, 0, temp_sigma)
-  # Biotransform["edge_massdif_score"]=Biotransform["edge_massdif_score"]/max(Biotransform["edge_massdif_score"])
   return(Biotransform)
 }
 ## Peak_variance - Variance between peaks ####
@@ -686,9 +609,6 @@ Peak_variance = function(Mset,
     mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm = T)) %>%
     mutate(log10_inten = log10(mean_inten)) %>%
     arrange(medRt)
-  
-  # df_raw["mean_inten"]=rowMeans(df_raw[,Mset$Cohort$sample_names], na.rm = T)
-  # df_raw["log10_inten"]=log10(df_raw$mean_inten)
   
   {
     # df_raw = df_raw[with(df_raw, order(medRt)),]
@@ -760,8 +680,7 @@ Peak_variance = function(Mset,
   
   edge_ls = bind_rows(edge_list)
   edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
-  # edge_ls["mz_node1"] = Mset$Data$medMz[edge_ls$node1]
-  # edge_ls["mz_node2"] = Mset$Data$medMz[edge_ls$node2]
+
   edge_ls["mz_dif"] = Mset$Data$medMz[edge_ls$node2]-Mset$Data$medMz[edge_ls$node1]
   
   # calculate mass difference between measured peak and library adducts
@@ -774,8 +693,7 @@ Peak_variance = function(Mset,
     temp_gather = gather(as.data.frame(temp), key = "node1", value="mz_dif")
     temp_gather["node1"] = as.numeric(temp_gather$node1)
     temp_gather["node2"] = adduct_set$ID
-    # temp_gather["mz_node1"] = adduct_set$mz
-    # temp_gather["mz_node2"] = Mset$Data$medMz[temp_gather$node2]
+
     temp_gather["correlation"] = 1
   }
   edge_ls = rbind(edge_ls, temp_gather)
@@ -798,7 +716,6 @@ Peak_variance = function(Mset,
   
   # Remove duplicated rows
   {
-    # edge_ls = edge_ls[!duplicated(edge_ls[,c("node1","node2")]),]
     edge_ls = edge_ls[with(edge_ls, order(node1, node2)),]
     keep_row = rep(T,nrow(edge_ls))
     node1 = edge_ls$node1
@@ -817,10 +734,6 @@ Peak_variance = function(Mset,
   edge_ls["mz_node1"] = Mset$NodeSet$mz[edge_ls$node1]
   edge_ls["mz_node2"] = Mset$NodeSet$mz[edge_ls$node2]
   edge_ls["mz_dif"] = Mset$NodeSet$mz[edge_ls$node2] -Mset$NodeSet$mz[edge_ls$node1]
-  # edge_ls["log10_inten_node1"] = Mset$Data$log10_inten[edge_ls$node1]
-  # edge_ls["log10_inten_node2"] = Mset$Data$log10_inten[edge_ls$node2]
-  # edge_ls["log10_inten_ratio"] = edge_ls["log10_inten_node2"]-edge_ls["log10_inten_node1"]
-  # edge_ls["time_dif"] = Mset$Data$medRt[edge_ls$node2] - Mset$Data$medRt[edge_ls$node1]
   
   print("Close RT peaks identified.")
   return(edge_ls)
@@ -834,7 +747,7 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
   search_ppm_cutoff = search_ppm_cutoff/1e6
   # edge_ls_highcor = EdgeSet$Peak_inten_correlation %>% arrange(mz_dif)
   edge_ls_highcor = Peak_inten_correlation %>% arrange(mz_dif)
-  # edge_ls_highcor = edge_ls_highcor[with(edge_ls_highcor, order(mz_dif)),]
+  
   junk_df = Mset$Artifacts
   
   i=j=1
@@ -930,15 +843,12 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
   oligo_summary=table(temp_df_oligo$linktype)
   print(oligo_summary)
   
-  #data$parent[data$ID==6]
   test_time = Sys.time()-test_time
   
   edge_ls_annotate= temp_df_isotope %>%
     # mutate(category = "Adduct_isotopes") %>%
     rbind(temp_df_oligo) %>%
     dplyr::select(c("node1","node2","linktype","mass_dif","category","direction","rdbe")) 
-  
-  # edge_ls_annotate_network = edge_ls_annotate[,c("node1","node2","linktype","mass_dif","category","direction","rdbe")]
   
   return(edge_ls_annotate)
 }
@@ -955,7 +865,6 @@ Hetero_dimer = function(Peak_inten_correlation, ppm_tolerance = 5, inten_thresho
   ID_inten_threshold = Mset$Data %>%
     filter(mean_inten > inten_threshold) %>%
     pull(ID)
-  # e3_list = e3_list[ID_inten_threshold]
   
   hetero_dimer_ls = list()
   for(i in 1: length(e3_list)){
@@ -989,8 +898,9 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
     filter(node1 %in% Mset$Data$ID, node2 %in% Mset$Data$ID) %>%
     filter(mz_dif < max(mz_node1, mz_node2)*ppm_range_ub/1e6) %>%
     mutate(inten_ratio = Mset$Data$mean_inten[node1]/Mset$Data$mean_inten[node2]) %>%
-    filter(inten_ratio > ring_fold | inten_ratio < (1/ring_fold))
+    filter(inten_ratio > ring_fold | inten_ratio < (1/ring_fold)) # Ratio should be more than 50 fold
   
+  # switch directions when parent is node2, 
   e2 = e %>%
     filter(inten_ratio < 1) %>%
     mutate(temp_node = node1, node1 = node2, node2 = temp_node) %>%
@@ -1013,6 +923,7 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
   for(i in 1: length(e3_list)){
     temp_e = e3_list[[i]] 
     temp_vector= temp_e$mz_dif / temp_e$mz_node1 * 1e6
+    # ppm should be > lowerrange, 50ppm, and < upperrange, 1000ppm
     temp_index = which(abs(temp_vector) > ppm_range_lb & abs(temp_vector) < ppm_range_ub) 
     if(length(temp_index)>0){
       temp_ppm = temp_vector[temp_index]
@@ -1045,12 +956,11 @@ Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T
   }
   
   edge_merge = edge_merge %>%
-    # filter(log10(edge_massdif_score) > filter_log10score) %>%
+    # filter(log10(edge_massdif_score) > filter_log10score) %>%  # perforamnce improvement is very limited
     mutate(node1_log10_inten = Mset$Data$log10_inten[node1],
            node2_log10_inten = Mset$Data$log10_inten[node2]) %>%
     mutate(edge_id = 1:nrow(.)) %>%
     mutate(msr_inten_dif = node2_log10_inten - node1_log10_inten)
-  
   
   return(edge_merge)
 }
@@ -1071,7 +981,6 @@ Network_prediction = function(Mset,
   # Initialize
   { 
     mnl=Mset$NodeSet
-    # edge_artifact = rbind(edge_artifact, edge_heterodimer)
     edge_biotransform = EdgeSet$Merge %>%
       filter(category == "biotransform")
     edge_artifact = EdgeSet$Merge %>%
@@ -1129,10 +1038,8 @@ Network_prediction = function(Mset,
       sub_step = sub_step+0.01
       if(nrow(new_nodes_df)==0){break}
       
-      
       edge_artifact_sub = edge_artifact[edge_artifact$node1 %in% new_nodes_df$id | 
                                           edge_artifact$node2 %in% new_nodes_df$id,]
-      
       
       n=9
       for(n in 1:nrow(new_nodes_df)){
@@ -1146,6 +1053,7 @@ Network_prediction = function(Mset,
         
         # temp_edge_list=subset(edge_artifact_sub, edge_artifact_sub$node1==flag_id |
         #                         edge_artifact_sub$node2==flag_id)
+        # Small improvement in formula handling speed
         flag_id_in_node1_or_node2 = edge_artifact_sub$node1==flag_id | edge_artifact_sub$node2==flag_id
         temp_edge_list = edge_artifact_sub[flag_id_in_node1_or_node2,]
         
@@ -1235,8 +1143,6 @@ Network_prediction = function(Mset,
             if(is.logical(partner_formula)){next}
             
           }
-          
-          
           
           #Criteria to enter new entry into formula list
           #1. If it is a new formula or a new metabolite status, then record
@@ -2145,23 +2051,6 @@ Add_constraint_CPLEX = function(CPLEXset, obj){
   # writeProbCPLEX(env, prob, "prob.lp")
   delProbCPLEX(env, prob)
   closeEnvCPLEX(env)
-  # 
-  # CPLEX_x = result_solution$x
-  # CPLEX_slack = result_solution$slack
-  # 
-  # 
-  # if(write_to_csv){
-  #   write_csv(as.data.frame(result_solution$x),"CPLEX_x.txt")
-  #   write_csv(as.data.frame(result_solution$slack),"CPLEX_slack.txt")
-  # }
-  # 
-  # } else{
-  #   
-  #   CPLEX_x = read.csv("CPLEX_x.txt")
-  #   CPLEX_slack = read.csv("CPLEX_slack.txt")
-  #   if(CPLEXset$CPLEX_para$nc!=nrow(CPLEX_x)){ print("CPLEX_x row number is incosistent with data!")}
-  # }
-  
   return(list(obj = obj, result_solution = result_solution))
 }
 ## Read CPLEX result ####
@@ -2184,15 +2073,9 @@ determine_is_metabolite = function(){
     
     formula_list = merge(unknown_formula, pred_formula_df, all = T) %>%
       merge(nodeset_df, by.x = "id", by.y = "ID", all = T) %>%
-      select(ILP_id, mz, RT, everything()) %>%
+      dplyr::select(ILP_id, mz, RT, everything()) %>%
       arrange(ILP_id)
-# 
-#     formula_list$formula[formula_list$ID>nrow(Mset$Data)] = formula_list$MF[formula_list$ID>nrow(Mset$Data)]
-#     formula_list$rdbe.y[formula_list$ID>nrow(Mset$Data)] = formula_list$rdbe.x[formula_list$ID>nrow(Mset$Data)]
-#     formula_list=formula_list[,!(colnames(formula_list) %in% c("MF", "rdbe.x", "is_metabolite"))]
 
-    formula_list = formula_list %>%
-      select(ILP_id, everything())
     
     ilp_id_non0 = formula_list %>%
       filter(ILP_result!=0) %>%
@@ -2229,7 +2112,7 @@ determine_is_metabolite = function(){
     Double_charge_ILP_id = artifact_edgeset %>% 
       filter(category == "Oligomer") %>%
       filter(formula_list$steps[ILP_id1] %% 1 > formula_list$steps[ILP_id2] %% 1) %>%
-      filter(grepl("\\.", formula_list$formula[ILP_id1])) %>%
+      # filter(grepl("\\.", formula_list$formula[ILP_id1])) %>%
       pull(ILP_id1)
     
     Isotope_ILP_id = artifact_edgeset %>% 
