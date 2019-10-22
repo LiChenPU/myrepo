@@ -9,9 +9,11 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Read previous CPLEX results
 {
   NetID_files = list.files(pattern = "[0-9].csv")
-  formula_list_ls = list()
+  NetID_edge_files = list.files(pattern = "edge.csv")
+  formula_list_ls = edge_info_sum_ls = list()
   for(i in 1:length(NetID_files)){
-    formula_list_ls[[length(formula_list_ls)+1]] = read.csv( NetID_files[i], stringsAsFactors = F) 
+    formula_list_ls[[length(formula_list_ls)+1]] = read.csv(NetID_files[i], stringsAsFactors = F) 
+    edge_info_sum_ls[[length(edge_info_sum_ls)+1]] = read.csv(NetID_edge_files[i], stringsAsFactors = F)
   }
   
   # formula_list2 = formula_list_ls[[6]]
@@ -20,20 +22,148 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Evaluate Xi's data from annotation ####
 
 evaluate_summary = list()
-for(i in 1:length(NetID_files)){
+# for(i in 1:length(NetID_files)){
   formula_list2 = formula_list_ls[[i]]
+  relation_list2 = edge_info_sum_ls[[i]]
   
 {
   # wl_result = read_csv("WL_190405_both.csv")
-  
-  
   data("isotopes")
-  wl_result = read_excel("WL_190405_both_190924.xlsx") %>%
+  wl_result = read_excel("WL_190405_1021category.xlsx") %>%
     mutate(formula = check_chemform(isotopes, formula)$new_formula)
   merge_result = formula_list2 %>%
-    dplyr::select(ID,formula,is_metabolite, ILP_result) %>%
-    merge(wl_result, by.x="ID", by.y = "id", all.y = T)
+    dplyr::select(ID,formula,is_metabolite, Artifact_assignment, Biotransform, ILP_result) %>%
+    merge(wl_result, by.x="ID", by.y = "id", all.y = T) 
 }
+
+## 552 evaluation
+
+{
+  # All ILP!=0
+  {
+    all_filter = merge_result %>%
+      filter(feature...11 != "Background") %>%
+      filter(log10_inten>log10(3e5)) %>%
+      filter(!category_manual %in% c("NA", "No_label"))
+    
+    all_ID_filter = all_filter %>%
+      arrange(-ILP_result) %>%
+      distinct(ID, .keep_all = T) %>%
+      arrange(ID)# %>%
+    # mutate(pred_C = sapply(formula.x, elem_num_query, "C"),
+    #        pred_N = sapply(formula.x, elem_num_query, "N")) %>%
+    # mutate(category = case_when(
+    #   feature...11 == "Metabolite" ~ "Metabolite",
+    #   feature...11 == "Fragment" ~ "Fragment",
+    #   feature...11 == "Background" ~ "",
+    #   is_metabolite == "No" ~ "Artifact",
+    #   feature...11 %in% c("Dimer", "Heterodimer") & grepl("Oligomer|Heterodimer", Artifact_assignment) ~ "Artifact",
+    #   feature...11 %in% c("Low_score", "[]") & pred_C== C & pred_N== N ~ "Metabolite_CNmatch", 
+    #   is_metabolite == "Yes"  ~ "Maybe",
+    #   is_metabolite == "Maybe" ~ "Maybe"
+    # ))
+    
+  
+    table(all_ID_filter$category_manual)
+    
+    
+    test = all_ID_filter %>%
+      # filter(feature...11 == "Odd_N")# %>%
+      filter(category_manual == "Metabolite_CNnotmatch")
+    tabyl(all_ID_filter, feature...11, category_manual)
+    tabyl(all_ID_filter, is_metabolite, category_manual)
+    
+    # write.csv(all_ID,"all_ID.csv", row.names = F)
+  }
+  
+  ## Matching to HMDB
+  {
+    HMDB_library = read.csv("../dependent/HMDB_CHNOPS_clean.csv")
+    all_ID_filter_HMDB = all_ID_filter %>%
+      filter(grepl("Metabolite", category_manual)) %>%
+      mutate(In_HMDB = `Ground truth` %in% HMDB_library$MF)
+    
+    all_ID_filter_HMDB_false = all_ID_filter_HMDB %>%
+      filter(!In_HMDB)
+    all_ID_filter_HMDB_true = all_ID_filter_HMDB %>%
+      filter(In_HMDB)
+    # PAVE performance
+    table(all_ID_filter_HMDB_true$feature...11)
+    table(all_ID_filter_HMDB_false$feature...11)
+    # NetID performance
+    all_ID_filter_HMDB_NetID_true = all_ID_filter_HMDB_true %>%
+      filter(ILP_result == 1) %>%
+      filter(formula.x == `Ground truth`)
+    table(all_ID_filter_HMDB_NetID_true $is_metabolite)
+    table(all_ID_filter_HMDB_true$category_manual)
+    
+    
+      
+    table(all_ID_filter_HMDB$In_HMDB)
+    tabyl(all_ID_filter_HMDB, In_HMDB, category_manual)
+  }
+  
+  ## Artifacts 
+  {
+    all_ID_filter_artifact = all_ID_filter %>%
+      filter(!grepl("Metabolite", category_manual)) 
+    
+    # PAVE performance
+    table(all_ID_filter_artifact$feature...11)
+    
+    # NetID performance formula
+    all_ID_filter_artifact_NetID_true = all_ID_filter_artifact %>%
+      filter(ILP_result == 1) %>%
+      filter(formula.x == `Ground truth`) 
+    all_ID_filter_artifact_NetID_true_Yes = all_ID_filter_artifact_NetID_true %>%
+      filter(is_metabolite == "Yes")
+    table(all_ID_filter_artifact_NetID_true$is_metabolite)
+    
+    all_ID_filter_artifact_NetID_false = all_ID_filter_artifact %>%
+      filter(ILP_result != 1 | formula.x != `Ground truth` | is.na(formula.x)) %>%
+      rbind(all_ID_filter_artifact_NetID_true %>% filter(is_metabolite == "Yes"))
+    table(all_ID_filter_artifact_NetID_false$is_metabolite)
+    
+    table(all_ID_filter$category_manual)
+  }
+  
+  ## Artifact connections
+  {
+    artifact_connections = relation_list2 %>%
+      filter(node1 %in% all_ID_filter$ID , node2 %in% all_ID_filter$ID) %>%
+      filter(category != "biotransform") %>%
+      filter(ILP_result != 0)
+    table(artifact_connections$category)
+  }
+  
+  ## unconnected peaks
+  {
+    ID_in_CPLEX = all_ID_filter %>% filter(ILP_result!=0) %>% pull(ID)
+    all_unconnected = all_ID_filter %>%
+      filter(!ID %in% ID_in_CPLEX) %>%
+      distinct(ID, .keep_all = T)
+  }
+  
+  ## all potential correct
+  {
+    all_labeled_peaks_filter_correct_potential = all_filter %>%
+      filter(formula.x == `Ground truth`)
+    
+    all_labeled_peaks_filter_correct = all_labeled_peaks_filter_correct_potential %>%
+      filter(ILP_result != 0)
+    
+    all_labeled_peaks_filter_wrong = all_ID_filter %>%
+      filter(!ID %in% all_labeled_peaks_filter_correct$ID)
+  }
+  
+    
+}
+
+  
+
+  
+  
+  
 
 # Evaluate all metabolites ####
 {
@@ -71,11 +201,11 @@ for(i in 1:length(NetID_files)){
     filter(feature...11 != "Background")
   
   all_unconnected_non_backgrounds_3e5 = all_unconnected_non_backgrounds %>%
-    filter(log10_inten>log10(1e5))
+    filter(log10_inten>log10(3e5))
 }
 
 
-# Evaluate all isotope-labeled peaks
+# Evaluate all labeled peaks
 {
   all_labeled_peaks = merge_result %>%
     filter(feature...11 != "Background") %>%
@@ -108,12 +238,17 @@ for(i in 1:length(NetID_files)){
                                # Unconnected = all_unconnected_non_backgrounds,
                                Unconnected_3e5 = all_unconnected_non_backgrounds_3e5
                                )
-}
+# }
   
 for(i in 1:length(NetID_files)){
   results = sapply(evaluate_summary[[i]], nrow)
   print(results)
 }
+
+
+
+
+
 
 selected_file = 1
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
