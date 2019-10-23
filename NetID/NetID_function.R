@@ -969,8 +969,8 @@ Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T
 ## Network_prediction - used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, 
                               EdgeSet,
-                              biotransform_step = 1,
-                              artifact_step = 1,
+                              biotransform_step = 2,
+                              artifact_step = 5,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
                               max_formula_num = 1e6,
@@ -1158,9 +1158,12 @@ Network_prediction = function(Mset,
           formula_metabolite_status_matched = temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite
           temp_subset = temp[formula_metabolite_status_matched,]
           
+          
           if(nrow(temp_subset)!=0){
-            #2. if not much higher scores, then next
-            if(partner_score<=(1.2*max(temp_subset$score))){
+            temp_subset_steps = floor(temp_subset$steps) + 100*(temp_subset$steps %% 1)
+            #2. if not much higher scores, or much less steps then next
+            if(partner_score<=(1.2*max(temp_subset$score)) &
+               floor(partner_steps)+100*(partner_steps %% 1) >= max(temp_subset_steps) - 2){
               next
             }
           }
@@ -1283,8 +1286,10 @@ Network_prediction = function(Mset,
           # temp_subset=subset(temp, temp$formula==partner_formula & temp$is_metabolite==partner_is_metabolite)
           
           if(nrow(temp_subset)!=0){
-            #2. if not much higher scores, then next
-            if(partner_score<=(1.2*max(temp_subset$score))){
+            #2. if not much higher scores, or much less steps then next
+            temp_subset_steps = floor(temp_subset$steps) + 100*(temp_subset$steps %% 1)
+            if(partner_score<=(1.2*max(temp_subset$score)) &
+               floor(partner_steps)+100*(partner_steps %% 1) >= max(temp_subset$steps) - 2){
               next
             }
           }
@@ -1424,7 +1429,7 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
     mutate(cplex_score = round(cplex_score, digits = 6))
     
   merge_formula = unknown_formula %>%
-    select(colnames(lib_formula)) %>%
+    dplyr::select(colnames(lib_formula)) %>%
     rbind(lib_formula) %>%
     mutate(ILP_id = 1:nrow(.))
   
@@ -2087,7 +2092,7 @@ determine_is_metabolite = function(){
     relation_list = edge_info_sum %>%
       filter((ILP_id1 %in% ilp_id_non0 | node1 > nrow(Mset$Data)),
              (ILP_id2 %in% ilp_id_non0 | node2 > nrow(Mset$Data))) %>%
-      select(ILP_id1, ILP_id2, everything())
+      dplyr::select(ILP_id1, ILP_id2, everything())
   }
   ## Define if formula is artifact
   {
