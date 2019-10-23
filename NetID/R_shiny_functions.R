@@ -218,7 +218,8 @@ Plot_g_interest = function(g_interest, show_metabolite_labels = T, show_artifact
                           "ID:", ID, "<br>",
                           "mz:", mz, "<br>",
                           "RT:", RT, "<br>",
-                          "TIC:", intensity)
+                          "TIC:", intensity, "<br>",
+                          "Name:", compound_name)
     )
   
   if(show_metabolite_labels){

@@ -11,30 +11,30 @@
   library(stringr)
 }
 
-options(digits = 8)
-
-test_edge = g_edge %>% filter(ILP_result !=0, grepl("\\[37", linktype))
-test_node = g_vertex %>% filter(ID == 1156)
-{
-  select_node_id = 177
-  select_formula_ls = formula_list %>%
-    filter(ID == select_node_id)
-
-}
-
-{
-  select_ilp_id = 14051
-  select_ilp_id = 359
-  select_edge_info_sum = g_edge %>%
-    filter(from == select_ilp_id | to == select_ilp_id)
-
-}
-
-{
-  pred_formula_ls = CPLEXset$formula$pred_formula_ls
-  pred_formula_ls[[1797]]
-  pred_formula_ls[[5109]]
-}
+# options(digits = 8)
+# 
+# test_edge = g_edge %>% filter(ILP_result !=0, grepl("\\[37", linktype))
+# test_node = g_vertex %>% filter(ID == 1156)
+# {
+#   select_node_id = 177
+#   select_formula_ls = formula_list %>%
+#     filter(ID == select_node_id)
+# 
+# }
+# 
+# {
+#   select_ilp_id = 14051
+#   select_ilp_id = 359
+#   select_edge_info_sum = g_edge %>%
+#     filter(from == select_ilp_id | to == select_ilp_id)
+# 
+# }
+# 
+# {
+#   pred_formula_ls = CPLEXset$formula$pred_formula_ls
+#   pred_formula_ls[[1797]]
+#   pred_formula_ls[[5109]]
+# }
 
 
 # options(shiny.reactlog=TRUE) # Enable reactlog here
@@ -44,7 +44,7 @@ datapath = ("./Xi_new_neg")
 setwd(datapath)
 
 g_vertex = read.csv("g_vertex2.txt", stringsAsFactors = F) %>%
-  mutate(mz = round(mz, 5)) %>%
+  mutate(mz = round(mz, 4)) %>%
   mutate(RT = round(RT, 2)) %>%
   mutate(intensity = signif(intensity, 6))
 g_edge = read.csv("g_edge2.txt", stringsAsFactors = F)
