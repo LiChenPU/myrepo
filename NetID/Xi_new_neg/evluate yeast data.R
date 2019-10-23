@@ -12,7 +12,9 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   NetID_edge_files = list.files(pattern = "edge.csv")
   formula_list_ls = edge_info_sum_ls = list()
   for(i in 1:length(NetID_files)){
-    formula_list_ls[[length(formula_list_ls)+1]] = read.csv(NetID_files[i], stringsAsFactors = F) 
+    formula_list_ls[[length(formula_list_ls)+1]] = read.csv(NetID_files[i], stringsAsFactors = F) %>%
+      mutate(pred_C = sapply(formula.x, elem_num_query, "C"),
+             pred_N = sapply(formula.x, elem_num_query, "N"))
     edge_info_sum_ls[[length(edge_info_sum_ls)+1]] = read.csv(NetID_edge_files[i], stringsAsFactors = F)
   }
   
@@ -22,7 +24,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Evaluate Xi's data from annotation ####
 
 evaluate_summary = list()
-# for(i in 1:length(NetID_files)){
+for(i in 1:length(NetID_files)){
   formula_list2 = formula_list_ls[[i]]
   relation_list2 = edge_info_sum_ls[[i]]
   
@@ -156,9 +158,42 @@ evaluate_summary = list()
       filter(!ID %in% all_labeled_peaks_filter_correct$ID)
   }
   
-    
+  
+  
+  evaluate_summary[[i]] = list(Total_potential_3e5 = all_ID_filter,
+                               Correct_potential = all_labeled_peaks_filter_correct_potential,
+                               Correct = all_labeled_peaks_filter_correct,
+                               Wrong = all_labeled_peaks_filter_wrong,
+                               # Unconnected = all_unconnected_non_backgrounds,
+                               Unconnected_3e5 = all_unconnected
+  )
 }
 
+
+## full dataset non_background evaluation
+{
+  signal_cutoff = 1e5
+  
+  all_ID_CPLEX = merge_result %>%
+    arrange(ID, -ILP_result) %>%
+    filter(ILP_result != 0) %>%
+    filter(log10_inten > log10(signal_cutoff))
+  table(all_ID_CPLEX$is_metabolite)
+  
+  all_ID_CPLEX_nonbg = all_ID_CPLEX %>%
+    filter(feature...11 != "Background") %>%
+    mutate(CN_match = pred_C == C & pred_N == N) %>%
+    mutate(In_HMDB = formula.x %in% HMDB_library$MF)
+  
+  tabyl(all_ID_CPLEX_nonbg, CN_match,is_metabolite, In_HMDB)
+  
+  all_CNmatch_notHMDB = all_ID_CPLEX_nonbg %>%
+    filter(CN_match, !In_HMDB) %>%
+    filter(is_metabolite %in% c("Yes")) # , "Maybe"
+   
+  write.csv(all_CNmatch_notHMDB, "New_metabolite.csv")
+  
+}
   
 
   
@@ -201,7 +236,7 @@ evaluate_summary = list()
     filter(feature...11 != "Background")
   
   all_unconnected_non_backgrounds_3e5 = all_unconnected_non_backgrounds %>%
-    filter(log10_inten>log10(3e5))
+    filter(log10_inten>log10(1e5))
 }
 
 
@@ -231,14 +266,8 @@ evaluate_summary = list()
 }
 
   
-  evaluate_summary[[i]] = list(Total_potential_3e5 = all_labeled_peaks_3e5,
-                               Correct_potential = all_labeled_peaks_3e5_correct_potential,
-                               Correct = all_labeled_peaks_3e5_correct,
-                               Wrong = all_labeled_peaks_3e5_wrong,
-                               # Unconnected = all_unconnected_non_backgrounds,
-                               Unconnected_3e5 = all_unconnected_non_backgrounds_3e5
-                               )
-# }
+ 
+}
   
 for(i in 1:length(NetID_files)){
   results = sapply(evaluate_summary[[i]], nrow)
@@ -250,7 +279,7 @@ for(i in 1:length(NetID_files)){
 
 
 
-selected_file = 1
+selected_file = 2
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%
@@ -258,15 +287,15 @@ test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
 result1 = evaluate_summary[[1]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result3 = evaluate_summary[[3]]$Total_potential_3e5 %>%
+result2 = evaluate_summary[[2]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result3_not1 = evaluate_summary[[3]]$Total_potential_3e5 %>%
+result2_not1 = evaluate_summary[[2]]$Total_potential_3e5 %>%
   anti_join(result1)  %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
 
-result1_not3 = evaluate_summary[[1]]$Total_potential_3e5 %>%
-  anti_join(result3) %>%
+result1_not2 = evaluate_summary[[1]]$Total_potential_3e5 %>%
+  anti_join(result2) %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
 
 
