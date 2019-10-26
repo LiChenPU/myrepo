@@ -16,10 +16,12 @@
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
+# Fucntions ####
+# Function for parsing#### 
 ## read_library ####
 read_library = function(library_file){
   data(isotopes)
-  hmdb_lib = read.csv(library_file, stringsAsFactors = F)
+  hmdb_lib = read_csv(library_file)
   hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
   hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1")
   hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1",-1)
@@ -55,18 +57,13 @@ Read_rule_table = function(rule_table_file, extend_rule = F){
         
         extend_rules[[length(extend_rules)+1]] = temp_rule
       }
-      
     }
     
     Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
-    
-    
     Connect_rules = Connect_rules %>%
       arrange(mass) %>%
       dplyr::select(-allow_rep)
   }
-
-   
   return(Connect_rules)
 }
 
