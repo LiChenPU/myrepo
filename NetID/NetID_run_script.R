@@ -3,7 +3,8 @@
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
-work_dir = "Xi_new_neg"
+# work_dir = "lin_neg_191024"
+work_dir = "neg_WL_191024"
 # work_dir = "yeast_WL190314_pos"
 ion_mode = -1
 print(work_dir)
@@ -39,9 +40,10 @@ sink()
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=.5/10^6, 
-                                rt_dif_min=0.01,
+                                ms_dif_ppm=10/10^6, 
+                                rt_dif_min=0.1,
                                 detection_limit=500)
+  print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
   
   Mset[["ID"]] = Mset$Data$ID
 }
@@ -98,10 +100,12 @@ sink()
                                                  biotransform_step = 5,
                                                  artifact_step = 5,
                                                  propagation_score_threshold = 0.2,
+                                                 propagation_artifact_intensity_threshold = 2e4,
                                                  max_formula_num = 1e6,
                                                  top_n = 50)
 }
 
+## CPLEX optimiazation ####
 {
   CPLEXset = list()
   CPLEXset[["formula"]] = Prepare_CPLEX_formula(Mset, mass_dist_sigma = mass_dist_sigma,

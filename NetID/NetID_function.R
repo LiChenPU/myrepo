@@ -80,7 +80,7 @@ Cohort_Info = function(Mset)
     sample_names=all_names
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
-  sample_cohort=stri_replace_last_regex(sample_names,'_\\d+|-\\d+|\\.\\d+|\\d+|-a|-b|-c|_mean', '',stri_opts_regex(case_insensitive=T))
+  sample_cohort=stri_replace_last_regex(sample_names,'[:punct:]?[:alnum:]+', '')
   if(length(Mset$Cohort$sample_cohort) != length(Mset$Cohort$sample_names))
   {print("Warning! cohort number does not match sample number.")}
   
