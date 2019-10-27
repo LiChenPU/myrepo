@@ -69,10 +69,10 @@ Read_rule_table = function(rule_table_file, extend_rule = F){
 }
 
 ## Cohort_Info - Data name and cohorts ####
-Cohort_Info = function(Mset)
+Cohort_Info = function(Mset, first_sample_col_num = 15)
 {
   raw = Mset$Raw_data
-  all_names=colnames(raw)[15:ncol(raw)]
+  all_names=colnames(raw)[first_sample_col_num:ncol(raw)]
   
   if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
     sample_names=all_names[-grep("blank|blk", all_names, ignore.case = T)]
@@ -91,7 +91,8 @@ Cohort_Info = function(Mset)
 Peak_cleanup = function(Mset, 
                         ms_dif_ppm=1/10^6, 
                         rt_dif_min=0.01,
-                        detection_limit=500
+                        detection_limit=500, 
+                        first_sample_col_num = 15
 )
 {
   
@@ -158,7 +159,7 @@ Peak_cleanup = function(Mset,
       if(k_max-k_min ==1){next}
       medMz[k_min:(k_max-1)]=median(medMz[k_min:(k_max-1)], na.rm = T)
       medRt[k_min:(k_max-1)]=median(medRt[k_min:(k_max-1)], na.rm = T)
-      temp = s3[k_min:(k_max-1),15:ncol_raw]
+      temp = s3[k_min:(k_max-1),first_sample_col_num:ncol_raw]
       temp[1,] = apply(temp, 2, function(x){
         if(any(!is.na(x))){
           return(max(x, na.rm = T))
@@ -166,7 +167,7 @@ Peak_cleanup = function(Mset,
           return(NA)
         }
       })
-      s3[k_min:(k_max-1), 15:ncol_raw] = temp[1,]
+      s3[k_min:(k_max-1), first_sample_col_num:ncol_raw] = temp[1,]
     }
     
     s3$medMz = medMz
@@ -608,7 +609,7 @@ Peak_variance = function(Mset,
     dplyr::select(c("ID","medMz","medRt",Mset$Cohort$sample_names)) %>%
     mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm = T)) %>%
     mutate(log10_inten = log10(mean_inten)) %>%
-    arrange(medRt)
+    arrange(medRt, ID)
   
   {
     # df_raw = df_raw[with(df_raw, order(medRt)),]
@@ -630,23 +631,9 @@ Peak_variance = function(Mset,
       
       temp_t = df_raw_medRt[i]
       
-      temp_t_start = max(temp_t-time_cutoff, df_raw_medRt[1])
-      temp_t_end = min(temp_t+time_cutoff, df_raw_medRt[nrow(df_raw)])
-      
-      i_start = i_end = i
-      
-      
-      while(i_start >= 1 & df_raw_medRt[i_start] > temp_t_start){
-        i_start = i_start-1
-      }
-      i_start = i_start+1
-      
-      while(i_start <= nrow(df_raw) & df_raw_medRt[i_end] < temp_t_end){
-        i_end = i_end + 1
-      }
-      i_end = i_end - 1
-      
-      temp_df_raw = df_raw[i_start:i_end,]
+ 
+      filter_criteria = abs(df_raw_medRt - temp_t) <= time_cutoff
+      temp_df_raw = df_raw[filter_criteria,]
       
       temp_df_raw$time_dif=temp_df_raw$medRt-df_raw_medRt[i]
       temp_df_raw$mz_dif = round(temp_df_raw$medMz-df_raw$medMz[i], digits=5)
@@ -920,6 +907,7 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
   # e3_list = e3_list[ID_inten_threshold]
   
   Mass_ring_artifact_ls = list()
+  if(length(e3_list) == 0) {return(NULL)}
   for(i in 1: length(e3_list)){
     temp_e = e3_list[[i]] 
     temp_vector= temp_e$mz_dif / temp_e$mz_node1 * 1e6
@@ -1523,96 +1511,90 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
     }
   }
   
-  ##Objective parameter 
-  {
-    edge_info_sum = bind_rows(edge_info) %>%
-      mutate(edge_ilp_id = 1:nrow(.))
-    
-    edge_info_sum_with_library1 = edge_info_sum %>%
-      filter(ILP_id1>nrow(unknown_formula))
-      
-    edge_info_sum_with_library2 = edge_info_sum %>%
-      filter(ILP_id2>nrow(unknown_formula))
-    colnames(edge_info_sum_with_library2)=sub(1,3,colnames(edge_info_sum_with_library2))
-    colnames(edge_info_sum_with_library2)=sub(2,1,colnames(edge_info_sum_with_library2))
-    colnames(edge_info_sum_with_library2)=sub(3,2,colnames(edge_info_sum_with_library2))
-      
-    library_keep_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
-      arrange(-edge_score) %>%
-      distinct(formula1, ILP_id1, .keep_all = T) %>%
-      pull(edge_ilp_id)
-    
-    library_remove_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
-      filter(!edge_ilp_id %in% library_keep_id) %>%
-      pull(edge_ilp_id)
-  
-    edge_info_sum = edge_info_sum %>%
-      mutate(edge_score = ifelse(edge_ilp_id %in% library_remove_id, 1e-10, edge_score))
-  }
-  
-  
-  
-  edge_info_sum = edge_info_sum %>%
-    arrange(edge_ilp_id) %>%
+  # combine all edges, and incorporates info
+  edge_info_sum = bind_rows(edge_info) %>%
+    mutate(edge_ilp_id = 1:nrow(.)) %>%
     mutate(node1 = EdgeSet$Merge$node1[edge_id],
            node2 = EdgeSet$Merge$node2[edge_id],
            direction = EdgeSet$Merge$direction[edge_id],
            linktype = EdgeSet$Merge$linktype[edge_id],
-           category = EdgeSet$Merge$category[edge_id]) %>%
+           category = EdgeSet$Merge$category[edge_id],
+           msr_inten_dif = EdgeSet$Merge$msr_inten_dif[edge_id]) %>%
     mutate(mz1 = Mset$NodeSet$mz[node1], mz2 = Mset$NodeSet$mz[node2])
   
   # Give artifact bonus to all artifact connections
   {
     edge_info_sum = edge_info_sum %>%
       mutate(artifact_score = ifelse(category == "biotransform", 0, artifact_bonus))
-    
   }
-  
   
   # Calculate isotope scores 
   {
     edge_info_sum = edge_info_sum %>%
-      mutate(isotope_score = NA) %>%
-      mutate(category = EdgeSet$Merge$category[edge_id]) %>%
-      mutate(msr_inten_dif = EdgeSet$Merge$msr_inten_dif[edge_id])
-    # edge_info_sum["isotope_score"] = NA
-    # edge_info_sum["category"] = EdgeSet$Merge$category[edge_info_sum$edge_id]
-    # edge_info_sum["msr_inten_dif"] =  EdgeSet$Merge$msr_inten_dif[edge_info_sum$edge_id]
+      mutate(isotope_score = NA)
     
-    edge_info_isotope = edge_info_sum %>%
-      filter(grepl("\\[", category), !is.na(msr_inten_dif))
-    
-    i=1
-    for(i in 1:nrow(edge_info_isotope)){
-      temp_edge = EdgeSet$Merge[edge_info_isotope$edge_id[i],]
-      temp_iso = temp_edge$category
-      if(temp_iso=="[10]B"){
-        temp_formula = edge_info_isotope$formula2[i]
-        parent_inten = temp_edge$node1_log10_inten
-        temp_edge$msr_inten_dif = -temp_edge$msr_inten_dif
-      }else {
-        temp_formula = edge_info_isotope$formula1[i]
-        parent_inten = temp_edge$node2_log10_inten
-      }
-      calc_abun = isotopic_abundance(temp_formula, temp_iso)
-      abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+    if(!identical(isotope_bonus, F)){
+      # select all isotopic edges
+      edge_info_isotope = edge_info_sum %>%
+        filter(grepl("\\[", category), !is.na(msr_inten_dif))
       
-      edge_info_isotope$isotope_score[i] = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
-      # edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id[i]] = edge_info_isotope$isotope_score[i]
+      for(i in 1:nrow(edge_info_isotope)){
+        temp_edge = EdgeSet$Merge[edge_info_isotope$edge_id[i],]
+        temp_iso = temp_edge$category
+        # handle [10]B specifically as the parent is in formula2
+        if(temp_iso=="[10]B"){
+          temp_formula = edge_info_isotope$formula2[i]
+          parent_inten = temp_edge$node1_log10_inten
+          temp_edge$msr_inten_dif = -temp_edge$msr_inten_dif
+        }else {
+          temp_formula = edge_info_isotope$formula1[i]
+          parent_inten = temp_edge$node2_log10_inten
+        }
+        calc_abun = isotopic_abundance(temp_formula, temp_iso)
+        abun_ratio = 10^temp_edge$msr_inten_dif/calc_abun
+        
+        edge_info_isotope$isotope_score[i] = log10(dnorm(abun_ratio,1,0.2+10^(4-parent_inten))/dnorm(1,1,0.2+10^(4-parent_inten))+1e-10)
+        
+      }
+      edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id] = edge_info_isotope$isotope_score
     }
-    edge_info_sum$isotope_score[edge_info_isotope$edge_ilp_id] = edge_info_isotope$isotope_score
-    # edge_info_sum[edge_info_sum$edge_ilp_id==8716,]
-    
+    edge_info_sum = edge_info_sum %>%
+      mutate(isotope_score = isotope_score + isotope_bonus) %>%
+      mutate(isotope_score = replace_na(isotope_score, 0)) 
   }
   
-  # combine isotope scores and edge_difference scores
-  
+  # combine edge score, edge bonus, isotope score and artifact score
   edge_info_sum = edge_info_sum %>%
-    mutate(edge_score = log10(edge_score) + edge_bonus) %>%
-    mutate(isotope_score = isotope_score + isotope_bonus) %>%
-    mutate(isotope_score = replace_na(isotope_score, 0)) %>%
-    mutate(edge_score = edge_score + isotope_score + artifact_score)
+    mutate(CPLEX_score = log10(edge_score) + edge_bonus + isotope_score + artifact_score)
 
+  ## Retain only one library-data peak connection for each peak
+  {
+    edge_info_sum_with_library1 = edge_info_sum %>%
+      filter(ILP_id1>nrow(unknown_formula))
+    edge_info_sum_with_library2 = edge_info_sum %>%
+      filter(ILP_id2>nrow(unknown_formula))
+    
+    colnames(edge_info_sum_with_library2)=sub(1,3,colnames(edge_info_sum_with_library2))
+    colnames(edge_info_sum_with_library2)=sub(2,1,colnames(edge_info_sum_with_library2))
+    colnames(edge_info_sum_with_library2)=sub(3,2,colnames(edge_info_sum_with_library2))
+    
+    ## formula1 is now library formula, formula 2 is measured formula
+    ## retain unique library-data peak formula connection 
+    library_keep_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
+      arrange(-CPLEX_score) %>%
+      distinct(formula2, ILP_id2, .keep_all = T) %>%
+      pull(edge_ilp_id)
+    
+    library_remove_id = rbind(edge_info_sum_with_library1, edge_info_sum_with_library2) %>%
+      filter(!edge_ilp_id %in% library_keep_id) %>%
+      pull(edge_ilp_id)
+    
+    edge_info_sum = edge_info_sum %>%
+      mutate(CPLEX_score = ifelse(edge_ilp_id %in% library_remove_id, -10, CPLEX_score)) %>%
+      arrange(edge_ilp_id) 
+  }
+  
+  ## Scale down the cplex_score when multiple peaks of same formula exist
   {
     edge_info_sum2 = edge_info_sum %>%
       filter(ILP_id2<=nrow(unknown_formula), 
@@ -1634,10 +1616,9 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
     sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
     
     edge_info_same12 = edge_info_same12 %>%
-      mutate(edge_score = edge_score / sol_mat$div[df_same12[formula1]])
+      mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_same12[formula1]])
     edge_info_dif12 = edge_info_dif12 %>%
-      mutate(edge_score = edge_score / sol_mat$div[df_dif12[temp_merge]])
-    
+      mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_dif12[temp_merge]])
   }
   
   
@@ -1658,7 +1639,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   
   edge_info_sum = CPLEXset$edge
   edge_list = edge_info_sum %>%
-    filter(edge_score>0)
+    filter(CPLEX_score>0)
     
   
   ##Core codes
@@ -1700,7 +1681,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     
     temp_edge = edge_list[n,]
     # Select edges that are included in CPLEX optimization
-    # if(temp_edge$edge_score<0){next}
+    # if(temp_edge$CPLEX_score<0){next}
     # if(temp_edge$category == "Heterodimer"){next}
     # if(temp_edge$category == "Ring_artifact"){next}
     
@@ -1776,23 +1757,30 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   triplet_edge_ls_node_sum = bind_rows(triplet_edge_ls_node) %>%
     mutate(i = i + nrow(unknown_nodes))
   
-  triplet_isotope_ls_edge_sum = bind_rows(triplet_isotope_ls_edge) %>%
-    mutate(i = i + max(triplet_edge_ls_node_sum$i),
-           j = j + nrow(unknown_formula))
-  triplet_isotope_ls_node_sum = bind_rows(triplet_isotope_ls_node) %>%
-    mutate(i = i + max(triplet_edge_ls_node_sum$i))
-
-  
-  #Generate sparse matrix on left hand side
+  # Generate sparse matrix on left hand side
   triplet_df = rbind(
     triplet_unknown_node, 
     triplet_edge_ls_edge_sum,
-    triplet_edge_ls_node_sum,
-    triplet_isotope_ls_edge_sum,
-    triplet_isotope_ls_node_sum
-  )
+    triplet_edge_ls_node_sum)
   
-  mat = simple_triplet_matrix(i=triplet_df$i,
+  ## add isotope constraint that an isotope formula must come with an isotope edge
+  if(length(triplet_isotope_ls_edge) != 0){
+    triplet_isotope_ls_edge_sum = bind_rows(triplet_isotope_ls_edge) %>%
+      mutate(i = i + max(triplet_edge_ls_node_sum$i),
+             j = j + nrow(unknown_formula))
+    triplet_isotope_ls_node_sum = bind_rows(triplet_isotope_ls_node) %>%
+      mutate(i = i + max(triplet_edge_ls_node_sum$i))
+    
+    # Generate sparse matrix on left hand side
+    triplet_df = rbind(
+      triplet_df,
+      triplet_isotope_ls_edge_sum,
+      triplet_isotope_ls_node_sum
+    )
+  }
+  
+  # converts the triplet into matrix
+  mat = slam::simple_triplet_matrix(i=triplet_df$i,
                               j=triplet_df$j,
                               v=triplet_df$v)
   
@@ -1801,12 +1789,16 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   {
     nc <- max(mat$j)
     obj <- c(CPLEXset$formula$unknown_formula$cplex_score, 
-                           CPLEXset$edge$edge_score[CPLEXset$edge$edge_score>=0])
+                           CPLEXset$edge$CPLEX_score[CPLEXset$edge$CPLEX_score>=0])
     lb <- rep(0, nc)
     ub <- rep(1, nc)
     ctype <- rep("B",nc)
     
     nr <- max(mat$i)
+    ## Three parts of constraints:
+    ## 1. For each peak, binary sum of formula <= 1. Each peak chooses 0 or 1 formula from potential formulas for the peak
+    ## 2. For each edge, an edge exists only both formula it connects exists
+    ## 3. For isotopic peak, an isotopic formula is given only if the isotope edge is chosen.
     rhs = c(rep(1,nrow(unknown_nodes)),rep(0,nrow(edge_list)),rep(0, length(triplet_isotope_ls_edge)))
     sense <- c(rep("L",nrow(unknown_nodes)), rep("L", nrow(edge_list)), rep("E", length(triplet_isotope_ls_edge)))
     

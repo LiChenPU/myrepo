@@ -4,9 +4,10 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 # work_dir = "lin_neg_191024"
-work_dir = "neg_WL_191024"
-# work_dir = "yeast_WL190314_pos"
-ion_mode = -1
+# work_dir = "neg_WL_191024"
+work_dir = "Lin_general"
+
+ion_mode = 0
 print(work_dir)
 print(ion_mode)
 
@@ -35,14 +36,15 @@ sink()
 {
   Mset[["Global_parameter"]]=  list(mode = ion_mode,
                                     normalized_to_col_median = F)
-  Mset[["Cohort"]]=Cohort_Info(Mset)
+  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 5)
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
                                 ms_dif_ppm=10/10^6, 
                                 rt_dif_min=0.1,
-                                detection_limit=500)
+                                detection_limit=500,
+                                first_sample_col_num = 5)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
   
   Mset[["ID"]] = Mset$Data$ID
@@ -113,8 +115,8 @@ sink()
   CPLEXset[["edge"]] = Prepare_CPLEX_edge(EdgeSet, 
                                           CPLEXset,
                                           edge_bonus = edge_bonus, 
-                                          isotope_bonus = edge_bonus,
-                                          artifact_bonus = edge_bonus)
+                                          isotope_bonus = isotope_bonus,
+                                          artifact_bonus = artifact_bonus)
   CPLEXset[["para"]] = Prepare_CPLEX_para(Mset, EdgeSet, CPLEXset)
 }
 

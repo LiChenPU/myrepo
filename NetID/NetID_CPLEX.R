@@ -23,7 +23,7 @@ library(cplexAPI)
   edge_info_sum = CPLEXset$edge %>%
     mutate(ILP_result = 0)
   edge_info_sum = edge_info_sum %>%
-    filter(edge_score >=0) %>% 
+    filter(CPLEX_score >=0) %>% 
     mutate(ILP_result = CPLEX_x[(nrow(unknown_formula)+1):length(CPLEX_x)]) %>%
     rbind(edge_info_sum) %>%
     distinct(edge_ilp_id, .keep_all = T) %>%
