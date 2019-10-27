@@ -6,6 +6,7 @@ library(dplyr)
 library(fitdistrplus)
 library(slam)
 library(cplexAPI)
+library(readxl)
 
 ## read_library ####
 read_library = function(library_file){
@@ -874,8 +875,12 @@ mz_calculator = function(raw_data,
                          
 )
 {
-  # raw_data = test_rawdata
-  # library_data = expand_formula_to_library("C5H7N3O")
+  # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  # raw_data = read.csv("raw_data.csv")
+  # library_data = read.csv("./dependent/HMDB_clean.csv")
+  # rule_table_file = "./dependent/connect_rules.csv"
+  # ion_mode = 0
+  # connect_depth = 5
   {
     Mset = list()
     Mset[["Raw_data"]] = raw_data
@@ -892,7 +897,7 @@ mz_calculator = function(raw_data,
     EdgeSet[["Connect_rules"]] = Edge_Connect_rules(Mset, 
                                                     mass_abs = 0.002, 
                                                     mass_ppm = 25/10^6)
-    
+    print("finish connect_rules")
     EdgeSet[["Connect_rules"]] = Edge_score(EdgeSet$Connect_rules)
     EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
     
@@ -901,8 +906,11 @@ mz_calculator = function(raw_data,
                                                    biotransform_step = connect_depth,
                                                    propagation_score_threshold = 0.25,
                                                    top_n = 50)
+    print("finish NodeSet_network")
     
     CPLEXset = Prepare_CPLEX(Mset, EdgeSet)
+    
+    print("finish NodeSet_network")
   }
   
   # Run CPLEX ####
