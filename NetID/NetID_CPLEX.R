@@ -55,7 +55,7 @@ save.image(paste0(timestamp,".RData"))
   
   g_edge = relation_list
   g <- graph_from_data_frame(d = g_edge, vertices = g_vertex, directed = T)
-
+  
   write.csv(g_vertex, "g_vertex2.txt", row.names = F)
   write.csv(g_edge, "g_edge2.txt", row.names = F)
 }

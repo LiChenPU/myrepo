@@ -192,7 +192,7 @@ Peak_cleanup = function(Mset,
       
       s5 = s4 %>%
         mutate(high_blank = rowMeans(s4[,Mset$Cohort$sample_names]) < 
-                            rowMeans(s4[,Mset$Cohort$blank_names]) * remove_high_blank_ratio) %>%
+                 rowMeans(s4[,Mset$Cohort$blank_names]) * remove_high_blank_ratio) %>%
         filter(!high_blank)
     }
   }
@@ -564,7 +564,7 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_t
   # shapiro.test(b)
   # 
   # 
- 
+  
   
   if(abs(ppm_adjust)>0.5 | abs(abs_adjust)> 1e-4){
     print(paste("expect systematic measurement error, ppm shift =", ppm_adjust, "and abs shift = ", abs_adjust ))
@@ -646,7 +646,7 @@ Peak_variance = function(Mset,
       
       temp_t = df_raw_medRt[i]
       
- 
+      
       filter_criteria = abs(df_raw_medRt - temp_t) <= time_cutoff
       temp_df_raw = df_raw[filter_criteria,]
       
@@ -682,7 +682,7 @@ Peak_variance = function(Mset,
   
   edge_ls = bind_rows(edge_list)
   edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
-
+  
   edge_ls["mz_dif"] = Mset$Data$medMz[edge_ls$node2]-Mset$Data$medMz[edge_ls$node1]
   
   # calculate mass difference between measured peak and library adducts
@@ -695,7 +695,7 @@ Peak_variance = function(Mset,
     temp_gather = gather(as.data.frame(temp), key = "node1", value="mz_dif")
     temp_gather["node1"] = as.numeric(temp_gather$node1)
     temp_gather["node2"] = adduct_set$ID
-
+    
     temp_gather["correlation"] = 1
   }
   edge_ls = rbind(edge_ls, temp_gather)
@@ -888,7 +888,7 @@ Hetero_dimer = function(Peak_inten_correlation, ppm_tolerance = 5, inten_thresho
            rdbe = 0) %>%
     filter(node1 != linktype) %>% # remove homo-dimer
     filter(node1 %in% ID_inten_threshold) # retain only high intensity as node1
- 
+  
   print("Potential heterodimer identified.")
   return(hetero_dimer_df)
 }
@@ -942,7 +942,7 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
            rdbe = 0, 
            edge_massdif_score = 1) %>%
     filter(node1 %in% ID_inten_threshold)
-    
+  
   
   print("Potential Mass_ring_artifact identified.")
   return(Mass_ring_artifact_df)
@@ -972,7 +972,7 @@ Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T
 ## Network_prediction - used to connect nodes to library and predict formula ####
 Network_prediction = function(Mset, 
                               EdgeSet,
-                              biotransform_step = 2,
+                              biotransform_step = 5,
                               artifact_step = 5,
                               propagation_score_threshold = 0.2,
                               propagation_artifact_intensity_threshold = 2e4,
@@ -1014,8 +1014,8 @@ Network_prediction = function(Mset,
         Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
         sf[[i]]=Initial_formula
       }
-    }}
- 
+      }}
+  
   
   #while loop to Predict formula based on known formula and edgelist 
   nrow_experiment = nrow(Mset$Data)
@@ -1430,7 +1430,7 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
     arrange(ILP_id) %>%
     # filter(cplex_score > filter_low_score) %>% arrange(ILP_id) %>% # reassigned ILP_id for each formula to avoid gapping in id
     mutate(cplex_score = round(cplex_score, digits = 6))
-    
+  
   merge_formula = unknown_formula %>%
     dplyr::select(colnames(lib_formula)) %>%
     rbind(lib_formula) %>%
@@ -1450,8 +1450,8 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
   
   
   CPLEX_formula = list(pred_formula_ls = pred_formula_ls,
-                    unknown_nodes = unknown_nodes,
-                    unknown_formula = unknown_formula
+                       unknown_nodes = unknown_nodes,
+                       unknown_formula = unknown_formula
   )
   return(CPLEX_formula)
 }
@@ -1486,7 +1486,7 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
     node_2 = temp_edge$node2
     formula_1 = pred_formula_ls[[node_1]]
     formula_2 = pred_formula_ls[[node_2]]
-
+    
     if(temp_edge$category[1] == "Heterodimer"){
       link_fg = pred_formula_ls[[as.numeric(temp_edge$linktype)]]$formula
       link_fg = link_fg[!grepl("Ring_artifact", link_fg)]  # prevent mass artifact form heterodimer
@@ -1514,13 +1514,13 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
           temp_j1 = formula_1$ILP_id[which(formula_1$formula==temp_formula )]
           temp_j2 = formula_2$ILP_id[which(formula_2$formula==temp_formula_2 )]
           edge_info[[counts_edge_info]] = list(edge_id=temp_edge$edge_id,
-                                     edge_score=temp_score,
-                                     formula1 = temp_formula,
-                                     formula2 = temp_formula_2,
-                                     ILP_id1 = temp_j1,
-                                     ILP_id2 = temp_j2)
+                                               edge_score=temp_score,
+                                               formula1 = temp_formula,
+                                               formula2 = temp_formula_2,
+                                               ILP_id1 = temp_j1,
+                                               ILP_id2 = temp_j2)
           counts_edge_info = counts_edge_info + 1
-
+          
         }
       } 
     }
@@ -1541,7 +1541,7 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
   {
     edge_info_sum = edge_info_sum %>%
       mutate(artifact_score = ifelse(category == "biotransform", 0, artifact_bonus))
-  }
+    }
   
   # Calculate isotope scores 
   {
@@ -1581,7 +1581,7 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
   # combine edge score, edge bonus, isotope score and artifact score
   edge_info_sum = edge_info_sum %>%
     mutate(CPLEX_score = log10(edge_score) + edge_bonus + isotope_score + artifact_score)
-
+  
   ## Retain only one library-data peak connection for each peak
   {
     edge_info_sum_with_library1 = edge_info_sum %>%
@@ -1607,7 +1607,7 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
     edge_info_sum = edge_info_sum %>%
       mutate(CPLEX_score = ifelse(edge_ilp_id %in% library_remove_id, -10, CPLEX_score)) %>%
       arrange(edge_ilp_id) 
-  }
+    }
   
   ## Scale down the cplex_score when multiple peaks of same formula exist
   {
@@ -1655,7 +1655,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   edge_info_sum = CPLEXset$edge
   edge_list = edge_info_sum %>%
     filter(CPLEX_score>0)
-    
+  
   
   ##Core codes
   #Construct constraint matrix 
@@ -1704,7 +1704,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     node_2 = temp_edge$node2
     
     #Write triplet for edge and corresponding 2 nodes
-  
+    
     temp_j1 = temp_edge$ILP_id1
     temp_j2 = temp_edge$ILP_id2
     
@@ -1735,7 +1735,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
                                             j=c(temp_j1,temp_j2),
                                             v=c(-1,-1))
       
-
+      
       # Force a isotope formula comes with an edge connection
       if(grepl("\\[", temp_edge$category)){
         if(temp_edge$category != "[10]B"){
@@ -1754,7 +1754,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
                                                           v=-1)
           
         }
-
+        
         count_isotope = count_isotope + 1
       }
       
@@ -1764,7 +1764,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
     temp_j = temp_j+1
   }
   
-
+  
   ## Because triplet_unknown_node take nrow(unknown_nodes) rows, and nrow(unknown_formula) columns
   triplet_edge_ls_edge_sum = bind_rows(triplet_edge_ls_edge) %>%
     mutate(i = i + nrow(unknown_nodes),
@@ -1796,15 +1796,15 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   
   # converts the triplet into matrix
   mat = slam::simple_triplet_matrix(i=triplet_df$i,
-                              j=triplet_df$j,
-                              v=triplet_df$v)
+                                    j=triplet_df$j,
+                                    v=triplet_df$v)
   
   
   #CPLEX solver parameter
   {
     nc <- max(mat$j)
     obj <- c(CPLEXset$formula$unknown_formula$cplex_score, 
-                           CPLEXset$edge$CPLEX_score[CPLEXset$edge$CPLEX_score>=0])
+             CPLEXset$edge$CPLEX_score[CPLEXset$edge$CPLEX_score>=0])
     lb <- rep(0, nc)
     ub <- rep(1, nc)
     ctype <- rep("B",nc)
@@ -1908,10 +1908,10 @@ Run_CPLEX = function(CPLEXset, obj_cplex){
 Test_para_CPLEX = function(CPLEXset, obj_cplex,  test_para = -1:4){
   
   # for(test_para_CPX_PARAM_PROBE in test_para1){
-    for(temp_para in test_para){
-
+  for(temp_para in test_para){
+    
     # print(test_para_CPX_PARAM_PROBE)
-      print(temp_para)
+    print(temp_para)
     
     # obj_cplex = CPLEXset$para$obj
     env <- openEnvCPLEX()
@@ -1981,7 +1981,7 @@ Test_para_CPLEX = function(CPLEXset, obj_cplex,  test_para = -1:4){
     # writeProbCPLEX(env, prob, "prob.lp")
     delProbCPLEX(env, prob)
     closeEnvCPLEX(env)
-  # }
+    # }
   }
   
   return(0)
@@ -2087,7 +2087,7 @@ determine_is_metabolite = function(){
       merge(nodeset_df, by.x = "id", by.y = "ID", all = T) %>%
       dplyr::select(ILP_id, mz, RT, everything()) %>%
       arrange(ILP_id)
-
+    
     
     ilp_id_non0 = formula_list %>%
       filter(ILP_result!=0) %>%
@@ -2137,7 +2137,7 @@ determine_is_metabolite = function(){
       filter(direction != 1) %>%
       pull(ILP_id1) %>%
       c(Isotope_ILP_id)
-
+    
     Ring_artifact_ILP_id = artifact_edgeset %>% 
       filter(category == "Ring_artifact") %>%
       pull(ILP_id2)

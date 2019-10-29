@@ -14,7 +14,7 @@ work_dir = "neg_WL_191024"
 work_dir = "neg_WL_191024_1e3"
 # work_dir = "pos_WL_191024_1e3"
 work_dir = "lin_Peaklist-yeast-neg-out"
-  
+
 ion_mode = -1
 print(work_dir)
 print(ion_mode)
@@ -30,7 +30,7 @@ sink()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
   Mset[["Biotransform"]]=Read_rule_table(rule_table_file = biotransform_file)
   Mset[["Artifacts"]]=Read_rule_table(rule_table_file = artifact_file)
-
+  
   
   setwd(work_dir)
   filename = c("raw_data.csv")
@@ -95,12 +95,14 @@ sink()
   
   # Mass_ring_artifact
   EdgeSet[["Ring_artifact"]] = Ring_artifact(Peak_inten_correlation = EdgeSet$Peak_inten_correlation, 
-                                                       ppm_range_lb = 50, 
-                                                       ppm_range_ub = 1000, 
-                                                       ring_fold = 50, 
-                                                       inten_threshold = 1e6)
+                                             ppm_range_lb = 50, 
+                                             ppm_range_ub = 1000, 
+                                             ring_fold = 50, 
+                                             inten_threshold = 1e6)
   
-  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=Include_Heterodimer, Include_Ring_artifact=Include_Ring_artifact ) 
+  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, 
+                                     Include_Heterodimer, 
+                                     Include_Ring_artifact) 
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet,
@@ -116,7 +118,7 @@ sink()
 {
   CPLEXset = list()
   CPLEXset[["formula"]] = Prepare_CPLEX_formula(Mset, mass_dist_sigma = mass_dist_sigma,
-                                                     rdbe=F, step_score=F, iso_penalty_score=F)
+                                                rdbe=F, step_score=F, iso_penalty_score=F)
   CPLEXset[["edge"]] = Prepare_CPLEX_edge(EdgeSet, 
                                           CPLEXset,
                                           edge_bonus = edge_bonus, 
