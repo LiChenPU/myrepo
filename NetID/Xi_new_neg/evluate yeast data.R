@@ -13,8 +13,8 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   formula_list_ls = edge_info_sum_ls = list()
   for(i in 1:length(NetID_files)){
     formula_list_ls[[length(formula_list_ls)+1]] = read.csv(NetID_files[i], stringsAsFactors = F) %>%
-      mutate(pred_C = sapply(formula.x, elem_num_query, "C"),
-             pred_N = sapply(formula.x, elem_num_query, "N"))
+      mutate(pred_C = sapply(formula, elem_num_query, "C"),
+             pred_N = sapply(formula, elem_num_query, "N"))
     edge_info_sum_ls[[length(edge_info_sum_ls)+1]] = read.csv(NetID_edge_files[i], stringsAsFactors = F)
   }
   
@@ -34,7 +34,7 @@ for(i in 1:length(NetID_files)){
   wl_result = read_excel("WL_190405_1021category.xlsx") %>%
     mutate(formula = check_chemform(isotopes, formula)$new_formula)
   merge_result = formula_list2 %>%
-    dplyr::select(ID,formula,is_metabolite, Artifact_assignment, Biotransform, ILP_result) %>%
+    dplyr::select(ID,formula,is_metabolite, Artifact_assignment, Biotransform, ILP_result, pred_C, pred_N) %>%
     merge(wl_result, by.x="ID", by.y = "id", all.y = T) 
 }
 
@@ -275,32 +275,24 @@ for(i in 1:length(NetID_files)){
 }
 
 
-
-
-
-
-selected_file = 2
+selected_file = 3
 test1 = evaluate_summary[[selected_file]]$Correct_potential %>%
   filter(!ID %in% evaluate_summary[[selected_file]]$Correct$ID) %>% 
   dplyr::select(ID) %>%
   inner_join(evaluate_summary[[selected_file]]$Total_potential_3e5)
-result1 = evaluate_summary[[1]]$Total_potential_3e5 %>%
+result3 = evaluate_summary[[3]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
 result2 = evaluate_summary[[2]]$Total_potential_3e5 %>%
   dplyr::select(ID, ILP_result, formula.x)
 
-result2_not1 = evaluate_summary[[2]]$Total_potential_3e5 %>%
-  anti_join(result1)  %>%
+result2_not3 = evaluate_summary[[2]]$Total_potential_3e5 %>%
+  anti_join(result3)  %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
 
-result1_not2 = evaluate_summary[[1]]$Total_potential_3e5 %>%
+result3_not2 = evaluate_summary[[3]]$Total_potential_3e5 %>%
   anti_join(result2) %>%
   filter(formula.x == `Ground truth`, ILP_result ==1)
-
-
-
-
 
 # Evaluate others ####
 # Evaluate isotopes 

@@ -4,21 +4,26 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 # work_dir = "lin_neg_191024"
-# work_dir = "neg_WL_191024"
-work_dir = "Lin_general"
-
-ion_mode = 0
+work_dir = "neg_WL_191024"
+# work_dir = "Lin_general"
+# work_dir = "Xi_new_neg"
+# work_dir = "170824_PAVE_neg_1e3"
+# work_dir = "170824_PAVE_pos_1e3"
+# work_dir = "170824_PAVE_neg_1e3_noblank"
+# work_dir = "170824_PAVE_pos_1e3_noblank"
+work_dir = "neg_WL_191024_1e3"
+# work_dir = "pos_WL_191024_1e3"
+work_dir = "lin_Peaklist-yeast-neg-out"
+  
+ion_mode = -1
 print(work_dir)
 print(ion_mode)
 
 printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 sink(paste(timestamp,"log.txt"))
-print(biotransform_file)
-print(artifact_file)
-print(edge_bonus)
-print(sigma)
 sink()
+
 
 {
   Mset = list()
@@ -36,15 +41,16 @@ sink()
 {
   Mset[["Global_parameter"]]=  list(mode = ion_mode,
                                     normalized_to_col_median = F)
-  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 5)
+  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 15)
   print(Mset$Cohort)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
                                 ms_dif_ppm=10/10^6, 
                                 rt_dif_min=0.1,
-                                detection_limit=500,
-                                first_sample_col_num = 5)
+                                detection_limit=0,
+                                remove_high_blank_ratio = 2,
+                                first_sample_col_num = 15)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
   
   Mset[["ID"]] = Mset$Data$ID
@@ -55,7 +61,6 @@ sink()
   EdgeSet = list()
   
   Mset[["NodeSet"]]=Form_node_list(Mset)
-  
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
                                                 mass_abs = 0.001, 
@@ -95,7 +100,7 @@ sink()
                                                        ring_fold = 50, 
                                                        inten_threshold = 1e6)
   
-  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T) 
+  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet, Include_Heterodimer=Include_Heterodimer, Include_Ring_artifact=Include_Ring_artifact ) 
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet,
