@@ -89,9 +89,10 @@ Cohort_Info = function(Mset, first_sample_col_num = 15)
 
 ## Peak_cleanup - Clean up duplicate peaks from peak picking ####
 Peak_cleanup = function(Mset, 
-                        ms_dif_ppm=1/10^6, 
-                        rt_dif_min=0.01,
+                        ms_dif_ppm=5/10^6, 
+                        rt_dif_min=0.1,
                         detection_limit=500, 
+                        remove_high_blank_ratio = 2,
                         first_sample_col_num = 15
 )
 {
@@ -184,16 +185,30 @@ Peak_cleanup = function(Mset,
     #                                                         replace=T)
   }
   
-  s5 = s4 %>%
+  # Remove high blank
+  {
+    if(!identical(remove_high_blank_ratio, F) & length(length(Mset$Cohort$blank_names) > 0)){
+      if(identical(remove_high_blank_ratio, T)){remove_high_blank_ratio = 2}
+      
+      s5 = s4 %>%
+        mutate(high_blank = rowMeans(s4[,Mset$Cohort$sample_names]) < 
+                            rowMeans(s4[,Mset$Cohort$blank_names]) * remove_high_blank_ratio) %>%
+        filter(!high_blank)
+    }
+  }
+  
+  duplicated = s4 %>%
+    filter(MZRT_group %in% unique(.[["MZRT_group"]][duplicated(.[["MZRT_group"]])]))
+  
+  s6 = s5 %>%
     distinct(MZRT_group, .keep_all=T) %>%
     arrange(ID) %>%
     mutate(ID = 1:nrow(.)) %>%
-    dplyr::select(-c("MZ_group", "MZRT_group")) %>%
+    dplyr::select(-c("MZ_group", "MZRT_group", "high_blank")) %>%
     # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
     mutate(log10_inten = log10(mean_inten))
   
-  
-  return(s5)
+  return(s6)
 }
 
 ## High_blank - Identify peaks with high blanks ####
