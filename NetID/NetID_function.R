@@ -768,10 +768,8 @@ Peak_variance = function(Mset,
 
 ### Artifact_prediction - Edge_list for artifacts ####
 Artifact_prediction = function(Mset, Peak_inten_correlation, 
-                               search_ms_cutoff=0.002, search_ppm_cutoff = 10)
+                               search_ms_cutoff=0.002, search_ppm_cutoff = 10/1e6)
 {
-  
-  search_ppm_cutoff = search_ppm_cutoff/1e6
   # edge_ls_highcor = EdgeSet$Peak_inten_correlation %>% arrange(mz_dif)
   edge_ls_highcor = Peak_inten_correlation %>% arrange(mz_dif)
   
