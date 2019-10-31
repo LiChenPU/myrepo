@@ -20,6 +20,18 @@
 
 # Fucntions ####
 # Function for parsing#### 
+## read_raw_data for reading ElMAVEN output ####
+read_raw_data = function(filename){
+  raw_data = read_csv(filename) 
+  if("groupId" %in% colnames(raw_data)){
+    raw_data = raw_data %>%
+      rename(ID = groupId)
+  }
+  return(raw_data)
+}
+  
+  
+
 ## read_library ####
 read_library = function(library_file){
   data(isotopes)
@@ -35,6 +47,7 @@ read_library = function(library_file){
 Read_rule_table = function(rule_table_file, extend_rule = F){
   data("isotopes")
   Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
+  if(nrow(Connect_rules) == 0){return(Connect_rules)}
   for(i in 1: nrow(Connect_rules)){
     if(Connect_rules$Formula[i]==""){next}
     Connect_rules$Formula[i] = check_chemform(isotopes,Connect_rules$Formula[i])$new_formula
@@ -101,7 +114,7 @@ Peak_cleanup = function(Mset,
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
   raw = Mset$Raw_data %>%
-    rename(ID = groupId) %>%
+    # rename(ID = groupId) %>%
     mutate(medMz = medMz - (H_mass-e_mass)*ion_mode)
   
   
@@ -187,13 +200,16 @@ Peak_cleanup = function(Mset,
   
   # Remove high blank
   {
-    if(!identical(remove_high_blank_ratio, F) & length(length(Mset$Cohort$blank_names) > 0)){
+    if(!identical(remove_high_blank_ratio, F) & length(Mset$Cohort$blank_names) > 0){
       if(identical(remove_high_blank_ratio, T)){remove_high_blank_ratio = 2}
       
       s5 = s4 %>%
         mutate(high_blank = rowMeans(s4[,Mset$Cohort$sample_names]) < 
                  rowMeans(s4[,Mset$Cohort$blank_names]) * remove_high_blank_ratio) %>%
-        filter(!high_blank)
+        filter(!high_blank) %>%
+        dplyr::select(-"high_blank")
+    } else{
+      s5 = s4
     }
   }
   
@@ -204,7 +220,7 @@ Peak_cleanup = function(Mset,
     distinct(MZRT_group, .keep_all=T) %>%
     arrange(ID) %>%
     mutate(ID = 1:nrow(.)) %>%
-    dplyr::select(-c("MZ_group", "MZRT_group", "high_blank")) %>%
+    dplyr::select(-c("MZ_group", "MZRT_group")) %>%
     # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
     mutate(log10_inten = log10(mean_inten))
   
@@ -423,28 +439,37 @@ Summary_Mset = function(Mset){
 Form_node_list = function(Mset)
 {
   NodeSet = list()
-  NodeSet[["Expe"]] = Mset$Data[,c("ID","medMz","medRt","formula")]
-  NodeSet$Expe["category"]=1
-  NodeSet$Expe["compound_name"]=NA
-  NodeSet$Expe["rdbe"]=NA
+  NodeSet[["Expe"]] = Mset$Data %>%
+    dplyr::select("ID","medMz","medRt") %>%
+    mutate(formula = NA,
+           category = 1,
+           compound_name = NA,
+           rdbe = NA)
   colnames(NodeSet$Expe) = c("ID","mz","RT","MF", "category","compound_name","rdbe")
   
-  NodeSet[["Library"]] = Mset$Library
-  NodeSet$Library = cbind(NodeSet$Library, RT= -1)
+  NodeSet[["Library"]] = Mset$Library %>%
+    mutate(RT = -1)
   colnames(NodeSet$Library) = c("ID","compound_name","MF","mz","category","rdbe","RT")
-  NodeSet$Library$ID = 1:nrow(NodeSet$Library)+nrow(NodeSet$Expe)
-  NodeSet$Library$category=0
+  NodeSet[["Library"]] = NodeSet$Library %>%
+    mutate(ID = 1:nrow(.)+nrow(NodeSet$Expe),
+           category = 0) 
   
   merge_node_list = rbind(NodeSet$Expe,NodeSet$Library)
   
-  NodeSet[["Adduct"]] = Mset$Artifacts[Mset$Artifacts$category=="adduct",]
-  NodeSet$Adduct["RT"] = -1
-  NodeSet$Adduct["ID"] = 1:nrow(NodeSet$Adduct)+nrow(merge_node_list)
-  NodeSet$Adduct$category = -1
-  NodeSet$Adduct = NodeSet$Adduct[,c("ID", "mass", "RT", "Formula", "category", "Symbol", "rdbe")]
-  colnames(NodeSet$Adduct) = c("ID","mz","RT","MF", "category","compound_name","rdbe")
+  NodeSet[["Adduct"]] = Mset$Artifacts %>% filter(category=="adduct") 
+  if(nrow(NodeSet[["Adduct"]]) != 0){
+    NodeSet[["Adduct"]] = NodeSet$Adduct %>%
+      mutate(RT = -1,
+             ID = 1:nrow(.)+nrow(merge_node_list), 
+             RT = -1, 
+             category = -1) %>%
+      dplyr::select("ID", "mass", "RT", "Formula", "category", "Symbol", "rdbe")
+    colnames(NodeSet$Adduct) = c("ID","mz","RT","MF", "category","compound_name","rdbe")
+    
+    merge_node_list = rbind(merge_node_list,NodeSet$Adduct)
+  }
   
-  merge_node_list = rbind(merge_node_list,NodeSet$Adduct)
+ 
   
   return(merge_node_list)
 }
@@ -452,7 +477,6 @@ Form_node_list = function(Mset)
 ## Edge_biotransform - generate Edge_list for biotransformation ####
 Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5)
 {
-  mass_ppm = mass_ppm/10^6
   merge_node_list = Mset$NodeSet %>%
     filter(category!=-1) %>% #category -1 means adduct node
     arrange(mz)
@@ -678,10 +702,11 @@ Peak_variance = function(Mset,
       
       i = i+1
     }
-    }
+  }
   
   edge_ls = bind_rows(edge_list)
-  edge_ls=edge_ls[edge_ls$node1!=edge_ls$node2,]
+  edge_ls=edge_ls %>%
+    filter(node1 != node2)
   
   edge_ls["mz_dif"] = Mset$Data$medMz[edge_ls$node2]-Mset$Data$medMz[edge_ls$node1]
   
@@ -949,12 +974,15 @@ Ring_artifact = function(Peak_inten_correlation, ppm_range_lb = 50, ppm_range_ub
 }
 
 ## Merge_edgeset ####
-Merge_edgeset = function(EdgeSet, Include_Heterodimer=T, Include_Ring_artifact=T){
-  edge_merge = rbind(EdgeSet$Artifacts,EdgeSet$Biotransform)
-  if(Include_Heterodimer){
+Merge_edgeset = function(EdgeSet){
+  edge_merge = EdgeSet$Biotransform
+  if(!is.null(EdgeSet[["Artifacts"]])){
+    edge_merge = rbind(edge_merge, EdgeSet$Artifacts)
+  }
+  if(!is.null(EdgeSet[["Heterodimer"]])){
     edge_merge = rbind(edge_merge, EdgeSet$Heterodimer)
   }
-  if(Include_Ring_artifact){
+  if(!is.null(EdgeSet[["Ring_artifact"]])){
     edge_merge = rbind(edge_merge, EdgeSet$Ring_artifact)
   }
   
@@ -975,14 +1003,14 @@ Network_prediction = function(Mset,
                               biotransform_step = 5,
                               artifact_step = 5,
                               propagation_score_threshold = 0.2,
-                              propagation_artifact_intensity_threshold = 2e4,
+                              propagation_intensity_threshold = 2e4,
                               max_formula_num = 1e6,
                               top_n = 50
 )
 {
   gc()
   # Initialize
-  { 
+  {
     mnl=Mset$NodeSet
     edge_biotransform = EdgeSet$Merge %>%
       filter(category == "biotransform")
@@ -992,7 +1020,7 @@ Network_prediction = function(Mset,
     # edge_list_sub = EdgeSet$Merge
     #Initialize predict_formula from HMDB known formula
     {
-      data_str = data.frame(id=as.numeric(),
+      data_str = data.frame(ID=as.numeric(),
                             formula=as.character(), 
                             steps=as.numeric(), 
                             parent=as.numeric(), 
@@ -1014,7 +1042,8 @@ Network_prediction = function(Mset,
         Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
         sf[[i]]=Initial_formula
       }
-      }}
+      }
+  }
   
   
   #while loop to Predict formula based on known formula and edgelist 
@@ -1022,13 +1051,13 @@ Network_prediction = function(Mset,
   step=0
   
   timer=Sys.time()
-  while(step <= biotransform_step){
+  while(step < biotransform_step){
     
     all_nodes_df = bind_rows(sf)
     
     # Handle artifacts
     sub_step = 0
-    while(sub_step <= 0.01 * artifact_step){
+    while(sub_step < 0.01 * artifact_step){
       print(paste("sub_step",sub_step,"elapsed="))
       print((Sys.time()-timer))
       all_nodes_df = bind_rows(sf)
@@ -1041,13 +1070,13 @@ Network_prediction = function(Mset,
       sub_step = sub_step+0.01
       if(nrow(new_nodes_df)==0){break}
       
-      edge_artifact_sub = edge_artifact[edge_artifact$node1 %in% new_nodes_df$id | 
-                                          edge_artifact$node2 %in% new_nodes_df$id,]
+      edge_artifact_sub = edge_artifact[edge_artifact$node1 %in% new_nodes_df$ID | 
+                                          edge_artifact$node2 %in% new_nodes_df$ID,]
       
       n=9
       for(n in 1:nrow(new_nodes_df)){
         temp_new_node = new_nodes_df[n,]
-        flag_id = temp_new_node$id
+        flag_id = temp_new_node$ID
         flag_formula = temp_new_node$formula
         flag_is_metabolite = temp_new_node$is_metabolite
         flag_score = temp_new_node$score
@@ -1062,7 +1091,7 @@ Network_prediction = function(Mset,
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(flag_id <= nrow_experiment){
-          if(Mset$Data$mean_inten[flag_id]< propagation_artifact_intensity_threshold){next}
+          if(Mset$Data$mean_inten[flag_id]< propagation_intensity_threshold){next}
         }
         
         #If flag is an isotopic peak, then only look for isotopic peaks or Oligomer/multi-charge peaks or ring artifact
@@ -1197,12 +1226,12 @@ Network_prediction = function(Mset,
       print((Sys.time()-timer))
       step = step + 1
       if(nrow(new_nodes_df)==0 | step > biotransform_step | nrow(new_nodes_df) > max_formula_num){break}
-      edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$id | 
-                                                  edge_biotransform$node2 %in% new_nodes_df$id,]
+      edge_biotransform_sub = edge_biotransform[edge_biotransform$node1 %in% new_nodes_df$ID | 
+                                                  edge_biotransform$node2 %in% new_nodes_df$ID,]
       
       for(n in 1:nrow(new_nodes_df)){
         temp_new_node = new_nodes_df[n,]
-        flag_id = temp_new_node$id
+        flag_id = temp_new_node$ID
         flag_formula = temp_new_node$formula
         flag_is_metabolite = temp_new_node$is_metabolite
         flag_score = temp_new_node$score
@@ -1215,7 +1244,7 @@ Network_prediction = function(Mset,
         
         #If head signal is < defined cutoff, then prevent it from propagating out, but it can still get formula from others.
         if(flag_id <= nrow_experiment){
-          if(Mset$Data$mean_inten[flag_id]< 2e4){next}
+          if(Mset$Data$mean_inten[flag_id]< propagation_intensity_threshold){next}
         }
         
         #Filter edge direction
@@ -1316,12 +1345,12 @@ Network_prediction = function(Mset,
   # Pruning formula  #
   {
     pred_formula = bind_rows(lapply(sf, head, top_n))
-    pred_formula = pred_formula[!duplicated(pred_formula[,c("id","formula")]),]
+    pred_formula = pred_formula[!duplicated(pred_formula[,c("ID","formula")]),]
     
     merge_formula = pred_formula
     sf = list()
-    for(n in 1: max(merge_formula$id)){
-      sf[[n]]=merge_formula[merge_formula$id==n,]
+    for(n in 1: max(merge_formula$ID)){
+      sf[[n]]=merge_formula[merge_formula$ID==n,]
     }
     
   }
@@ -1345,17 +1374,17 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
     lib_nodes = raw_node_list[raw_node_list$category!= 1,]
     lib_nodes_cutoff = nrow(Mset$Data)
     unknown_nodes = raw_node_list[raw_node_list$category==1,]
-    unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$id),]
+    unknown_nodes = unknown_nodes[unknown_nodes$ID %in% unique(pred_formula$ID),]
     num_unknown_nodes = nrow(unknown_nodes)
     
-    lib_formula = pred_formula[pred_formula$id %in% lib_nodes$ID,]
+    lib_formula = pred_formula[pred_formula$ID %in% lib_nodes$ID,]
     lib_formula = lib_formula[lib_formula$steps==0,]
-    unknown_formula = pred_formula[pred_formula$id %in% unknown_nodes$ID,]
+    unknown_formula = pred_formula[pred_formula$ID %in% unknown_nodes$ID,]
     
   }
   
   unknown_formula = unknown_formula %>%
-    mutate(msr_mass = Mset$NodeSet$mz[id]) %>%
+    mutate(msr_mass = Mset$NodeSet$mz[ID]) %>%
     mutate(ILP_id = 1:nrow(.))
   
   #when measured and calculated mass differ, score based on normal distirbution with mean=0 and sd=1e-3
@@ -1390,15 +1419,15 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
     unknown_formula["step_score"]=0
   }
   
-  unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$id] 
+  unknown_formula["intensity"] = Mset$Data$mean_inten[unknown_formula$ID] 
   
   if(iso_penalty_score==TRUE){
     No_expect_isotope_penalty = function(unknown_formula, linktype){
       isotope_peaks = EdgeSet$Artifacts[grepl("\\[",EdgeSet$Artifacts$linktype),]
       
-      unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node1[isotope_peaks$category==linktype]
+      unknown_formula["No_isotope_peak"] = !unknown_formula$ID %in% isotope_peaks$node1[isotope_peaks$category==linktype]
       if(linktype == "[10]B"){
-        unknown_formula["No_isotope_peak"] = !unknown_formula$id %in% isotope_peaks$node2[isotope_peaks$category==linktype]
+        unknown_formula["No_isotope_peak"] = !unknown_formula$ID %in% isotope_peaks$node2[isotope_peaks$category==linktype]
       }
       unknown_formula["iso_expect_ratio"] = 0
       unknown_formula$iso_expect_ratio[unknown_formula$No_isotope_peak] = unlist(lapply (unknown_formula$formula[unknown_formula$No_isotope_peak], isotopic_abundance,linktype))
@@ -1428,7 +1457,7 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
   
   unknown_formula = unknown_formula %>%
     arrange(ILP_id) %>%
-    # filter(cplex_score > filter_low_score) %>% arrange(ILP_id) %>% # reassigned ILP_id for each formula to avoid gapping in id
+    # filter(cplex_score > filter_low_score) %>% arrange(ILP_id) %>% # reassigned ILP_id for each formula to avoid gapping in ID
     mutate(cplex_score = round(cplex_score, digits = 6))
   
   merge_formula = unknown_formula %>%
@@ -1439,8 +1468,8 @@ Prepare_CPLEX_formula = function(Mset, mass_dist_sigma, rdbe=F, step_score=F, is
   #Select edge list where it relates only to unknown nodes that have propagated formula
   
   pred_formula_ls = list()
-  merge_formula_id=merge_formula$id
-  for(n in 1: max(merge_formula$id)){
+  merge_formula_id=merge_formula$ID
+  for(n in 1: max(merge_formula$ID)){
     pred_formula_ls[[n]]=merge_formula[merge_formula_id==n,]
   }
   
@@ -1627,13 +1656,16 @@ Prepare_CPLEX_edge = function(EdgeSet, CPLEXset, edge_bonus, isotope_bonus, arti
     # Scenerio: Each duplicated mz will generate duplicated edge connectoin, exaggerating the score
     # Solution: when n duplicated mz exist, the intra mz edge number are n*(n+1)/2, but effectively they should only get n/2
     
-    sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
-    sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
-    
-    edge_info_same12 = edge_info_same12 %>%
-      mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_same12[formula1]])
-    edge_info_dif12 = edge_info_dif12 %>%
-      mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_dif12[temp_merge]])
+    if(length(df_same12 != 0) | length(df_dif12) != 0){
+      sol_mat = data.frame(n=1:max(df_same12, df_dif12), div = NA)
+      sol_mat$div = (-1+sqrt(1+8*sol_mat$n))/2
+      
+      edge_info_same12 = edge_info_same12 %>%
+        mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_same12[formula1]])
+      edge_info_dif12 = edge_info_dif12 %>%
+        mutate(CPLEX_score = CPLEX_score / sol_mat$div[df_dif12[temp_merge]])
+    }
+  
   }
   
   
@@ -1665,7 +1697,7 @@ Prepare_CPLEX_para = function(Mset, EdgeSet, CPLEXset){
   
   for(n in 1:nrow(unknown_nodes)){
     temp_i = n
-    temp_unknown_formula = unknown_formula[unknown_formula$id==unknown_nodes$ID[n],]
+    temp_unknown_formula = unknown_formula[unknown_formula$ID==unknown_nodes$ID[n],]
     if(nrow(temp_unknown_formula)==0){next()}
     triplet_unknown_nodes_ls[[n]]=list(i=rep(temp_i, nrow(temp_unknown_formula)), 
                                        j=temp_j:(temp_j+nrow(temp_unknown_formula)-1), 
@@ -2078,13 +2110,13 @@ Read_CPLEX_result = function(solution){
 determine_is_metabolite = function(){
   ## Prepare formula list 
   {
-    # formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "id",all=T)
+    # formula_list = merge(Mset$NodeSet, unknown_formula,by.x = "ID", by.y = "ID",all=T)
     
     pred_formula_df = bind_rows(CPLEXset$formula$pred_formula_ls)
     nodeset_df = Mset$NodeSet %>% dplyr::select(-MF, -rdbe)
     
     formula_list = merge(unknown_formula, pred_formula_df, all = T) %>%
-      merge(nodeset_df, by.x = "id", by.y = "ID", all = T) %>%
+      merge(nodeset_df, by.x = "ID", by.y = "ID", all = T) %>%
       dplyr::select(ILP_id, mz, RT, everything()) %>%
       arrange(ILP_id)
     
@@ -2259,4 +2291,19 @@ Trace_step = function(query_id, unknown_node_CPLEX)
     
   }
   return(df)
+}
+
+# Other supporting functions ####
+## expand_formula_to_library ####
+expand_formula_to_library = function(formula = "C2H4O2"){
+  data(isotopes)
+  formula = check_chemform(isotopes,formula)$new_formula
+  data.frame(ID = 1:length(formula),
+             Name = formula,
+             MF = formula,
+             Exact_Mass = formula_mz(formula),
+             category = 0, 
+             rdbe = formula_rdbe(formula),
+             stringsAsFactors = F
+  )
 }
