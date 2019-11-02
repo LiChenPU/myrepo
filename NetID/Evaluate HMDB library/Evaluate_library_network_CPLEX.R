@@ -3,9 +3,13 @@ library(readr)
 library(igraph)
 library(ggplot2)
 library(ggrepel)
+
+# display.brewer.pal(4, "Set3")
+my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 result = list()
-# for(edge_biotransform_mass_ppm in c(1/1e6)){
+for(ppm_error in c(0.5, 1, 2, 5)){
+  sigma = ppm_error
 # Read HMDB_files & library_data ####
 {
   HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
@@ -99,7 +103,7 @@ result = list()
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
                                                 mass_abs = 0,
-                                                mass_ppm = edge_biotransform_mass_ppm )
+                                                mass_ppm = 10)
   
   mass_dist_sigma = sigma
   EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = mass_dist_sigma)
@@ -108,7 +112,7 @@ result = list()
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet,
-                                                 biotransform_step = 20,
+                                                 biotransform_step = 16,
                                                  artifact_step = 0,
                                                  propagation_score_threshold = 0.2,
                                                  propagation_intensity_threshold = 0,
@@ -210,7 +214,7 @@ result = list()
     g_basic_edge_size=table(g_basic_clu$csize)
   }
   
-  ## identify if there is large cluster ignored, 
+  ## identify if there is large cluster ignored ####
   # {
   #   # Use all nodes and all correct connects
   #   g = g_basic
@@ -225,8 +229,6 @@ result = list()
   #   sub_nodelist = HMDB_clean2[subnetwork[[1]],]
   #   g_subnetwork = make_ego_graph(subnetwork[[1]][1], graph = g, order = diameter(g), mode = "all")[[1]]
   #   
-  #   display.brewer.pal(4, "Set3")
-  #   my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   #   
   #   
   #   temp_vertex_color = igraph::as_data_frame(g, "vertices") %>%
@@ -315,8 +317,6 @@ result = list()
 }
 
 # Figure 2 ####
-## 2B How many connections exist when ppm tolerance change
-## 2C How many formulas proposed when ppm tolerance change 
 ## Assume sigma = 1ppm
 {
   ## evaluate proposed formula 
@@ -338,15 +338,20 @@ result = list()
       merge(merge_HMDB_propagation_correct) 
     
     
-    all_connects_cplex = all_connects %>%
-      filter(node1 %in% unknown_nodes$ID |node2 %in% unknown_nodes$ID)
-    
     correct_connects_cplex = correct_connects %>%
-      filter(node1 %in% unknown_nodes$ID |node2 %in% unknown_nodes$ID)
+      filter(node1 %in% unknown_nodes$ID  & node2 %in% unknown_nodes$ID)
     
-    edge_info_sum_correct = edge_info_sum %>%
-      merge(correct_connects) %>%
+    edge_info_sum_distinct = edge_info_sum %>%
+      distinct(edge_id, .keep_all=T)
+    
+    edge_info_sum_distinct_correct = edge_info_sum_distinct %>%
+      merge(correct_connects) 
+    
+    edge_info_sum_cplex = edge_info_sum %>%
       filter(ILP_result == 1)
+    
+    edge_info_sum_cplex_correct = edge_info_sum_cplex %>%
+      merge(correct_connects) 
   }
   
   ## Main network with correct formula and correct linkage 
@@ -379,21 +384,140 @@ result = list()
     all_main_basic_connects = all_connects %>%
       filter(node1 %in% main_node_list_basic$name & node2 %in% main_node_list_basic$name )
   }
+  
+  
+  ## Plot HMDB connection and formulas bar graph summary ####
+  # {
+  #   formula_summary = data.frame(`Optimized` = c(nrow(unknown_formula_CPLEX_correct), nrow(unknown_formula_CPLEX) - nrow(unknown_formula_CPLEX_correct)), 
+  #                                `Pre-optimized` =  c(nrow(merge_HMDB_propagation_correct), nrow(unknown_formula) - nrow(merge_HMDB_propagation_correct)), 
+  #                                category = c("Correct", "Incorrect")) %>%
+  #     gather(key = "cohorts", value = "number", -category) %>%
+  #     mutate(cohorts = gsub("\\.", "-", cohorts))
+  #   connection_summary = data.frame(`Optimized` = c(nrow(edge_info_sum_cplex_correct), nrow(edge_info_sum_cplex)-nrow(edge_info_sum_cplex_correct)),
+  #                                `Pre-optimized` =  c(nrow(edge_info_sum_distinct_correct), nrow(edge_info_sum_distinct)-nrow(edge_info_sum_distinct_correct)),
+  #                                category = c("Correct", "Incorrect")) %>%
+  #     gather(key = "cohorts", value = "number", -category) %>%
+  #     mutate(cohorts = gsub("\\.", "-", cohorts))
+  #   
+  #   pdf("bar_HMDB_connections.pdf",
+  #       width = 4,
+  #       height = 4)
+  #   # dev.new(width = 4, height = 3, unit = "in")
+  #   ggplot(connection_summary, aes(y = number, x = reorder(cohorts, -number), fill = forcats::fct_rev(category), label = number)) +
+  #     geom_bar(stat = "identity",
+  #              position = "fill" # make percentage graph
+  #              ) +
+  #     geom_text_repel(size = 3,position = position_fill(vjust = 0.5), max.iter=1,arrow=T) +
+  #     labs(x = NULL,
+  #          title = "Connection assignment",
+  #          y = "Fraction") +
+  #     guides(fill = guide_legend(
+  #       title = NULL,
+  #       reverse = F
+  #       )) +
+  #     scale_y_continuous(expand = c(0,0),
+  #                        labels = scales::percent,
+  #                        breaks = scales::pretty_breaks(n = 8)
+  #                        ) +
+  #     expand_limits(y = 1.05) +
+  #     # scale_x_discrete(limits = c("Detected", "All")) +
+  #     scale_fill_manual(values = c("Correct" = my_palette[1],
+  #                                  "Incorrect" = my_palette[5])) +
+  #     theme_classic(base_size = 11 # edit font size for all non-data text
+  #                   ) +
+  #     theme(plot.title = element_text(hjust = 0.5),
+  #           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+  #           axis.text.x = element_text(angle = 45, hjust = 1))
+  #   dev.off()
+  # }
+  
+  # evaluate brute force formula results ####
+  {
+    Brute_force_formula = HMDB_clean2 %>%
+      dplyr::select(ID, Exact_Mass, medMz, MF) %>%
+      filter(ID %in% unknown_formula_CPLEX$ID)
+
+    # Max number of element
+    element_range = c()
+    for(i in c("C","H","N","O","P","S")){
+      element_range = c(element_range, max(sapply(Brute_force_formula$MF, elem_num_query, i)))
+    }
+
+    # rdbes = sapply(Brute_force_formula$MF, formula_rdbe)
+    # max(rdbes)
+
+
+    Elem_ratio_rule_formula_ls = list()
+    for(i in 1:nrow(Brute_force_formula)){
+      Elem_ratio_rule_formula_ls[[Brute_force_formula$ID[i]]] = mz_formula(Brute_force_formula$medMz[i],
+                                                                           C_range = 0:element_range[1],
+                                                                           H_range = 0:element_range[2],
+                                                                           N_range = 0:element_range[3],
+                                                                           O_range = 0:element_range[4],
+                                                                           P_range = 0:element_range[5],
+                                                                           S_range = 0:element_range[6],
+                                                                           db_max = 99,
+                                                                           charge=0,
+                                                                           Elem_ratio_rule = T,
+                                                                           ppm = 5)
+    }
+
+    Brute_force_formula["elem_ratio_rule_position"] = apply(Brute_force_formula, 1, function(x){
+      temp_ID = as.numeric(x["ID"])
+      temp_formula = x["MF"]
+      temp_df = Elem_ratio_rule_formula_ls[[temp_ID]]
+      if(!is.data.frame(temp_df)){return(-2)} # means no matched formulas
+      if(!temp_formula %in% temp_df$formula){return(-1)} # means no matched formula
+      which(temp_df$formula==temp_formula)
+    })
+
+    test = Brute_force_formula %>%
+      filter(elem_ratio_rule_position < 0)
+    table(Brute_force_formula["elem_ratio_rule_position"] )
+
+    brute_force_summary = as.data.frame(table(Brute_force_formula$elem_ratio_rule_position), stringsAsFactors = F) %>%
+      mutate(Var1 = as.numeric(Var1))
+
+    brute_force_top1 = brute_force_summary %>%
+      filter(Var1==1) %>%
+      dplyr::select(Freq) %>% sum()
+
+    brute_force_top3 = brute_force_summary %>%
+      filter(Var1<=3, Var1>=1) %>%
+      dplyr::select(Freq) %>% sum()
+    
+    brute_force_top10 = brute_force_summary %>%
+      filter(Var1<=10, Var1>=1) %>%
+      dplyr::select(Freq) %>% sum()
+  }
 }
 
-  result[[length(result)+1]] = list(sigma = rep(sigma,3),
-                formula = c(nrow(unknown_formula_CPLEX_correct), nrow(merge_HMDB_propagation_correct), nrow(all_formula)),
-                connection = c(nrow(edge_info_sum_correct), nrow(correct_connects_cplex), nrow(all_connects_cplex)))
-# print(paste0("sigma=",sigma))
-# print(c(nrow(unknown_formula_CPLEX_correct), nrow(merge_HMDB_propagation_correct), nrow(all_formula)))
-# print(c(nrow(edge_info_sum_correct), nrow(correct_connects_cplex), nrow(all_connects_cplex)))
+result[[length(result)+1]] = list(sigma = rep(sigma,4),
+                                  category = c("optimized_correct",
+                                               "optimized_all",
+                                               "propagated_correct",
+                                               "propagated_all"),
+                                  formula = c(nrow(unknown_formula_CPLEX_correct), 
+                                              nrow(unknown_formula_CPLEX), 
+                                              nrow(merge_HMDB_propagation_correct), 
+                                              nrow(unknown_formula)),
+                                  connection = c(nrow(edge_info_sum_cplex_correct), 
+                                                 nrow(edge_info_sum_cplex), 
+                                                 nrow(edge_info_sum_distinct_correct), 
+                                                 nrow(edge_info_sum_distinct)),
+                                  brute_force_category = c("top1",
+                                                           "top3",
+                                                           "top10",
+                                                           "all"),
+                                  brute_force = c(brute_force_top1,
+                                                  brute_force_top3,
+                                                  brute_force_top10,
+                                                  nrow(unknown_formula_CPLEX))
+                                  )
+}
+                                  
+result_summary = lapply(result, bind_cols)
 
-# Correct case, 1698 formulas, 5122 connections in main network
-# 1ppm on edge search: 1158/1160 proposed formulas, 2567 / 2572 connections
-# 2ppm on edge search: 1571/1600 proposed formulas, 4142 / 4161 connections
-# 5ppm on edge search: 1638/1810 proposed formulas, 5141 / 5266 connections
-# 10ppm on edge search: 1657/2141 proposed formulas, 5176 / 5631 connections
-# }
 
 printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
@@ -401,6 +525,68 @@ sink(paste(timestamp,"log.txt"))
 print(paste0("random_seed",random_seed))
 print(bind_cols(result))
 sink()
+
+
+## Assignment accuracy ####
+{
+  ppm_errors = sapply(result_summary, function(x) return(x$sigma[1]) )
+  optimized_correct = sapply(result_summary, function(x) return(x$formula[1]) )
+  optimized_all = sapply(result_summary, function(x) return(x$formula[2]) )
+  top1 = sapply(result_summary, function(x) return(x$brute_force[1]) )
+  top3 = sapply(result_summary, function(x) return(x$brute_force[2]) )
+  
+  
+  colfunc = colorRampPalette(c(my_palette[3], "white"))
+  colfunc(5)[1]
+  
+  HMDB_ppm_summary = data.frame(ppm_errors = ppm_errors,
+                                NetID = optimized_correct/optimized_all,
+                                `Heuristic top1` = top1 / optimized_all,
+                                `Heuristic top3` = top3 / optimized_all) %>%
+    gather(key = "cohorts", value = "number", -ppm_errors) %>%
+    mutate(cohorts = gsub("\\.", " ", cohorts)) %>%
+    mutate(color = case_when(
+      cohorts == "NetID" ~ "red",
+      cohorts == "Heuristic top1" ~ "black",
+      cohorts == "Heuristic top3" ~ "grey"
+    ))
+    
+  num_x = 4
+  
+  pdf("bar_error_summary.pdf",
+      width = 4,
+      height = 4)
+  # dev.new(width = 1, height = 1, unit = "in")
+  ggplot(HMDB_ppm_summary, aes(y = number, x = factor(ppm_errors), group = forcats::fct_rev(cohorts), color = cohorts)) +
+    geom_line(stat = "identity",
+              size = 1.5
+              # linetype = rep(c("solid", rep("dashed", 2)),2),
+              # color = rep(c("red", "black", "grey"), num_x)
+              ) + 
+    geom_point(shape = 16,
+               size = 4) + 
+    labs(x = "Gaussian noise level (ppm)",
+         title = "Formula assignment accuracy",
+         y = "Fraction") +
+    guides(color = guide_legend(
+      title = NULL,
+      reverse = T
+      )) +
+    scale_y_continuous(expand = c(0,0),
+                       limits = c(0,1.05),
+                       breaks = scales::pretty_breaks(n = 5)
+                       ) +
+    # scale_x_discrete(limits = c("0.5", "1")) + 
+    # scale_colour_manual(values=c("red", "black", "grey")) +
+    scale_colour_manual(values=c("NetID" = my_palette[1],"Heuristic top1" = my_palette[5], "Heuristic top3" = my_palette[3])) +
+    theme_classic(base_size = 11 # edit font size for all non-data text
+                  ) +
+    theme(plot.title = element_text(hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"))
+  
+  dev.off()
+  
+}
 
 
 ## Plot step network ####
@@ -574,64 +760,4 @@ lapply(results2, function(results){
 })
 
 
-
-## evaluate brute force formula results ####
-# {
-#   Brute_force_formula = HMDB_clean2 %>%
-#     dplyr::select(ID, Exact_Mass, mz, MF)
-# 
-#   # Max number of element
-#   for(i in c("C","H","N","O","P","S")){
-#     print(max(sapply(Brute_force_formula$MF, elem_num_query, i)[-c(1434,1435)]))
-#   }
-# 
-#   # rdbes = sapply(Brute_force_formula$MF, formula_rdbe)
-#   # max(rdbes)
-# 
-# 
-#   Elem_ratio_rule_formula_ls = list()
-#   for(i in 1:nrow(Brute_force_formula)){
-#     Elem_ratio_rule_formula_ls[[i]] = mz_formula(Brute_force_formula$mz[i],
-#                                                  C_range = 0:100,
-#                                                  H_range = 0:164,
-#                                                  N_range = 0:23,
-#                                                  O_range = 0:39,
-#                                                  P_range = 0:6,
-#                                                  S_range = 0:4,
-#                                                  db_max = 99,
-#                                                  charge=0,
-#                                                  Elem_ratio_rule = T,
-#                                                  ppm = 5)
-#   }
-# 
-#   Brute_force_formula["elem_ratio_rule_position"] = apply(Brute_force_formula, 1, function(x){
-#     temp_ID = as.numeric(x["ID"])
-#     temp_formula = x["MF"]
-#     temp_df = Elem_ratio_rule_formula_ls[[temp_ID]]
-#     if(!is.data.frame(temp_df)){return(-2)}
-#     if(!temp_formula %in% temp_df$formula){return(-1)}
-#     which(temp_df$formula==temp_formula)
-# 
-#   })
-# 
-#   table(Brute_force_formula["elem_ratio_rule_position"] )
-# 
-#   brute_force_summary = as.data.frame(table(Brute_force_formula$elem_ratio_rule_position), stringsAsFactors = F) %>%
-#     mutate(Var1 = as.numeric(Var1))
-# 
-#   brute_force_summary %>%
-#     filter(Var1==1) %>%
-#     dplyr::select(Freq) %>% sum()
-# 
-#   brute_force_summary %>%
-#     filter(Var1<=3, Var1>=1) %>%
-#     dplyr::select(Freq) %>% sum()
-# 
-#   brute_force_summary %>%
-#     filter(Var1<=10, Var1>=1) %>%
-#     dplyr::select(Freq) %>% sum()
-# 
-#   brute_force_summary %>%
-#     dplyr::select(Freq) %>% sum()
-# }
 
