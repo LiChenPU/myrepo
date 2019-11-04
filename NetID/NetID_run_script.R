@@ -4,14 +4,14 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 
-work_dir = "Xi_new_neg"
+work_dir = "Wenyun_yeast_neg"
 print(work_dir)
 print(ion_mode)
 
 printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
-sink(paste(timestamp,"log.txt"))
-sink()
+# sink(paste(timestamp,"log.txt"))
+# sink()
 
 
 {
@@ -50,16 +50,16 @@ sink()
   Mset[["NodeSet"]]=Form_node_list(Mset)
   
   EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
-                                                mass_abs = 0.001, 
-                                                mass_ppm = 5/10^6)
+                                                mass_abs = 0, 
+                                                mass_ppm = 5)
   
   adjust = Check_sys_measure_error(EdgeSet$Biotransform, inten_threshold=1e5)
   if(abs(adjust[1])>0.5 | abs(adjust[2])> 0.0001){
     Mset$Data$medMz = Mset$Data$medMz*(1+adjust[1]/10^6)+adjust[2]
     Mset[["NodeSet"]]=Form_node_list(Mset)
     EdgeSet[["Biotransform"]] = Edge_biotransform(Mset,
-                                                  mass_abs = 0.001,
-                                                  mass_ppm = 5/10^6)
+                                                  mass_abs = 0,
+                                                  mass_ppm = 5)
   }
   
   mass_dist_sigma = sigma
@@ -72,8 +72,8 @@ sink()
   
   EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
                                                EdgeSet$Peak_inten_correlation, 
-                                               search_ms_cutoff=0.002,
-                                               search_ppm_cutoff=10/1e6)
+                                               search_ms_cutoff=0,
+                                               search_ppm_cutoff=10)
   EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts, mass_dist_sigma = mass_dist_sigma)
   
   #heterodimer  
@@ -91,8 +91,8 @@ sink()
   
   Mset[["NodeSet_network"]] = Network_prediction(Mset, 
                                                  EdgeSet,
-                                                 biotransform_step = 5,
-                                                 artifact_step = 5,
+                                                 biotransform_step = 6,
+                                                 artifact_step = 6,
                                                  propagation_score_threshold = 0.2,
                                                  propagation_intensity_threshold = 2e4,
                                                  max_formula_num = 1e6,

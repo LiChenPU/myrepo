@@ -33,8 +33,7 @@ library(cplexAPI)
 }
 
 g_vertex_edge = determine_is_metabolite()
-formula_list = g_vertex_edge$formula_list %>%
-  rename(ID=id)
+formula_list = g_vertex_edge$formula_list
 relation_list = g_vertex_edge$relation_list
 
 test = formula_list %>% 
