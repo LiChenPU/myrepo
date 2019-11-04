@@ -1,8 +1,10 @@
 library(ggplot2)
 library(ggrepel)
 library(ggpubr)
+library(igraph)
+library(RColorBrewer)
 
-# Color setup ####
+# Color setup ##
 # display.brewer.pal(4, "Set3")
 my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
 
@@ -422,6 +424,50 @@ colfunc(5)[1]
 
 
 
+
+## Figure 3C - Yeast dataset assignment summary ####
+{
+  yeast_formula_summary = data.frame(`Metabolites` = c(227, 1),
+                               `Artifacts` =  c(293, 19),
+                               category = c("Correct", "Incorrect")) %>%
+    gather(key = "cohorts", value = "number", -category) %>%
+    mutate(cohorts = gsub("\\.", "-", cohorts))
+  
+  pdf("yeast_formulas.pdf",
+      width = 5,
+      height = 1.5)
+  # dev.new(width = 4, height = 3, unit = "in")
+  figure_3C = ggplot(yeast_formula_summary, aes(y = number, x = cohorts, fill = forcats::fct_rev(category), label = number)) +
+    geom_bar(stat = "identity",
+             position = "fill" # make percentage graph
+    ) +
+    coord_flip() +
+    geom_text_repel(size = 3.5,position = position_fill(vjust = 0.5), max.iter=1,arrow=T) +
+    labs(x = NULL,
+         title = "Formula assignment",
+         y = "Percentage") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    )) +
+    scale_y_continuous(expand = c(0,0),
+                       labels = scales::percent,
+                       breaks = scales::pretty_breaks(n = 5)
+    ) +
+    expand_limits(y = 1.05) +
+    scale_fill_manual(values = c("Correct" = my_palette[1],
+                                 "Incorrect" = my_palette[5])) +
+    # scale_x_discrete(limits = c("Metabolites", "Artifacts")) +
+    theme_classic(base_size = 14 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(size = 14, hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm")
+          # axis.text.x = element_text(angle = 0, hjust = .5, vjust = .5)
+          )
+  print(figure_3C)
+  dev.off()
+  
+}
 ## Merge graphs ####
 {
 
