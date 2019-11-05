@@ -33,13 +33,17 @@ library(cplexAPI)
 }
 
 g_vertex_edge = determine_is_metabolite()
-formula_list = g_vertex_edge$formula_list
+formula_list = g_vertex_edge$formula_list %>% 
+  full_join(Mset$Data %>% dplyr::select(ID, Input_id))
 relation_list = g_vertex_edge$relation_list
+# 
+# test = formula_list %>% 
+#   full_join(Mset$Data %>% dplyr::select(ID, Input_id))
 
-test = formula_list %>% 
-  filter(ILP_result !=0) %>%
-  filter(ILP_id <= nrow(unknown_formula))  %>%
-  filter(is_metabolite == "NA")
+# test = formula_list %>% 
+#   filter(ILP_result !=0) %>%
+#   filter(ILP_id <= nrow(unknown_formula))  %>%
+#   filter(is_metabolite == "NA")
 
 write.csv(edge_info_sum, paste(timestamp, "edge.csv"), row.names = F)
 write.csv(formula_list, paste0(timestamp, ".csv"), row.names = F)
@@ -74,17 +78,17 @@ save.image(paste0(timestamp,".RData"))
 
 # ## Debug ####
 # {
-#   select_node_id = 177
+#   select_node_id = 526
 #   select_formula_ls = formula_list %>%
 #     filter(ID == select_node_id)
-#   # select_edge_info_sum = edge_info_sum %>%
-#   #   filter(node1 == select_node_id | node2 == select_node_id)
+#   select_edge_info_sum = edge_info_sum %>%
+#     filter(node1 == select_node_id | node2 == select_node_id)
 # 
 # }
 # 
 # {
 #   select_ilp_id = 14051
-#   select_ilp_id = 359
+#   select_ilp_id = 1065
 #   select_edge_info_sum = edge_info_sum %>%
 #     filter(ILP_id1 == select_ilp_id | ILP_id2 == select_ilp_id)
 # 

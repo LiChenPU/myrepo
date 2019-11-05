@@ -4,7 +4,7 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 
-work_dir = "Wenyun_yeast_neg"
+work_dir = "Lin_yeast_pos"
 print(work_dir)
 print(ion_mode)
 

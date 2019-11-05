@@ -219,6 +219,7 @@ Peak_cleanup = function(Mset,
   s6 = s5 %>%
     distinct(MZRT_group, .keep_all=T) %>%
     arrange(ID) %>%
+    rename(Input_id = ID) %>%
     mutate(ID = 1:nrow(.)) %>%
     dplyr::select(-c("MZ_group", "MZRT_group")) %>%
     # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
@@ -586,7 +587,7 @@ Check_sys_measure_error = function(Biotransform, inten_threshold=1e5, mass_dif_t
   fitdistData = fitdistrplus::fitdist(b, "norm")
   plot(fitdistData)
   print(fitdistData)
-  # shapiro.test(b)
+  # print(shapiro.test(b))
   # 
   # 
   
@@ -769,7 +770,7 @@ Peak_variance = function(Mset,
 
 ### Artifact_prediction - Edge_list for artifacts ####
 Artifact_prediction = function(Mset, Peak_inten_correlation, 
-                               search_ms_cutoff=0.002, search_ppm_cutoff = 10)
+                               search_ms_cutoff=0, search_ppm_cutoff = 10)
 {
   search_ppm_cutoff = search_ppm_cutoff/1e6
   # edge_ls_highcor = EdgeSet$Peak_inten_correlation %>% arrange(mz_dif)
@@ -812,67 +813,51 @@ Artifact_prediction = function(Mset, Peak_inten_correlation,
       )
       
     }
-    if(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]+10*search_ms_cutoff)){
+    if(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]+10*search_cutoff)){
       temp_ls[[j]]=temp_df
       temp_df = temp_df[0,]
       j=j+1
       if(j>nrow(junk_df)){break}
       #search_cutoff = 10 * initial_FIT$estimate[2]/1000 
-      while(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]-10*search_ms_cutoff)){i=i-1}
+      while(edge_ls_highcor_mz_dif[i]>(junk_df$mass[j]-10*search_cutoff)){i=i-1}
       next
     }
     i=i+1
   }
   
+  temp_df_adduct = bind_rows(temp_ls)
   
-  
-  temp_df_isotope = bind_rows(temp_ls)
-  
-  junk_summary=table(temp_df_isotope$category)
+  junk_summary=table(temp_df_adduct$category)
   print(junk_summary)
   
   #Oligomers. Note that it is indistinguishable between 2-charge-parent pair and parent-dimer pair
-  
-  test_time = Sys.time()
   {
+    test_time = Sys.time()
     
-    temp_df_oligo = temp_df[0,]
+    temp_edge_ls = edge_ls_highcor %>%
+      mutate(ratio= mz_node2 / mz_node1) %>%
+      mutate(rounding = round(ratio, digit = 0)) %>%
+      mutate(mass_dif = mz_node1 * rounding - mz_node2) %>%
+      filter(abs(mass_dif ) < max(search_ms_cutoff,search_ppm_cutoff*mz_node2),
+             rounding > 1, 
+             rounding < 10)
+      
+    temp_df_oligo = temp_edge_ls %>%
+      mutate(category = "Oligomer",
+             linktype = paste0("x", rounding),
+             direction = 0,
+             rdbe = paste0("x", rounding)
+      ) %>%
+      dplyr::select(colnames(temp_df))
     
-    nodeset = Mset$NodeSet[Mset$NodeSet$category!=0,]
+    nrow(temp_df_oligo)
     
-    temp_edge_ls = data.frame(ratio=edge_ls_highcor_mz_dif/edge_ls_highcor$mz_node1)
-    temp_edge_ls["rounding"]=round(temp_edge_ls[,1],digit=0)
-    temp_edge_ls["dif"]=temp_edge_ls["rounding"]-temp_edge_ls[,1]
-    temp_edge_ls = temp_edge_ls[(temp_edge_ls$rounding!=0)
-                                &(abs(temp_edge_ls$dif)<0.05),]
-    
-    for(i in 1:nrow(temp_edge_ls)){
-      temp_data = edge_ls_highcor[rownames(temp_edge_ls)[i],]
-      temp_mz1 = nodeset$mz[which(nodeset$ID==temp_data$node1)]
-      temp_mz2 = temp_mz1 + temp_data$mz_dif
-      search_cutoff = max(search_ms_cutoff,search_ppm_cutoff*temp_mz2/10^6)
-      for(j in 2:10){
-        if(abs(temp_mz1*j-temp_mz2)<search_cutoff){
-          temp_df_oligo[(nrow(temp_df_oligo)+1),]=c(temp_data,
-                                                    "Oligomer",
-                                                    paste("x",j,sep=""), 
-                                                    0,
-                                                    paste("x",j,sep=""),
-                                                    (temp_mz1*j-temp_mz2)/temp_mz2*10^6)
-        }
-      }
-    }
+    oligo_summary=table(temp_df_oligo$linktype)
+    print(oligo_summary)
   }
-  rm(temp_edge_ls)
-  
-  nrow(temp_df_oligo)
-  
-  oligo_summary=table(temp_df_oligo$linktype)
-  print(oligo_summary)
-  
   test_time = Sys.time()-test_time
   
-  edge_ls_annotate= temp_df_isotope %>%
+  edge_ls_annotate= temp_df_adduct %>%
     # mutate(category = "Adduct_isotopes") %>%
     rbind(temp_df_oligo) %>%
     dplyr::select(c("node1","node2","linktype","mass_dif","category","direction","rdbe")) 
