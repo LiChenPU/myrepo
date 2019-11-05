@@ -434,7 +434,7 @@ colfunc(5)[1]
     mutate(cohorts = gsub("\\.", "-", cohorts))
   
   pdf("yeast_formulas.pdf",
-      width = 5,
+      width = 4.5,
       height = 1.5)
   # dev.new(width = 4, height = 3, unit = "in")
   figure_3C = ggplot(yeast_formula_summary, aes(y = number, x = cohorts, fill = forcats::fct_rev(category), label = number)) +
@@ -458,9 +458,9 @@ colfunc(5)[1]
     scale_fill_manual(values = c("Correct" = my_palette[1],
                                  "Incorrect" = my_palette[5])) +
     # scale_x_discrete(limits = c("Metabolites", "Artifacts")) +
-    theme_classic(base_size = 14 # edit font size for all non-data text
+    theme_classic(base_size = 12 # edit font size for all non-data text
     ) +
-    theme(plot.title = element_text(size = 14, hjust = 0.5),
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
           plot.margin = margin(0.5,0.5,0.5,0.5,"cm")
           # axis.text.x = element_text(angle = 0, hjust = .5, vjust = .5)
           )
