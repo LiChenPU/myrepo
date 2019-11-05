@@ -4,15 +4,20 @@ library(readxl)
 library(readr)
 library(dplyr)
 library(enviPat)
+library(fitdistrplus)
+
+
+# for(work_dir in c("Lin_Yeast_Pos", "Wenyun_Yeast_neg", "Wenyun_yeast_pos")){
+  
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-work_dir = "Wenyun_yeast_neg"
+# work_dir = "Lin_Yeast_Pos"
 print(work_dir)
 setwd(work_dir)
 
-
-# Read previous CPLEX results
+# Merge PAVE, NetID and previous assignment results ####
 {
+  # Read NetID results
   NetID_files = list.files(pattern = "[0-9]{14}.csv")
   NetID_edge_files = list.files(pattern = "edge.csv")
   formula_list_ls = edge_info_sum_ls = list()
@@ -22,34 +27,139 @@ setwd(work_dir)
              pred_N = sapply(formula, elem_num_query, "N"))
     edge_info_sum_ls[[length(edge_info_sum_ls)+1]] = read.csv(NetID_edge_files[i], stringsAsFactors = F)
   }
-  
-  # formula_list2 = formula_list_ls[[6]]
 }
-
-# Read PAVE results
 {
-  PAVE_file = list.files(pattern = "PAVE[0-9]{4}.xlsx")
-  PAVE_result = read_excel(PAVE_file)
+  formula_list2 = formula_list_ls[[1]]
+  relation_list2 = edge_info_sum_ls[[1]]
+
+  # Read PAVE results
+  PAVE_file = list.files(pattern = "^pks.*.xlsx")
+  data(isotopes)
+  PAVE_result = read_excel(PAVE_file) %>%
+    mutate(Formula = replace_na(Formula, "")) %>%
+    mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
+
+  # Merge results 
+  merge_result = formula_list2 %>%
+    dplyr::select(ID,formula,is_metabolite, Artifact_assignment, Biotransform, ILP_result, pred_C, pred_N, Input_id) %>%
+    merge(PAVE_result, by.x="Input_id", by.y = "id", all.y = T) 
+}
+
+
+# Background ####
+{
+  NetID_background = merge_result %>%
+    filter(is.na(ID))
+  PAVE_background = merge_result %>%
+    filter(!is.na(Background))
+}
+
+
+## Yeast experiment ####
+{
+  HMDB_library = read.csv("../dependent/HMDB_CHNOPS_clean.csv")
+  # Get all biotransformed metabolites and match CN number
+  biotransform_formulas = merge_result %>%
+    filter(is_metabolite %in% c("Yes", "Maybe")) %>%
+    filter(pred_C == C, pred_N == N) %>%
+    mutate(In_HMDB = formula %in% HMDB_library$MF)
+  
+  table(biotransform_formulas$In_HMDB)
+  
+  # excluding HMDB and metlin
+  biotransform_formulas_new = biotransform_formulas %>%
+    filter(!In_HMDB) 
+  
+  biotransform_formulas_new_inten = biotransform_formulas_new %>%
+    filter(sig > log10(5e4))
+  
+  output_new_formulas = biotransform_formulas_new_inten %>%
+    dplyr::select(-pred_C, - pred_N, -Biotransform)
+  
+  tabyl(output_new_formulas, is_metabolite, Feature)
+  
+  write.csv(biotransform_formulas, "output_new_formulas.csv", row.names = F)
 }
 
 
 
+## NetID assignment for groundtruth ####
+{
+  Groundtruth = read_excel("Evaluate_set_unique.xlsx")
+  
+  merge_result_groundtruth = merge_result %>%
+    full_join(Groundtruth %>% dplyr::select(Index,`Ground truth`, category_manual, NOTE)) 
+  
+  merge_result_groundtruth_unique = merge_result_groundtruth %>%
+    filter(!is.na(category_manual)) %>%
+    arrange(-ILP_result) %>%
+    distinct(Input_id, .keep_all = T) 
+  
+  metabolite_assignment = merge_result_groundtruth_unique %>%
+    filter(grepl("Metabolite", category_manual))
+  
+  metabolite_assignment_correct = metabolite_assignment %>%
+    filter(formula == `Ground truth`) 
+  metabolite_assignment_wrong = metabolite_assignment %>%
+    filter(formula != `Ground truth`) 
+  
+  artifact_assignment = merge_result_groundtruth_unique %>%
+    filter(grepl("Artifact|Fragment", category_manual))
+  
+  artifact_assignment_correct = artifact_assignment %>%
+    filter(formula == `Ground truth`) 
+  artifact_assignment_wrong = artifact_assignment %>%
+    filter(formula != `Ground truth` | is.na(formula)) 
+}
+
+## Measurement error and distribution 
+{
+  Groundtruth_assigned = Groundtruth %>%
+    filter(!category_manual %in% c("No_label", "Wrong Mass", "Unidentified")) %>%
+    filter(!grepl("artifact", `Ground truth`)) %>%
+    mutate(cal.mz = formula_mz(`Ground truth`)) %>%
+    mutate(mz_dif = mz - cal.mz + formula_mz("H1", 1)) %>%
+    mutate(mz_dif_ppm = mz_dif/cal.mz * 1e6)
+  
+  adjust_mass = Groundtruth_assigned %>%
+    inner_join(formula_list2 %>% dplyr::select(Input_id, msr_mass )) 
+  
+  fit_normal_data = Groundtruth_assigned$mz_dif_ppm[abs(Groundtruth_assigned$mz_dif_ppm + 0.5)<2]+0.5
+  
+  fitdistData = fitdistrplus::fitdist(fit_normal_data, "norm")
+  summary(fitdistData)
+  plot(fitdistData)
+  shapiro.test(fit_normal_data)
+  
+}
+
+
+
+# ## All sig > 3e5, has C/N label ####
+# {
+#   Evaluate_set = merge_result %>%
+#     # full_join(Groundtruth %>% dplyr::select(Index, mz,rt, `Ground truth`, category_manual, NOTE)) %>%
+#     mutate(Feature = replace_na(Feature, "Unknown")) %>%
+#     filter(sig > log10(3e5)) %>%
+#     filter(is.na(Background), is.na(NonBio))
+#   
+#   # number of peaks
+#   Evaluate_set_unique = Evaluate_set %>%
+#     arrange(-ILP_result) %>%
+#     distinct(Input_id, .keep_all = T)
+#   
+#   table(Evaluate_set_unique$category_manual) %>% sum()
+# 
+# }
+
+
+## Rest #####
+{
 # Evaluate Xi's data from annotation ####
 
 evaluate_summary = list()
 for(i in 1:length(NetID_files)){
-  formula_list2 = formula_list_ls[[i]]
-  relation_list2 = edge_info_sum_ls[[i]]
-  
-  {
-    # wl_result = read_csv("WL_190405_both.csv")
-    data("isotopes")
-    wl_result = read_excel("WL_190405_1021category.xlsx") %>%
-      mutate(formula = check_chemform(isotopes, formula)$new_formula)
-    merge_result = formula_list2 %>%
-      dplyr::select(ID,formula,is_metabolite, Artifact_assignment, Biotransform, ILP_result, pred_C, pred_N) %>%
-      merge(wl_result, by.x="ID", by.y = "id", all.y = T) 
-  }
+ 
   
   ## 552 evaluation
   
@@ -419,3 +529,5 @@ result3_not2 = evaluate_summary[[3]]$Total_potential_3e5 %>%
 
 
 
+
+}
