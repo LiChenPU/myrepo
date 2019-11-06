@@ -3,7 +3,9 @@ library(ggrepel)
 library(ggpubr)
 library(igraph)
 library(RColorBrewer)
-
+library(dplyr)
+library(tidyr)
+library(scales)
 # Color setup ##
 # display.brewer.pal(4, "Set3")
 my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
@@ -468,6 +470,91 @@ colfunc(5)[1]
   dev.off()
   
 }
+
+## Figure 4D - Thiamine abundance across tissues ####
+{
+  
+  lb=1000 # min abs value of flux to be included in the plot
+  dblog_trans <- function(){
+    trans_new(name='dblog', transform = function(x) (log10(abs(x)+lb)-log10(lb))*sign(x),
+              inverse = function(x) sign(x)*(10^(abs(x)+log10(lb))-lb))
+  }
+  fancy_scientific <- function(l) {
+    # turn in to character string in scientific notation
+    l <- format(l, scientific = TRUE)
+    # quote the part before the exponent to keep all the digits
+    l <- gsub("^(.*)e", "e", l)
+    # turn the 'e+' into plotmath format
+    l <- gsub("e\\+", "10^", l)
+    # return this as an expression
+    parse(text=l)
+  }
+  
+  tissue_thiamine_summary = data.frame(thiamine = c(67971.47,1,9142.38,91184.6,26224.39),
+                                       thiamine2 = c(16236.96,13871.66,1,1,9868745),
+                                       thiamine3 = c(28701.66,9458.302,7416.905,8985.5,5347378),
+                                       thiamine4 = c(1,2436.542,1,1,866569.7),
+                                       category = c("Brain", "Kidney", "Liver", "Pancreas", "Urine")) %>%
+    gather(key = "cohorts", value = "number", -category) %>%
+    mutate(cohorts = gsub("\\.", "-", cohorts))
+  
+  pdf("tissue_thiamine_summary.pdf",
+      width = 8,
+      height = 2.5)
+  # dev.new(width = 4, height = 3, unit = "in")
+  figure_4D = 
+    ggplot(tissue_thiamine_summary, aes(y = number, x = cohorts, fill = category, width = .75)) +
+    
+    geom_bar(stat = "identity",
+             position = position_dodge(), # make percentage graph
+             colour = "#333333"
+    ) +
+    labs(x = NULL,
+         # title = "Formula assignment",
+         y = "TIC") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    ),
+    colour = guide_legend(
+      title = NULL,
+      label = F
+    )
+    ) +
+    # scale_y_continuous(expand = c(0,0),
+    #                    trans = "log10",
+    #                    labels = scales::trans_format("log10", math_format(10^.x)),
+    #                    breaks = c(1e3, 1e4, 1e5, 1e6, 1e7)
+    #                    # limits = c(1e3, 1e7)
+    #                    # breaks = scales::pretty_breaks(n = 5)
+    # ) + 
+    scale_y_continuous(expand = c(0,0),
+                       trans = 'dblog',
+                       limit=c(0,2e7), 
+                       breaks = c(0,10^4,10^5,10^6,10^7,10^8,10^9), 
+                       labels = fancy_scientific) + 
+    # scale_fill_manual(values = c("Correct" = my_palette[1],
+    #                              "Incorrect" = my_palette[5])) +
+    scale_fill_manual(values = c(my_palette[1:5])) + 
+    scale_color_manual(values = "grey") + 
+    scale_x_discrete(labels = c("C12H16N4OS\nThiamine", 
+                                "C12H16N4O2S\nThiamine+O", 
+                                "C14H18N4O2S\nThiamine+C2H2O", 
+                                "C14H20N4O2S\nThiamine+C2H4O")) +
+    # facet_wrap(~cohorts) +
+    theme_classic(base_size = 12 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+          axis.ticks.x = element_blank()
+    )
+  print(figure_4D)
+  dev.off()
+}
+
+
+
 ## Merge graphs ####
 {
 
