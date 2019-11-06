@@ -6,6 +6,8 @@ library(RColorBrewer)
 library(dplyr)
 library(tidyr)
 library(scales)
+
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Color setup ##
 # display.brewer.pal(4, "Set3")
 my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
@@ -471,7 +473,7 @@ colfunc(5)[1]
   
 }
 
-## Figure 4D - Thiamine abundance across tissues ####
+## Figure 4B - Thiamine abundance across tissues ####
 {
   
   lb=1000 # min abs value of flux to be included in the plot
@@ -502,7 +504,7 @@ colfunc(5)[1]
       width = 8,
       height = 2.5)
   # dev.new(width = 4, height = 3, unit = "in")
-  figure_4D = 
+  figure_4B = 
     ggplot(tissue_thiamine_summary, aes(y = number, x = cohorts, fill = category, width = .75)) +
     
     geom_bar(stat = "identity",
@@ -549,9 +551,101 @@ colfunc(5)[1]
           axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
           axis.ticks.x = element_blank()
     )
-  print(figure_4D)
+  print(figure_4B)
   dev.off()
 }
+
+
+
+
+## Supplementary figure 4B - isotope labeling for thiamine ####
+{
+  thiamine_labeling_summary1 = data.frame(M0 = rep(0, 4),
+                                          M2 = rep(0, 4),
+                                          Fully_labeled = rep(1,4),
+                                          category = c("C12H16N4O1S1\nThiamine", 
+                                                       "C12H16N4O2S1\nThiamine+O", 
+                                                       "C14H18N4O2S1\nThiamine+C2H2O", 
+                                                       "C14H20N4O2S1\nThiamine+C2H4O")) %>%
+    gather(key = "cohorts", value = "number", -category) 
+  
+  thiamine_labeling_summary2 = data.frame(M0 = c(1,1,0,0),
+                                          M2 = c(0,0,1,1),
+                                          Fully_labeled = rep(0,4),
+                                          category = c("C12H16N4O1S1\nThiamine", 
+                                                       "C12H16N4O2S1\nThiamine+O", 
+                                                       "C14H18N4O2S1\nThiamine+C2H2O", 
+                                                       "C14H20N4O2S1\nThiamine+C2H4O")) %>%
+    gather(key = "cohorts", value = "number", -category) 
+  
+  
+  figure_S4B1 = ggplot(thiamine_labeling_summary1, aes(y = number, x = cohorts, fill = category, width = 0.8)) +
+    geom_bar(stat = "identity",
+             position = position_dodge(), # make percentage graph
+             colour = "#333333"
+    ) +
+    labs(x = NULL,
+         title = "U13C-glucose",
+         y = "Labeling fraction") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    )
+    ) +
+    scale_y_continuous(expand = c(0,0),
+                       breaks = scales::pretty_breaks(n = 2)
+    ) +
+    scale_x_discrete(limits = c("M0", "M2", "Fully_labeled")) +
+
+    scale_fill_manual(values = c(my_palette[1:4])) + 
+    scale_color_manual(values = "grey") + 
+    # facet_wrap(~cohorts) +
+    theme_classic(base_size = 12 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+          axis.ticks.x = element_blank()
+    )
+  print(figure_S4B1)
+  
+  figure_S4B2 = ggplot(thiamine_labeling_summary2, aes(y = number, x = cohorts, fill = category, width = 0.8)) +
+    geom_bar(stat = "identity",
+             position = position_dodge(), # make percentage graph
+             colour = "#333333"
+    ) +
+    labs(x = NULL,
+         title = "U13C-glucose + 12C-thiamine",
+         y = "Labeling fraction") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    )
+    ) +
+    scale_y_continuous(expand = c(0,0),
+                       breaks = scales::pretty_breaks(n = 2)
+    ) +
+    scale_x_discrete(limits = c("M0", "M2", "Fully_labeled")) +
+    
+    scale_fill_manual(values = c(my_palette[1:4])) + 
+    scale_color_manual(values = "grey") + 
+    # facet_wrap(~cohorts) +
+    theme_classic(base_size = 12 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+          axis.ticks.x = element_blank()
+    )
+  print(figure_S4B2)
+
+}
+
+
+
+
+
+
 
 
 
@@ -576,6 +670,15 @@ colfunc(5)[1]
   ) %>%
     ggexport(filename = "figure_2e-f.pdf", width = 10, height = 4)
   
+  ggarrange(
+    figure_S4B1,
+    figure_S4B2,
+    common.legend = T, legend = "right",
+    align = "hv",
+    nrow = 2, ncol = 1
+  ) %>%
+    ggexport(filename = "figure_S4B.pdf", width = 8, height = 4)
+   
 }
 
 save(result_summary, file = "result_summary.RData")
