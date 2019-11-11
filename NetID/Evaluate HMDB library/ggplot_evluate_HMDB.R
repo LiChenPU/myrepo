@@ -6,7 +6,7 @@ library(RColorBrewer)
 library(dplyr)
 library(tidyr)
 library(scales)
-
+library(readxl)
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Color setup ##
 # display.brewer.pal(4, "Set3")
@@ -560,30 +560,64 @@ colfunc(5)[1]
 
 ## Supplementary figure 4B - isotope labeling for thiamine ####
 {
-  thiamine_labeling_summary1 = data.frame(M0 = rep(0, 4),
-                                          M2 = rep(0, 4),
-                                          Fully_labeled = rep(1,4),
-                                          category = c("C12H16N4O1S1\nThiamine", 
-                                                       "C12H16N4O2S1\nThiamine+O", 
-                                                       "C14H18N4O2S1\nThiamine+C2H2O", 
-                                                       "C14H20N4O2S1\nThiamine+C2H4O")) %>%
-    gather(key = "cohorts", value = "number", -category) 
   
-  thiamine_labeling_summary2 = data.frame(M0 = c(1,1,0,0),
-                                          M2 = c(0,0,1,1),
-                                          Fully_labeled = rep(0,4),
-                                          category = c("C12H16N4O1S1\nThiamine", 
-                                                       "C12H16N4O2S1\nThiamine+O", 
-                                                       "C14H18N4O2S1\nThiamine+C2H2O", 
-                                                       "C14H20N4O2S1\nThiamine+C2H4O")) %>%
-    gather(key = "cohorts", value = "number", -category) 
+  datapath = "C:/Users/Li Chen/Desktop/Network paper/fig4/"
+  filename = "U13C_glucose + no thiamine_corrected.xlsx"
+  thiamine_labeling1 = read_xlsx(paste0(datapath, filename), sheet = "summary") %>%
+    select_if(~sum(!is.na(.)) > 0)
+  colnames(thiamine_labeling1)[1:2] = c("category", "cohorts")
+  thiamine_labeling1 = thiamine_labeling1 %>%
+    gather(key = "key", value = "number", -category, -cohorts) 
+  thiamine_labeling_summary1 = thiamine_labeling1 %>%
+    group_by(category, cohorts) %>%
+    summarise(
+      sd = sd(number),
+      number = mean(number)
+    )
+  
+  datapath = "C:/Users/Li Chen/Desktop/Network paper/fig4/"
+  filename = "13C + unlabeled thiamine_corrected.xlsx"
+  thiamine_labeling2 = read_xlsx(paste0(datapath, filename), sheet = "summary") %>%
+    select_if(~sum(!is.na(.)) > 0)
+  colnames(thiamine_labeling2)[1:2] = c("category", "cohorts")
+  thiamine_labeling2 = thiamine_labeling2 %>%
+    gather(key = "key", value = "number", -category, -cohorts) 
+  thiamine_labeling_summary2 = thiamine_labeling2 %>%
+    group_by(category, cohorts) %>%
+    summarise(
+      sd = sd(number),
+      number = mean(number)
+    )
   
   
-  figure_S4B1 = ggplot(thiamine_labeling_summary1, aes(y = number, x = cohorts, fill = category, width = 0.8)) +
+  # thiamine_labeling_summary2 = data.frame(M0 = c(1,1,0,0),
+  #                                         M2 = c(0,0,1,1),
+  #                                         Fully_labeled = rep(0,4),
+  #                                         category = c("C12H16N4O1S1\nThiamine", 
+  #                                                      "C12H16N4O2S1\nThiamine+O", 
+  #                                                      "C14H18N4O2S1\nThiamine+C2H2O", 
+  #                                                      "C14H20N4O2S1\nThiamine+C2H4O")) %>%
+  #   gather(key = "cohorts", value = "number", -category) 
+  
+  
+  figure_S4B1 = ggplot(thiamine_labeling_summary1, aes(y = number, x = cohorts, fill = category)) +
     geom_bar(stat = "identity",
-             position = position_dodge(), # make percentage graph
+             width = .8,
+             position = position_dodge(), 
              colour = "#333333"
     ) +
+    geom_errorbar(aes(ymin=number-sd, ymax=number+sd),
+                  width = 0.2,
+                  # size = 2,
+                  # width = 0.5, 
+                  position=position_dodge(.8)) +
+    geom_point(data = thiamine_labeling1,
+               position = position_jitterdodge(jitter.width = 0.1,
+                                               dodge.width = 0.8),
+               # alpha = 0.5,
+               shape = 1,
+               show.legend=FALSE
+               ) + 
     labs(x = NULL,
          title = "U13C-glucose",
          y = "Labeling fraction") +
@@ -595,25 +629,40 @@ colfunc(5)[1]
     scale_y_continuous(expand = c(0,0),
                        breaks = scales::pretty_breaks(n = 2)
     ) +
+    expand_limits(y=c(0, 1.05)) +
     scale_x_discrete(limits = c("M0", "M2", "Fully_labeled")) +
-
-    scale_fill_manual(values = c(my_palette[1:4])) + 
+    scale_fill_manual(values = c(my_palette[1:4]),
+                      labels = c("C12H16N4O1S1\nThiamine", 
+                                 "C12H16N4O2S1\nThiamine+O", 
+                                 "C14H18N4O2S1\nThiamine+C2H2O", 
+                                 "C14H20N4O2S1\nThiamine+C2H4O")) + 
     scale_color_manual(values = "grey") + 
     # facet_wrap(~cohorts) +
-    theme_classic(base_size = 12 # edit font size for all non-data text
+    theme_classic(base_size = 14 # edit font size for all non-data text
     ) +
-    theme(plot.title = element_text(size = 12, hjust = 0.5),
+    theme(plot.title = element_text(size = 14, hjust = 0.5),
           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
           axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
           axis.ticks.x = element_blank()
     )
   print(figure_S4B1)
   
-  figure_S4B2 = ggplot(thiamine_labeling_summary2, aes(y = number, x = cohorts, fill = category, width = 0.8)) +
+  figure_S4B2 = ggplot(thiamine_labeling_summary2, aes(y = number, x = cohorts, fill = category)) +
     geom_bar(stat = "identity",
-             position = position_dodge(), # make percentage graph
+             width = .8,
+             position = position_dodge(), 
              colour = "#333333"
     ) +
+    geom_errorbar(aes(ymin=number-sd, ymax=number+sd),
+                  width = 0.2,
+                  # size = 2,
+                  # width = 0.5, 
+                  position=position_dodge(.8)) +
+    geom_point(data = thiamine_labeling2,
+               position = position_jitterdodge(jitter.width = 0.1,
+                                               dodge.width = 0.8),
+               shape = 1,
+               show.legend=FALSE) + 
     labs(x = NULL,
          title = "U13C-glucose + 12C-thiamine",
          y = "Labeling fraction") +
@@ -625,14 +674,18 @@ colfunc(5)[1]
     scale_y_continuous(expand = c(0,0),
                        breaks = scales::pretty_breaks(n = 2)
     ) +
+    expand_limits(y=c(0, 1.05)) +
     scale_x_discrete(limits = c("M0", "M2", "Fully_labeled")) +
-    
-    scale_fill_manual(values = c(my_palette[1:4])) + 
+    scale_fill_manual(values = c(my_palette[1:4]),
+                      labels = c("C12H16N4O1S1\nThiamine", 
+                                 "C12H16N4O2S1\nThiamine+O", 
+                                 "C14H18N4O2S1\nThiamine+C2H2O", 
+                                 "C14H20N4O2S1\nThiamine+C2H4O")) + 
     scale_color_manual(values = "grey") + 
     # facet_wrap(~cohorts) +
-    theme_classic(base_size = 12 # edit font size for all non-data text
+    theme_classic(base_size = 14 # edit font size for all non-data text
     ) +
-    theme(plot.title = element_text(size = 12, hjust = 0.5),
+    theme(plot.title = element_text(size = 14, hjust = 0.5),
           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
           axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
           axis.ticks.x = element_blank()
