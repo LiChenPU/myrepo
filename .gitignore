@@ -16,5 +16,7 @@
 *.sdf
 *.tsv
 *.pptx
+*.gz
+*.sdf
 .Rproj.user
 prob.lp
