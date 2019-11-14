@@ -7,10 +7,10 @@
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Wenyun_Yeast_neg")
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Wenyun_Yeast_pos")
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Lin_Yeast_neg")
-# setwd("C:/Users/lc8/Documents/myrepo/NetID/Lin_Yeast_pos")
+setwd("C:/Users/lc8/Documents/myrepo/NetID/Lin_Yeast_pos")
 
 
-filenames = list.files(pattern = "out.csv")
+filenames = list.files(pattern = "oldpave.csv")
 foldernames = sub("\\.csv", "", filenames)
 
 i=1
@@ -30,7 +30,7 @@ i=1
     # raw_data = raw_data[,c(1:17, 36:37)]
     # colnames(raw_data) = gsub("control","blank", colnames(raw_data))
     raw_data = raw_data[,c(1:17, 27:28)]
-    colnames(raw_data) = gsub("posi|pos","neg", colnames(raw_data))
+    # colnames(raw_data) = gsub("posi|pos","neg", colnames(raw_data))
     
   }
   

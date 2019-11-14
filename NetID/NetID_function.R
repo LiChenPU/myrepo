@@ -29,8 +29,7 @@ read_raw_data = function(filename){
   }
   return(raw_data)
 }
-  
-  
+
 
 ## read_library ####
 read_library = function(library_file){
