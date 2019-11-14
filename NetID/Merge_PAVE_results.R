@@ -21,7 +21,7 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   NetID_edge_merge_ls = list()
   merge_ls = list()
   input_files = c("Lin_Yeast_Neg", 
-                  "Lin_Yeast_Pos", 
+                  "Lin_Yeast_Pos",
                   "Wenyun_Yeast_neg",
                   "Wenyun_yeast_pos"
   )
@@ -153,33 +153,57 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
                        sheet = "Yeast-neg") %>%
     rename_all(funs(paste0("old_",.))) %>%
     mutate(origin = "Old_PAVE")
-  # published_PAVE = read_xlsx("./Lin_Yeast_Neg/ac8b03132_si_004.xlsx",
-  #                      sheet = "Yeast-neg") %>%
-  #   rename_all(funs(paste0("old_",.))) %>%
-  #   mutate(origin = "published_PAVE")
-  # 
-  # Merge_published_old_PAVE = merge(published_PAVE, old_PAVE, all = T)
   
-  Merge_newold_PAVE = merge(new_PAVE, old_PAVE, by.x = c("mz.y", "rt"), by.y = c("old_mz", "old_RT")) %>%
+  Merge_newold_PAVE = merge(new_PAVE, old_PAVE, by.x = c("mz.y", "rt"), by.y = c("old_mz", "old_RT"))%>%
     # distinct(mz.y, rt, .keep_all=T)
-    distinct(Input_id, .keep_all=T)
-  
-  table(Merge_newold_PAVE$Feature)
-  table(new_PAVE$Feature)
-   
-  
-  Merge_newold_PAVE_filter = Merge_newold_PAVE %>%
-    filter(old_feature != "[]") %>%
-    # filter(Feature == "Metabolite") %>%
-    # filter(Feature == "Unknown") %>%
-    # filter(score.y > 0.75) %>%
-    filter(old_description == "'13C'") %>%
-    filter(sig>log10(4e5)) %>%
     filter(T)
   
- 
-}
+  tabyl(Merge_newold_PAVE, old_feature, Feature)
+  table(Merge_newold_PAVE$Feature)
 
+  Merge_newold_PAVE_filter = Merge_newold_PAVE %>%
+    filter(old_feature == "'Background'") %>%
+    # filter(Feature == "Metabolite") %>%
+    filter(Feature == "Unknown") %>%
+    # filter(score.y > 0.5) %>%
+    # filter(old_score > 0.5) %>%
+    # filter(old_description == "'13C'") %>%
+    filter(sig>log10(1e5)) %>%
+    # mutate(score_dif = score.y - old_score) %>%
+    arrange(-sig)%>%
+    filter(T)
+    
+  hist(Merge_newold_PAVE_filter$score_dif)
+  plot(Merge_newold_PAVE_filter$score.y, Merge_newold_PAVE_filter$old_score)
+  
+  temp = all_score %>%
+    filter(formula == "C7H15N1O3")
+
+}
+## Ground truth for Lin data ####
+{
+  Merge_newold_PAVE %>% 
+    arrange(old_ID) %>%
+    write.csv("Merge_newold_PAVE.csv", row.names = F)
+  
+  Merge_newold_PAVE_filter = Merge_newold_PAVE %>%
+    filter(!Feature %in% c("Background", "Nonbio") & !is.na(Feature)) %>%
+    arrange(-sig)
+  
+  NetID_lin_neg = NetID_merge_ls[[1]]
+  NetID_edge_lin_neg = NetID_edge_merge_ls[[1]]
+  
+  selected_node = 1157
+  selected_formula = NetID_lin_neg %>%
+    filter(ID == selected_node)
+  selected_edge = NetID_edge_lin_neg %>%
+    filter(node1 == selected_node | node2 == selected_node)
+  selected_ILP_id = 1559
+  selected_ILP_edge = NetID_edge_lin_neg %>%
+    filter(ILP_id1 == selected_ILP_id | ILP_id2 == selected_ILP_id)
+  
+  
+}
 
 ## Dataset Overlaps ####
 { 
