@@ -21,7 +21,7 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   NetID_edge_merge_ls = list()
   merge_ls = list()
   input_files = c("Lin_Yeast_Neg"
-                  # "Lin_Yeast_Pos",
+                  # "Lin_Yeast_Pos"
                   # "Wenyun_Yeast_neg",
                   # "Wenyun_yeast_pos"
   )
@@ -55,11 +55,11 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
     NetID_edge_data = read.csv(NetID_edge_files, stringsAsFactors = F)
     NetID_edge_merge_ls[[length(NetID_edge_merge_ls)+1]] = NetID_edge_data
     
-    
-    
-    merge_data = merge(NetID_data %>% filter(ILP_result != 0), 
-                       PAVE_data, by.x="Input_id", by.y = "id", all.y = T)
-    merge_ls[[length(merge_ls)+1]] = merge_data
+    # 
+    # 
+    # merge_data = merge(NetID_data %>% filter(ILP_result != 0), 
+    #                    PAVE_data, by.x="Input_id", by.y = "id", all.y = T)
+    # merge_ls[[length(merge_ls)+1]] = merge_data
   }
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
