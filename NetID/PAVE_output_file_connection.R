@@ -8,9 +8,10 @@ setwd("C:/Users/lc8/Documents/myrepo/NetID/Wenyun_Yeast_neg")
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Wenyun_Yeast_pos")
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Lin_Yeast_neg")
 setwd("C:/Users/lc8/Documents/myrepo/NetID/Lin_Yeast_pos")
+setwd("C:/Users/lc8/Documents/myrepo/NetID/Liver_WL_Neg")
 
 
-filenames = list.files(pattern = "oldpave.csv")
+filenames = list.files(pattern = "out.csv")
 foldernames = sub("\\.csv", "", filenames)
 
 i=1
@@ -29,11 +30,23 @@ i=1
     # colnames(raw_data)[27:28]=c("Blank1", "Blank2")
     # raw_data = raw_data[,c(1:17, 36:37)]
     # colnames(raw_data) = gsub("control","blank", colnames(raw_data))
-    raw_data = raw_data[,c(1:17, 27:28)]
-    # colnames(raw_data) = gsub("posi|pos","neg", colnames(raw_data))
+    raw_data = raw_data[,c(1:17, 33:35)]
+    colnames(raw_data) = gsub("X.posi|X.pos","neg", colnames(raw_data))
     
   }
   
   
   write.csv(raw_data, "raw_data.csv", row.names = F)
 # }
+
+  
+  
+  
+raw_data = read.csv("raw_data.csv", stringsAsFactors = F)
+
+raw_data_filter = raw_data %>%
+  filter(X > 2 | feature != "'Background'" | X == "#DIV/0!") %>%
+  dplyr::select(1:19)
+  
+write.csv(raw_data_filter, "raw_data.csv", row.names = F)
+  

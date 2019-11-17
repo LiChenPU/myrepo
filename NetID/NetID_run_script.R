@@ -4,7 +4,7 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 
-work_dir = "Lin_yeast_pos"
+work_dir = "Lin_Yeast_Neg"
 print(work_dir)
 print(ion_mode)
 
@@ -36,7 +36,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
                                 ms_dif_ppm=0/10^6, 
                                 rt_dif_min=0.1,
                                 detection_limit=0,
-                                remove_high_blank_ratio = 2,
+                                remove_high_blank_ratio = 0,
                                 first_sample_col_num = 15)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
   
