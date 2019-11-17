@@ -64,12 +64,31 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
-
+{
+  NetID_data = NetID_merge_ls[[1]] %>%
+    filter(ILP_result != 0)
+  Groundtruth = read_xlsx("./Lin_Yeast_Neg/4-4-Table S10-Annotation of all peaks detected in S. cerevisiae and E. coli-xi_LC.xlsx",
+                       sheet = "Yeast-neg-truth") %>%
+    arrange(ID...1) %>%
+    dplyr::select(-c(36:67))
+    
+    # rename_all(funs(paste0("old_",.))) %>%
+    # mutate(origin = "Old_PAVE")
+ 
+  
+  all = merge(NetID_data, Groundtruth, by.x = "Input_id", by.y = "ID...1", all.y=T) %>%
+    setNames(make.names(gsub("\\..*","", names(.)), unique = TRUE)) %>%
+    mutate(ionization = ionization) %>%
+    mutate(neutral_mz = mz.1 - ionization * formula_mz("H1", 1)) %>%
+    # mutate(neutral_mz = mz) %>%
+    mutate(Feature = replace_na(Feature, "Unknown"))
+}
 
 ## Group peaks with simialr mz and rt ####
 {
-  all = bind_rows(merge_ls) %>%
-    mutate(library_id = 1:nrow(.))
+  # all = bind_rows(merge_ls) %>%
+    # mutate(library_id = 1:nrow(.))
+  
   ms_dif_ppm = 5e-6
   rt_dif_min = 2
   
@@ -95,8 +114,8 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   ##Group RT similar groups based on MS groups
   {
     all = all %>%
-      arrange(MZ_group, rt)
-    rts = all$rt
+      arrange(MZ_group, RT.1)
+    rts = all$RT.1
     
     MZRT_group = rep(1,(length(rts)))
     
@@ -111,7 +130,7 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   }
   
   all = all %>%
-    arrange(library_id)
+    arrange(ID)
   
   HMDB_library = read.csv("./dependent/HMDB_CHNOPS_clean.csv")
   all = all %>%
@@ -128,212 +147,133 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
     ))
 }
 
+# ## Evaluate groundtruth ####
+# {
+#   write.csv(all, "all.csv", row.names = F)
+#   
+#   all_inten = all %>% 
+#     filter(sig > log10(1e5))
+#   all_background_nonbio = all_inten %>%
+#     # filter(is_na(ID) & Background %in% c("Background", "NonBio", "Artifact"), feature == "'Background'")
+#     filter(feature %in% c("'Background'", "'Low_score'")) %>%
+#     mutate(Status = feature)
+#   
+#   table(all_background_nonbio$Feature)
+#   table(all_background_nonbio$feature)
+#   
+#   all_biological = all_inten %>%
+#     filter(!Input_id %in% all_background_nonbio$Input_id) 
+#   table(all_biological$Feature)
+#   table(all_biological$feature)
+#   
+#   {
+#     all_adduct = all_biological %>%
+#       filter(feature == "'Adduct'") %>%
+#       mutate(Status = case_when(
+#         grepl("Adduct", Artifact_assignment)~"Adduct",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#     
+#     all_adduct_np = all_biological %>%
+#       filter(feature == "'Adduct_np'") %>%
+#       mutate(Status = case_when(
+#         grepl("Adduct", Artifact_assignment)~"Adduct",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#    
+#     all_dimer = all_biological %>%
+#       filter(feature == "'Dimer'") %>%
+#       mutate(Status = case_when(
+#         grepl("Oligomer", Artifact_assignment)~"Oligomer",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#     
+#     all_fragment = all_biological %>%
+#       filter(feature == "'Fragment'") %>%
+#       mutate(Status = case_when(
+#         grepl("Fragment", Artifact_assignment)~"Fragment",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#       
+#     
+#     all_isotope = all_biological %>%
+#       filter(feature == "'Isotope'") %>%
+#       mutate(Status = case_when(
+#         grepl("Isotope", Artifact_assignment)~"Isotope",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#     
+#     all_multicharge = all_biological %>%
+#       filter(feature == "'Multicharge'") %>%
+#       mutate(Status = case_when(
+#         grepl("Double_charge", Artifact_assignment)~"Double_charge",
+#         Artifact_assignment!="" ~ "Other artifacts",
+#         Background == "Background" ~ "High background",
+#         is.na(formula) ~ "No formula assigned",
+#         Artifact_assignment=="" ~ "Biotransformed"
+#       ))
+#       
+#     
+#     all_metabolite = all_biological %>%
+#       filter(feature == "'Metabolite'") %>%
+#       mutate(Status = ifelse(Biotransform, "Biotransformed derived", "Biotransform_Not_matched"))
+#   }
+#   
+#   
+#   
+#   all_unknown = all_biological %>%
+#     filter(feature=="'Low_C'" | feature == "[]") %>%
+#     mutate(Status = transformation_category) %>%
+#     mutate(Status = ifelse(Background == "Background", "High background", Status))
+#   
+#   all_bind = bind_rows(all_adduct, 
+#                        all_adduct_np,
+#                        all_dimer,
+#                        all_fragment,
+#                        all_isotope,
+#                        all_multicharge,
+#                        all_metabolite,
+#                        all_unknown) %>%
+#     arrange(Input_id)
+#   
+#   write.csv(all_bind %>%
+#               bind_rows(all) %>%
+#               distinct(Input_id, .keep_all = T) %>%
+#               arrange(Input_id)
+#             , "all_bind.csv", row.names = F)
+#   
+#   table(all_bind$Status)
+#   
+# }
 
-## Fix score assignment ####
+
+## Query NetID ####
 {
-  score_cutoff = 0.75
-  tabyl(all, Feature, origin)
-  
-  all_score = all %>%
-    mutate(Feature = case_when(
-      score.y < score_cutoff & Feature == "Unknown" ~ "NonBio",
-      !is.na(Feature) ~ Feature
-    ))
-  tabyl(all, Feature, origin)
-  tabyl(all_score, Feature, origin)
-}
-
-## Merge old PAVE ####
-{
-  new_PAVE = all_score %>%
-    filter(origin == "Lin_Yeast_Neg")
-  old_PAVE = read_xlsx("./Lin_Yeast_Neg/4-4-Table S10-Annotation of all peaks detected in S. cerevisiae and E. coli-xi_LC.xlsx",
-                       sheet = "Yeast-neg") %>%
-    rename_all(funs(paste0("old_",.))) %>%
-    mutate(origin = "Old_PAVE")
-  
-  Merge_newold_PAVE = merge(new_PAVE, old_PAVE, by.x = c("mz.y", "rt"), by.y = c("old_mz", "old_RT"))%>%
-    # distinct(mz.y, rt, .keep_all=T)
-    filter(T)
-  
-  tabyl(Merge_newold_PAVE, old_feature, Feature)
-  table(Merge_newold_PAVE$Feature)
-
-  Merge_newold_PAVE_filter = Merge_newold_PAVE %>%
-    filter(old_feature == "'Background'") %>%
-    # filter(Feature == "Metabolite") %>%
-    filter(Feature == "Unknown") %>%
-    # filter(score.y > 0.5) %>%
-    # filter(old_score > 0.5) %>%
-    # filter(old_description == "'13C'") %>%
-    filter(sig>log10(1e5)) %>%
-    # mutate(score_dif = score.y - old_score) %>%
-    arrange(-sig)%>%
-    filter(T)
-    
-  hist(Merge_newold_PAVE_filter$score_dif)
-  plot(Merge_newold_PAVE_filter$score.y, Merge_newold_PAVE_filter$old_score)
-  
-  temp = all_score %>%
-    filter(formula == "C7H15N1O3")
-
-}
-## Ground truth for Lin data ####
-{
-  Merge_newold_PAVE %>% 
-    arrange(old_ID) %>%
-    write.csv("Merge_newold_PAVE.csv", row.names = F)
-  
-  Merge_newold_PAVE_filter = Merge_newold_PAVE %>%
-    filter(!Feature %in% c("Background", "Nonbio") & !is.na(Feature)) %>%
-    arrange(-sig)
-  
   NetID_lin_neg = NetID_merge_ls[[1]]
   NetID_edge_lin_neg = NetID_edge_merge_ls[[1]]
   
-  selected_node = 1157
+  query_Input_id = 2020
   selected_formula = NetID_lin_neg %>%
-    filter(ID == selected_node)
+    filter(Input_id == query_Input_id)
+  selected_node = 1082
   selected_edge = NetID_edge_lin_neg %>%
     filter(node1 == selected_node | node2 == selected_node)
-  selected_ILP_id = 1559
+  selected_ILP_id = 2960
   selected_ILP_edge = NetID_edge_lin_neg %>%
     filter(ILP_id1 == selected_ILP_id | ILP_id2 == selected_ILP_id)
-  
-  
 }
-
-## Dataset Overlaps ####
-{ 
-  MZRT_group_filter = all_score %>%
-    filter(Feature == "Metabolite") %>%
-    # filter(! Feature %in% c("Artifact", "Background", "NonBio")) %>%
-    # filter(Intensity_group == levels(Intensity_group)[2]) %>%
-    pull(MZRT_group)
-  
-  all_filter = all_score %>%
-    filter(Feature == "Metabolite") %>%
-    filter(MZRT_group %in% MZRT_group_filter) 
-    
-  file_mzrtgroup = all_filter %>%
-    mutate_if(is.character, as.factor) %>%
-    group_by(origin, MZ_group, .drop = FALSE) %>%
-    dplyr::select()
-  
-  coverage_matrix = matrix(nrow = nlevels(file_mzrtgroup[[1]]), 
-                           ncol = nlevels(file_mzrtgroup[[1]]))
-  
-  
-  temp_summary = t(table(file_mzrtgroup))
-  colnames(coverage_matrix) = rownames(coverage_matrix) = colnames(temp_summary)
-  
-  for(i in 1:ncol(temp_summary)){
-    temp = t(temp_summary[,i])
-    temp[temp>1] = 1
-    for(j in 1:ncol(temp_summary)){
-      coverage_matrix[i,j] = temp %*% temp_summary[,j]
-    }
-  }
-  print(coverage_matrix)
-}
-
-## PAVE summary ####
-fig_ls = list()
-for(origin_file in input_files){
-{
-  # origin_file = input_files[[1]]
-  print(origin_file)
-  final_step = all_score %>%
-    filter(origin == origin_file) %>%
-    filter(Feature %in% c("Unknown", "Metabolite"))
-  
-  level1 = final_step %>%
-    mutate_if(is.character, as.factor) %>%
-    group_by(Intensity_group, .drop = FALSE) %>%
-    summarise(n=n())
-  
-  level2 = final_step %>%
-    mutate_if(is.character, as.factor) %>%
-    group_by(Intensity_group, Feature, .drop = FALSE) %>%
-    summarise(n=n())
-  
-  level2_2 = final_step %>%
-    mutate_if(is.character, as.factor) %>%
-    group_by(Intensity_group, transformation_category, .drop = FALSE) %>%
-    summarise(n=n())
-  
-  level3 = final_step %>%
-    mutate_if(is.character, as.factor) %>%
-    group_by(Intensity_group, Feature, transformation_category, .drop = FALSE) %>%
-    summarise(n=n())
-  # print(level3)
-  # base::crossprod(table(test))
-}
-
-## ggplot2 
-{
-  fig_level2 = ggplot(level2, aes(x = Feature, y = n, fill = Intensity_group)) + 
-    geom_bar(stat = "identity",
-             position = position_dodge(),
-             colour = "#333333"
-    ) +
-    labs(#titles = "Intensity group (log10)", 
-         y = "Number") + 
-    guides(fill = guide_legend(
-      title = "Intensity group (log10)",
-      reverse = F
-    )) +
-    scale_y_continuous(expand = c(0,0)) + 
-    # facet_wrap(~cohorts) +
-    theme_classic(base_size = 12 # edit font size for all non-data text
-    ) +
-    
-    theme(plot.title = element_text(size = 12, hjust = 0.5),
-          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
-          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
-          axis.ticks.x = element_blank()
-    )
-  print(fig_level2)
-  
-  
-  fig_level3 = ggplot(level3, aes(x = Feature, y = n, fill = transformation_category)) + 
-    geom_bar(stat = "identity",
-             position = position_dodge(),
-             colour = "#333333"
-    ) +
-    labs(title = "Intensity group (log10)", 
-         y = "Number") + 
-    guides(fill = guide_legend(
-      title = "Formula assignment from NetID",
-      reverse = F
-    )) +
-    scale_y_continuous(expand = c(0,0)) + 
-    scale_fill_manual(values = my_palette[c(1:3,5)]) +
-    facet_wrap(~Intensity_group, scales = "free_y") +
-    theme_classic(base_size = 12 # edit font size for all non-data text
-    ) +
-    theme(plot.title = element_text(size = 12, hjust = 0.5),
-          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
-          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
-          axis.ticks.x = element_blank()
-    )
-  print(fig_level3)
-}
-  
-  
-fig_ls[[length(fig_ls)+1]] = list(fig_level2, fig_level3)
-}
-
-names(fig_ls) = input_files
-
-{
-  ggarrange(
-    ggarrange(fig_ls[[1]][[1]],fig_ls[[1]][[2]],ncol = 2, widths = c(1,2), labels = input_files[1]),
-    ggarrange(fig_ls[[2]][[1]],fig_ls[[2]][[2]],ncol = 2, widths = c(1,2), labels = input_files[2]),
-    ggarrange(fig_ls[[3]][[1]],fig_ls[[3]][[2]],ncol = 2, widths = c(1,2), labels = input_files[3]),
-    ggarrange(fig_ls[[4]][[1]],fig_ls[[4]][[2]],ncol = 2, widths = c(1,2), labels = input_files[4]),
-    nrow = 4) %>%
-    ggexport(filename = "PAVE_NetID_merge.pdf", width = 15, height = 10)
-}
-
-
