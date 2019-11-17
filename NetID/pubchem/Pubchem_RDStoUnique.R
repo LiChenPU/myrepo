@@ -11,7 +11,7 @@ sink("log.txt")
 timestamp()
 time = Sys.time()
 
-for(repeating in 0:1)
+for(repeating in 0:floor(length(rdsfilenames)/40))
 {
   output_name = substr(rdsfilenames[40*repeating+ 1], 1, 12)
   print(paste("Processing", output_name))
@@ -46,7 +46,7 @@ for(repeating in 0:1)
     # filter_elem_char = paste(filter_elem, collapse = "|")
     
     f1 = f0 %>%
-      filter(!grepl(filter_elem_char, PUBCHEM_MOLECULAR_FORMULA)) %>%
+      # filter(!grepl(filter_elem_char, PUBCHEM_MOLECULAR_FORMULA)) %>%
       # filter(PUBCHEM_ISOTOPIC_ATOM_COUNT == 0) %>%
       distinct(PUBCHEM_MOLECULAR_FORMULA, .keep_all = T)
   }
