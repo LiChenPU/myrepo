@@ -4,22 +4,25 @@ library(lc8)
 library(dplyr)
 library(enviPat)
 
+sink("log.txt")
 # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 rdsfilenames = list.files(pattern = "\\.rds")
 
-sink("log.txt")
-timestamp()
+
+
+print(timestamp())
+# sink()
 time = Sys.time()
 
-for(repeating in 0:floor(length(rdsfilenames)/40))
+for(repeating in 0:floor(length(rdsfilenames)/20))
 {
-  output_name = substr(rdsfilenames[40*repeating+ 1], 1, 12)
+  output_name = substr(rdsfilenames[20*repeating+ 1], 1, 13)
   print(paste("Processing", output_name))
-  if(file.exists(paste0(output_name,".rds"))){next}
+  if(file.exists(paste0("./Unique_formula/",output_name,".rds"))){next}
   rds_ls = list()
   # for(i in 1:length(rdsfilenames)){
-  for(i in 1:40){
-    rds_ls[[i]] = readRDS(rdsfilenames[40*repeating+i])
+  for(i in 1:20){
+    rds_ls[[i]] = readRDS(rdsfilenames[20*repeating+i])
   }
   
   summary = bind_rows(rds_ls) 
@@ -38,15 +41,17 @@ for(repeating in 0:floor(length(rdsfilenames)/40))
   
   ## Filter elements ####
   {
-    # data(periodic_table)
-    # data("elem_table")
-    # all_elem = periodic_table$Symbol
-    # keep_elem = all_elem[c(1:36, 53)]
-    # filter_elem = all_elem[-c(1:36, 53)]
-    # filter_elem_char = paste(filter_elem, collapse = "|")
+    data(periodic_table)
+    data("elem_table")
+    all_elem = periodic_table$Symbol
+    keep_elem = elem_table$element 
+    keep_elem = keep_elem[keep_elem %in% all_elem & keep_elem!="Dy"]
+    filter_elem = all_elem[!all_elem %in% keep_elem]
+    filter_elem_char = paste(c(filter_elem), collapse = "|")
+    # filter_elem_char = "Dy"
     
     f1 = f0 %>%
-      # filter(!grepl(filter_elem_char, PUBCHEM_MOLECULAR_FORMULA)) %>%
+      filter(!grepl(filter_elem_char, PUBCHEM_MOLECULAR_FORMULA)) %>%
       # filter(PUBCHEM_ISOTOPIC_ATOM_COUNT == 0) %>%
       distinct(PUBCHEM_MOLECULAR_FORMULA, .keep_all = T)
   }
