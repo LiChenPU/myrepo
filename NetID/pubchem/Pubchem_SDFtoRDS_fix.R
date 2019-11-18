@@ -7,7 +7,8 @@ filenames = list.files(pattern = ".sdf.gz")
 sink("log.txt")
 print(timestamp())
 for(i in 1:length(filenames)){
-  if(file.exists(sub("sdf.gz","rds", filenames[i]))){next} # skip when rds file exists
+  temp_rds = readRDS(sub("sdf.gz","rds", filenames[i]))
+  if(colnames(temp_rds)[1] != "CMP1"){next} # skip when rds file is good
   print(paste("Processing", filenames[i]))
   dsfset = read.SDFset(filenames[i])
   valid <- validSDF(dsfset) # Identifies invalid SDFs in SDFset objects 
