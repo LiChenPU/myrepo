@@ -4,7 +4,7 @@ library(lc8)
 library(dplyr)
 library(enviPat)
 
-# sink("log.txt")
+sink("log.txt")
 # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 rdsfilenames = list.files(pattern = "\\.rds")
 
