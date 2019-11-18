@@ -4,7 +4,7 @@ library(lc8)
 library(dplyr)
 library(enviPat)
 
-sink("log.txt")
+# sink("log.txt")
 # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 rdsfilenames = list.files(pattern = "\\.rds")
 
@@ -13,8 +13,8 @@ rdsfilenames = list.files(pattern = "\\.rds")
 print(timestamp())
 # sink()
 time = Sys.time()
-
-for(repeating in 0:floor(length(rdsfilenames)/20))
+bad_file = c()
+for(repeating in 13:floor(length(rdsfilenames)/20))
 {
   output_name = substr(rdsfilenames[20*repeating+ 1], 1, 13)
   print(paste("Processing", output_name))
@@ -22,9 +22,17 @@ for(repeating in 0:floor(length(rdsfilenames)/20))
   rds_ls = list()
   # for(i in 1:length(rdsfilenames)){
   for(i in 1:20){
-    rds_ls[[i]] = readRDS(rdsfilenames[20*repeating+i])
+    
+    temp_result = readRDS(rdsfilenames[20*repeating+i])
+    if(colnames(temp_result)[1]=="CMP1"){
+      print(paste("bad file:",rdsfilenames[20*repeating+i]))
+      next
+    }
+    rds_ls[[i]] = temp_result
   }
   
+  # test = lapply(rds_ls, colnames)
+  # test2 = rds_ls[[8]]
   summary = bind_rows(rds_ls) 
   
   

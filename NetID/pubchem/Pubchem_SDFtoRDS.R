@@ -14,8 +14,13 @@ for(i in 1:length(filenames)){
   dsfset <- dsfset[valid] # Removes invalid SDFs, if there are any 
   
   temp_result_ls = datablock(dsfset)
-  temp_result = rbind_list(temp_result_ls)
   
+  temp_result = rbind_list(temp_result_ls)
+  if(colnames(temp_result)[1]=="CPM1"){
+    temp_result = data.frame(matrix(unlist(temp_result_ls), nrow=length(temp_result_ls), byrow=T), stringsAsFactors = F)
+    colnames(temp_result) = names(temp_result_ls[[1]])
+  }
+
   saveRDS(temp_result, sub("sdf.gz","rds", filenames[i]))
 }
 
