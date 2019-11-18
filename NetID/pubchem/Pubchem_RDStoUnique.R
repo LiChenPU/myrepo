@@ -14,7 +14,7 @@ print(timestamp())
 # sink()
 time = Sys.time()
 bad_file = c()
-for(repeating in 13:floor(length(rdsfilenames)/20))
+for(repeating in 0:floor(length(rdsfilenames)/20))
 {
   output_name = substr(rdsfilenames[20*repeating+ 1], 1, 13)
   print(paste("Processing", output_name))
@@ -71,21 +71,23 @@ for(repeating in 13:floor(length(rdsfilenames)/20))
     
     f2_charge = f1 %>%
       mutate_if(numericcharacters, as.numeric) %>%
-      filter(PUBCHEM_TOTAL_CHARGE != 0) %>%
-      mutate(neutral_formula = check_chemform(isotopes, gsub("\\+.*|-.*", "", PUBCHEM_MOLECULAR_FORMULA))$new_formula)
+      filter(PUBCHEM_TOTAL_CHARGE != 0) 
     
-    
-    temp_neutral_formula = character(nrow(f2_charge))
-    for(i in 1:nrow(f2_charge)){
-      temp_neutral_formula[i] = my_calculate_formula(f2_charge$neutral_formula[i], 
-                                                     paste0("H",abs(f2_charge$PUBCHEM_TOTAL_CHARGE[i])),
-                                                     -1 * sign(f2_charge$PUBCHEM_TOTAL_CHARGE[i]),
-                                                     Is_valid = F)
+    if(nrow(f2_charge) != 0){
+      f2_charge = f2_charge %>%
+        mutate(neutral_formula = check_chemform(isotopes, gsub("\\+.*|-.*", "", PUBCHEM_MOLECULAR_FORMULA))$new_formula)
+      
+      temp_neutral_formula = character(nrow(f2_charge))
+      for(i in 1:nrow(f2_charge)){
+        temp_neutral_formula[i] = my_calculate_formula(f2_charge$neutral_formula[i], 
+                                                       paste0("H",abs(f2_charge$PUBCHEM_TOTAL_CHARGE[i])),
+                                                       -1 * sign(f2_charge$PUBCHEM_TOTAL_CHARGE[i]),
+                                                       Is_valid = F)
+      }
+      
+      f2_charge = f2_charge %>% 
+        mutate(neutral_formula = temp_neutral_formula)
     }
-    
-    f2_charge = f2_charge %>% 
-      mutate(neutral_formula = temp_neutral_formula)
-    
     
     f2 = f1 %>%
       filter(PUBCHEM_TOTAL_CHARGE == 0) %>%
