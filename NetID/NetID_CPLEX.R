@@ -32,18 +32,18 @@ library(cplexAPI)
   
 }
 
+
 g_vertex_edge = determine_is_metabolite()
 formula_list = g_vertex_edge$formula_list %>% 
-  full_join(Mset$Data %>% dplyr::select(ID, Input_id))
+  full_join(Mset$Data %>% dplyr::select(ID, Input_id)) 
 relation_list = g_vertex_edge$relation_list
-# 
-# test = formula_list %>% 
-#   full_join(Mset$Data %>% dplyr::select(ID, Input_id))
 
-# test = formula_list %>% 
+# 
+# test = formula_list %>%
 #   filter(ILP_result !=0) %>%
-#   filter(ILP_id <= nrow(unknown_formula))  %>%
-#   filter(is_metabolite == "NA")
+#   merge(Mset$Data %>% dplyr::select(ID, Input_id), all.y = T) 
+# write.csv(test,paste0(work_dir,".csv"))
+
 
 write.csv(edge_info_sum, paste(timestamp, "edge.csv"), row.names = F)
 write.csv(formula_list, paste0(timestamp, ".csv"), row.names = F)

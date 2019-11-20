@@ -982,7 +982,7 @@ Merge_edgeset = function(EdgeSet){
 
 
 ## Network_prediction - used to connect nodes to library and predict formula ####
-Network_prediction = function(Mset, 
+Formula_propagate = function(Mset, 
                               EdgeSet,
                               biotransform_step = 5,
                               artifact_step = 5,

@@ -4,7 +4,7 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 
-work_dir = "Lin_Yeast_Neg"
+work_dir = "Liver_WL_Neg"
 print(work_dir)
 print(ion_mode)
 
@@ -89,7 +89,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet) 
   
-  Mset[["NodeSet_network"]] = Network_prediction(Mset, 
+  Mset[["NodeSet_network"]] = Formula_propagate(Mset, 
                                                  EdgeSet,
                                                  biotransform_step = 6,
                                                  artifact_step = 6,
