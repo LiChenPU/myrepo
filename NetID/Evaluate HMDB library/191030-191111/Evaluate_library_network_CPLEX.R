@@ -3,76 +3,9 @@ library(readr)
 library(igraph)
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-
-# Read HMDB_files & library_data ####
-{
-  HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
-  ## Run these if use detected/quantified HMDB
-  {
-    HMDB_xml = read_csv("hmdb_xml_checkchemform.csv")
-    
-    HMDB_quantified_detected_unique = HMDB_xml %>%
-      filter(status %in% c("detected", "quantified")) %>%
-      distinct(chemical_formula, .keep_all=T)
-    
-    HMDB_quantified_detected_formula = HMDB_xml %>%
-      filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
-    
-    HMDB_clean_quantified_detected = HMDB_clean %>%
-      filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession)
-    
-    
-    HMDB_clean = HMDB_clean_quantified_detected
-  }
-  
-  HMDB_clean2 = HMDB_clean %>%
-    mutate(medMz = Exact_Mass, ID = 1:nrow(.)) %>%
-    rename(Compound_name = Name) %>%
-    dplyr::select(ID, HMDB_ID, Compound_name, Exact_Mass, MF, medMz) %>%
-    mutate(medRt = 0, pseudo_inten = 10)
-  
-  library_formula_num = 1
-  
-  set.seed(random_seed)
-  library_formula = sample(HMDB_clean2$MF, library_formula_num)
-  if(library_formula_num==1){library_formula = "C6H12O6"} 
-  library_data = expand_formula_to_library(library_formula)
-  
-}
-
-## adding variation to absolute mz
-{
-  ppm_error = ppm_error 
-  
-  set.seed(random_seed )
-  HMDB_clean2 = HMDB_clean2 %>%
-    mutate(medMz = medMz * (1+ rnorm(nrow(.), 0, ppm_error)/10^6)) # add ppm error
-  # mutate(mz = mz * (1+ rnorm(nrow(.), 0, 2)/10^3)) # add abs error
-  
-  HMDB_clean_test = HMDB_clean2 %>%
-    mutate(ppm = (medMz-Exact_Mass)/Exact_Mass*10^6) %>%
-    mutate(abs = medMz-Exact_Mass) 
-  
-  # HMDB_clean_test%>%
-  #   arrange(abs) %>% dplyr::select(abs) %>% tail()
-  
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
 result = list()
-# for(ppm_error in c(0.5, 1, 2, 5)){
-#   sigma = ppm_error
+for(ppm_error in c(0.5, 1, 2, 5)){
+  sigma = ppm_error
 # Read HMDB_files & library_data ####
 {
   HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
@@ -447,7 +380,7 @@ result[[length(result)+1]] = list(sigma = rep(sigma,4),
                                                   brute_force_top10,
                                                   nrow(unknown_formula_CPLEX))
                                   )
-# }
+}
                                   
 result_summary = lapply(result, bind_cols)
 
