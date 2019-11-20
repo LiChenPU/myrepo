@@ -24,26 +24,25 @@ unique_formulas = bind_rows(rds_ls) %>%
   distinct(neutral_formula, .keep_all = T)
 rm("rds_ls")
 
-unique_formulas_formulas = unique_formulas$neutral_formula
-
+unique_formulas_ls = split(unique_formulas, unique_formulas$origin)
 data(isotopes)
 check_formula_ls = list()
 bad = c()
-for(i in 1:length(unique_formulas_formulas)){
-  temp = try(check_chemform(isotopes, unique_formulas_formulas[i]))
+for(i in 1:length(unique_formulas_ls)){
+  print(paste("prosessing",i))
+  print(Sys.time()-time)
+  check_formula = try(check_chemform(isotopes, unique_formulas_ls[[i]]$neutral_formula))
   if(inherits(temp, "try-error")){
     bad = c(bad, i)
     next
   }
-  check_formula_ls[[length(check_formula_ls)+1]] = temp
-  if(i %% 10000 == 0)print(i)
+  check_formula_ls[[i]] = unique_formulas_ls[[i]] %>%
+    mutate(invalid_formula = check_formula$warning,
+           monoisotopic_mass = check_formula$monoisotopic_mass)
+  
 }
 
-check_formula = bind_rows(check_formula_ls)
-
-summary = unique_formulas %>%
-  mutate(invalid_formula = check_formula$warning,
-         monoisotopic_mass = check_formula$monoisotopic_mass) %>%
+summary = bind_rows(check_formula_ls) %>%
   filter(!invalid_formula) %>%
   dplyr::select(-invalid_formula)
 
