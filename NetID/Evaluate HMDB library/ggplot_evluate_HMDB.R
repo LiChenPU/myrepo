@@ -695,7 +695,53 @@ colfunc(5)[1]
 }
 
 
-
+## Figure 3 - summary of C/N num match ####
+{
+ 
+  CN_match_data = tabyl(all_bio_filter, CN_match, feature)
+  
+  category = colnames(CN_match_data)[2:6] %>% 
+  
+  CN_match_summary = data.frame(CN_match = optimized_correct,
+                                CN_mismatch =  optimized_wrong,
+                                category = colnames(CN_match_data)[2:6]) %>%
+    gather(key = "cohorts", value = "number", -category) %>%
+    mutate(cohorts = gsub("\\.", "-", cohorts))
+  
+  
+  # pdf("bar_ppm_error_assignment.pdf",
+  #     width = 5,
+  #     height = 4)
+  # dev.new(width = 4, height = 3, unit = "in")
+  figure_2E = ggplot(ppm_error_assignment_summary, aes(y = number, x = factor(ppm_errors), fill = forcats::fct_rev(cohorts), label = number)) +
+    geom_bar(stat = "identity",
+             position = "stack" # make percentage graph
+    ) +
+    geom_text_repel(size = 3.5,position = position_stack(vjust = 0.5), max.iter=1,arrow=T) +
+    labs(x = "Gaussian noise level (ppm)",
+         title = "Formula assignment accuracy",
+         y = "# of formula assignment") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    )) +
+    scale_y_continuous(expand = c(0,0),
+                       # labels = scales::percent,
+                       breaks = scales::pretty_breaks(n = 8)
+    ) +
+    expand_limits(y = 1800) +
+    scale_fill_manual(values = c("Correct" = my_palette[1],
+                                 "Incorrect" = my_palette[5])) +
+    theme_classic(base_size = 14 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm")
+    )
+  # print(figure_2e)
+  # dev.off()
+  
+  
+}
 
 
 

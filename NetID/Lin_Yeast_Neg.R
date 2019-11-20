@@ -2,6 +2,7 @@ library(janitor)
 # install.packages("readxl")
 library(readxl)
 library(readr)
+library(plyr)
 library(dplyr)
 library(tidyr)
 library(enviPat)
@@ -147,101 +148,102 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
     ))
 }
 
-# ## Evaluate groundtruth ####
+## Assign status based on NetID results ####
 # {
 #   write.csv(all, "all.csv", row.names = F)
-#   
-#   all_inten = all %>% 
+# 
+#   all_inten = all %>%
 #     filter(sig > log10(1e5))
 #   all_background_nonbio = all_inten %>%
 #     # filter(is_na(ID) & Background %in% c("Background", "NonBio", "Artifact"), feature == "'Background'")
 #     filter(feature %in% c("'Background'", "'Low_score'")) %>%
 #     mutate(Status = feature)
-#   
+# 
 #   table(all_background_nonbio$Feature)
 #   table(all_background_nonbio$feature)
-#   
+# 
 #   all_biological = all_inten %>%
-#     filter(!Input_id %in% all_background_nonbio$Input_id) 
+#     filter(!Input_id %in% all_background_nonbio$Input_id)
 #   table(all_biological$Feature)
 #   table(all_biological$feature)
-#   
+# 
 #   {
 #     all_adduct = all_biological %>%
 #       filter(feature == "'Adduct'") %>%
 #       mutate(Status = case_when(
 #         grepl("Adduct", Artifact_assignment)~"Adduct",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#     
+# 
 #     all_adduct_np = all_biological %>%
 #       filter(feature == "'Adduct_np'") %>%
 #       mutate(Status = case_when(
 #         grepl("Adduct", Artifact_assignment)~"Adduct",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#    
+# 
 #     all_dimer = all_biological %>%
 #       filter(feature == "'Dimer'") %>%
 #       mutate(Status = case_when(
 #         grepl("Oligomer", Artifact_assignment)~"Oligomer",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#     
+# 
 #     all_fragment = all_biological %>%
 #       filter(feature == "'Fragment'") %>%
 #       mutate(Status = case_when(
 #         grepl("Fragment", Artifact_assignment)~"Fragment",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#       
-#     
+# 
+# 
 #     all_isotope = all_biological %>%
 #       filter(feature == "'Isotope'") %>%
 #       mutate(Status = case_when(
 #         grepl("Isotope", Artifact_assignment)~"Isotope",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#     
+# 
 #     all_multicharge = all_biological %>%
 #       filter(feature == "'Multicharge'") %>%
 #       mutate(Status = case_when(
 #         grepl("Double_charge", Artifact_assignment)~"Double_charge",
 #         Artifact_assignment!="" ~ "Other artifacts",
-#         Background == "Background" ~ "High background",
+#         # Background == "Background" ~ "High background",
 #         is.na(formula) ~ "No formula assigned",
 #         Artifact_assignment=="" ~ "Biotransformed"
 #       ))
-#       
-#     
+# 
+# 
 #     all_metabolite = all_biological %>%
 #       filter(feature == "'Metabolite'") %>%
 #       mutate(Status = ifelse(Biotransform, "Biotransformed derived", "Biotransform_Not_matched"))
 #   }
-#   
-#   
-#   
+# 
+# 
+# 
 #   all_unknown = all_biological %>%
 #     filter(feature=="'Low_C'" | feature == "[]") %>%
 #     mutate(Status = transformation_category) %>%
-#     mutate(Status = ifelse(Background == "Background", "High background", Status))
-#   
-#   all_bind = bind_rows(all_adduct, 
+#     # mutate(Status = ifelse(Background == "Background", "High background", Status))
+#     filter(T)
+# 
+#   all_bind = bind_rows(all_adduct,
 #                        all_adduct_np,
 #                        all_dimer,
 #                        all_fragment,
@@ -250,27 +252,116 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
 #                        all_metabolite,
 #                        all_unknown) %>%
 #     arrange(Input_id)
-#   
+# 
 #   write.csv(all_bind %>%
 #               bind_rows(all) %>%
 #               distinct(Input_id, .keep_all = T) %>%
 #               arrange(Input_id)
 #             , "all_bind.csv", row.names = F)
-#   
+# 
 #   table(all_bind$Status)
-#   
+# 
 # }
 
+
+
+## Evaluate manual assignment results ####
+{
+  all_bio = all %>%
+    filter(sig > log10(1e5)) %>%
+    filter(!feature %in% c("'Background'", "'Low_score'")) %>%
+    # filter(Formula_validated == "Y") %>%
+    mutate(Formula_match = case_when(
+      Formula_validated == "?" ~ "Ground truh unassigned",
+      is.na(formula) ~ "No assignment",
+      formula == Formula.1 ~ "Correct",
+      formula != Formula.1 ~ "Incorrect"
+    )) %>%
+    mutate(Category3 = case_when(
+      feature == "'Metabolite'" ~ "Metabolite",
+      feature == "[]" ~ "Unknown",
+      feature != "" ~ "Artifact"
+    ))
+  
+  table(all_bio$Category3)
+  tabyl(all_bio, Category3, Formula_match)
+  
+  
+  all_bio_filter = all_bio %>%
+    # filter(CN_match) %>%
+    filter(feature %in% c("'Adduct'", "'Isotope'", "'Adduct_np'", "'Dimer'", "'Fragment'", "'Metabolite'")) %>%
+    # filter(feature %in% c("'Dimer'", "'Fragment'", "'Metabolite'")) %>%
+    # filter(is.na(CN_match) | !CN_match) %>%
+    # filter(Formula_match %in% c("Incorrect","No assignment")) %>%
+    # filter(Category3 == "Unknown") %>%
+    # filter(Unknown_assignment == "Non-metabolite") %>%
+    # filter(Status_validated == "Adduct") %>%
+    # filter(Note != "NetID_mistake") %>%
+    # filter(!is.na(Note)) %>%
+    filter(T)
+    
+  tabyl(all_bio_filter, CN_match, feature)
+  
+  {
+    NetID_lin_neg = NetID_merge_ls[[1]]
+    NetID_edge_lin_neg = NetID_edge_merge_ls[[1]]
+    
+    match_parent_CN = function(selected_node){
+      selected_formula = NetID_lin_neg %>%
+        filter(ID == selected_node)
+      selected_edge = NetID_edge_lin_neg %>%
+        filter(node2 == selected_node) %>%
+        filter(category != "biotransform", !grepl("\\[", category)) %>%
+        filter(!category %in% c("Oligomer", "Heterodimer")) %>%
+        filter(ILP_result != 0) %>%
+        filter(T)
+      
+      selected_CN = all %>%
+        filter(ID == selected_node) %>%
+        dplyr::select(C,N)
+      parent_CN = all %>%
+        filter(ID %in% selected_edge$node1) %>%
+        filter(CN_match) %>%
+        # filter(ID == -1) %>%
+        dplyr::select(C,N)
+      
+      matched_rows = match_df(parent_CN, selected_CN)
+      return(nrow(matched_rows) != 0)
+      
+    }
+    
+    all_bio_adduct = all_bio %>%
+      filter(feature %in% c("'Adduct'")) %>%
+      mutate(CN_match_parent = sapply(ID, match_parent_CN))
+    
+    all_bio_adduct_filter = all_bio_adduct %>%
+      filter(!CN_match_parent)
+    tabyl(all_bio_adduct, CN_match_parent)
+  }
+  
+  
+  tabyl(all_bio_filter, CN_match, feature)
+  
+  tabyl(all_bio_filter$Status_validated)
+  
+  colnames(all_bio)
+  tabyl(all_bio$Status)
+  tabyl(all_bio$Formula_validated)
+  tabyl(all_bio$Status_validated)
+  
+}
 
 ## Query NetID ####
 {
   NetID_lin_neg = NetID_merge_ls[[1]]
   NetID_edge_lin_neg = NetID_edge_merge_ls[[1]]
   
-  query_Input_id = 2020
+  query_Input_id = 5225
   selected_formula = NetID_lin_neg %>%
     filter(Input_id == query_Input_id)
-  selected_node = 1082
+  selected_node = 1402
+  selected_formula = NetID_lin_neg %>%
+    filter(ID == selected_node)
   selected_edge = NetID_edge_lin_neg %>%
     filter(node1 == selected_node | node2 == selected_node)
   selected_ILP_id = 2960
