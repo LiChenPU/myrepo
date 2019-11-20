@@ -32,7 +32,7 @@ for(i in 1:length(unique_formulas_ls)){
   print(paste("prosessing",i))
   print(Sys.time()-time)
   check_formula = try(check_chemform(isotopes, unique_formulas_ls[[i]]$neutral_formula))
-  if(inherits(temp, "try-error")){
+  if(inherits(check_formula, "try-error")){
     bad = c(bad, i)
     next
   }
