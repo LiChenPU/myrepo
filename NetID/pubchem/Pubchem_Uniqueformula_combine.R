@@ -35,7 +35,7 @@ for(i in 1:length(unique_formulas_formulas)){
     bad = c(bad, i)
     next
   }
-  check_formula_ls[[length(check_formula)+1]] = temp
+  check_formula_ls[[length(check_formula_ls)+1]] = temp
   if(i %% 10000 == 0)print(i)
 }
 
