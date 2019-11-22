@@ -9,9 +9,10 @@ library(scales)
 library(readxl)
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # Color setup ##
-# display.brewer.pal(4, "Set3")
+display.brewer.pal(8, "Set3")
+display.brewer.pal(8, "Set1")
 my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
-
+my_palette_full = brewer.pal(12, "Set3")
 colfunc = colorRampPalette(c(my_palette[3], "white"))
 colfunc(5)[1]
 
@@ -89,33 +90,37 @@ colfunc(5)[1]
     mutate(metabolites = gsub("\\.", " ", metabolites))
   
   
-  # pdf("bar_HMDB_connectivity.pdf", 
-  #     width = 4,
-  #     height = 3)
-  # ggplot(connection_summary, aes(y = number, x = reorder(metabolites, -number), fill = forcats::fct_rev(category), label = number)) + 
-  #   geom_bar(stat = "identity", 
-  #            position = "fill" # make percentage graph
-  #            ) +
-  #   geom_text(size = 3,position = position_fill(vjust = 0.5)) +
-  #   labs(# title = "Connectivity of HMDB metabolite formulas",
-  #        x = NULL,
-  #        y = "Fraction") + 
-  #   guides(fill = guide_legend(
-  #     title = "Metabolite status",
-  #     reverse = F
-  #     )) + 
-  #   scale_y_continuous(expand = c(0,0),
-  #                      labels = scales::percent,
-  #                      breaks = scales::pretty_breaks(n = 8)
-  #                      ) +
-  #   scale_x_discrete(limits = c("Detected", "All")) +
-  #   scale_fill_manual(values = c("Main network" = my_palette[1],
-  #                     "Subnetworks" = my_palette[2],
-  #                     "Unconnected" = my_palette[5])) +
-  #   theme_classic(base_size = 12 # edit font size for all non-data text
-  #                 ) +
-  #   theme(plot.title = element_text(hjust = 0.5))
-  # dev.off()
+
+  Figure_1C = ggplot(connection_summary, aes(y = number, x = reorder(metabolites, -number), fill = forcats::fct_rev(category), label = number)) +
+    geom_bar(stat = "identity",
+             position = "fill",# make percentage graph
+             colour = "#666666"
+             ) +
+    geom_text(size = 3,position = position_fill(vjust = 0.5)) +
+    labs(# title = "Connectivity of HMDB metabolite formulas",
+         x = NULL,
+         y = "Fraction") +
+    guides(fill = guide_legend(
+      title = "Metabolite status",
+      reverse = F
+      )) +
+    scale_y_continuous(expand = c(0,0),
+                       labels = scales::percent,
+                       breaks = scales::pretty_breaks(n = 8)
+                       ) +
+    scale_x_discrete(limits = c("Detected", "All")) +
+    scale_fill_manual(values = c("Main network" = my_palette[1],
+                      "Subnetworks" = my_palette[2],
+                      "Unconnected" = my_palette[5])) +
+    theme_classic(base_size = 12 # edit font size for all non-data text
+                  ) +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  pdf("Figure_1C.pdf",
+      width = 3.6,
+      height = 2.7)
+  print(Figure_1C)
+  dev.off()
 }
 
 
@@ -475,7 +480,6 @@ colfunc(5)[1]
 
 ## Figure 4B - Thiamine abundance across tissues ####
 {
-  
   lb=1000 # min abs value of flux to be included in the plot
   dblog_trans <- function(){
     trans_new(name='dblog', transform = function(x) (log10(abs(x)+lb)-log10(lb))*sign(x),
@@ -742,6 +746,320 @@ colfunc(5)[1]
   
   
 }
+
+
+
+
+
+
+## Figure 1D - illustration ####
+{
+  mass1 = 194.0431
+  sigma1 = 1e-6 * mass1
+  range = 6
+  x <- seq(mass1-range*sigma1, mass1+range*sigma1, by = sigma1/100)
+  y <- dnorm(x, mean = mass1, sd = sigma1)
+  mass_normal1 = data.frame(x=x, y=y) %>%
+    mutate(y = y/max(y))
+  
+  mass2 = 196.0584
+  sigma2 = 1e-6 * mass2
+  x <- seq(mass2-range*sigma2, mass2+range*sigma2, by = sigma2/100)
+  y <- dnorm(x, mean = mass2, sd = sigma2)
+  mass_normal2 = data.frame(x=x, y=y) %>%
+    mutate(y = y/max(y))
+  
+  mass_normal = bind_rows(mass_normal1, mass_normal2)
+
+  
+  ## figure_1D1
+  {
+    figure_1D1a = ggplot() +
+      geom_line(data = mass_normal1, aes(y = y, x = x)) +
+      geom_vline(xintercept = 194.04352, colour = "#AAAAAA") + # C7H14O2S2
+      geom_vline(xintercept = 194.04265, colour = my_palette_full[1], size = 1) + # C6H10O7
+      geom_vline(xintercept = 194.04399, colour = "#AAAAAA") + # C7H6N4O3
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = "Probability") +
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 2)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass1)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+    
+    figure_1D1b = ggplot() +
+      geom_line(data = mass_normal2, aes(y = y, x = x)) +
+      geom_vline(xintercept = 196.058303, colour = my_palette_full[1], size = 1) + # C6H12O7
+      geom_vline(xintercept = 196.059171, colour = "#AAAAAA") + # C7H16O2S2
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = NULL) +
+      scale_y_continuous(expand = c(0,0)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass2)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.line.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+  }
+  
+  ## figure_1D2
+  {
+    figure_1D2a = ggplot() +
+      geom_line(data = mass_normal1, aes(y = y, x = x)) +
+      geom_vline(xintercept = 194.04352, colour = my_palette_full[5], size = 1) + # C7H14O2S2
+      geom_vline(xintercept = 194.04265, colour = "#AAAAAA") + # C6H10O7
+      geom_vline(xintercept = 194.04399, colour = "#AAAAAA") + # C7H6N4O3
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = "Probability") +
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 2)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass1)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+    
+    figure_1D2b = ggplot() +
+      geom_line(data = mass_normal2, aes(y = y, x = x)) +
+      geom_vline(xintercept = 196.058303, colour = "#AAAAAA") + # C6H12O7
+      geom_vline(xintercept = 196.059171, colour = my_palette_full[5], size = 1) + # C7H16O2S2
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = NULL) +
+      scale_y_continuous(expand = c(0,0)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass2)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.line.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+  }
+  
+  ## figure_1D3
+  {
+    figure_1D3a = ggplot() +
+      geom_line(data = mass_normal1, aes(y = y, x = x)) +
+      geom_vline(xintercept = 194.04352, colour = my_palette_full[5], size = 1) + # C7H14O2S2
+      geom_vline(xintercept = 194.04265, colour = "#AAAAAA") + # C6H10O7
+      geom_vline(xintercept = 194.04399, colour = "#AAAAAA") + # C7H6N4O3
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = "Probability") +
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 2)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass1)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+    
+    figure_1D3b = ggplot() +
+      geom_line(data = mass_normal2, aes(y = y, x = x)) +
+      geom_vline(xintercept = 196.058303, colour = my_palette_full[1], size = 1) + # C6H12O7
+      geom_vline(xintercept = 196.059171, colour = "#AAAAAA") + # C7H16O2S2
+      labs(x = NULL,
+           # title = "Formula assignment",
+           y = NULL) +
+      scale_y_continuous(expand = c(0,0)
+      ) + 
+      scale_x_continuous(expand = c(0,0),
+                         breaks = c(mass2)
+      ) + 
+      theme_classic(base_size = 14 # edit font size for all non-data text
+      ) +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            plot.margin = margin(0.8,0.1,0.8,0.1,"cm"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+            axis.line.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.text.y=element_blank()
+      ) 
+  }
+  
+    
+  ggarrange(
+    figure_1D1a,
+    figure_1D1b,
+    figure_1D2a,
+    figure_1D2b,
+    figure_1D3a,
+    figure_1D3b,
+    # common.legend = T, legend = "right",
+    align = "hv",
+    nrow = 3, ncol = 2
+  ) %>%
+    ggexport(filename = "figure_1D.pdf", width = 3, height = 5.5)
+}
+
+
+## Figure 1E - summary of correct assignment in different group ####
+{
+  
+  
+  HMDB_assignment_summary = data.frame(Mass_connection = c(,1,9142.38,91184.6,26224.39),
+                                       Mass_only = c(16236.96,13871.66,1,1,9868745),
+                                       category = c("Main network", "Subnetwork", "Unconnected")) %>%
+    gather(key = "cohorts", value = "number", -category) %>%
+    mutate(cohorts = gsub("\\.", "-", cohorts))
+  
+  pdf("tissue_thiamine_summary.pdf",
+      width = 8,
+      height = 2.5)
+  # dev.new(width = 4, height = 3, unit = "in")
+  figure_4B = 
+    ggplot(tissue_thiamine_summary, aes(y = number, x = cohorts, fill = category, width = .75)) +
+    
+    geom_bar(stat = "identity",
+             position = position_dodge(), # make percentage graph
+             colour = "#333333"
+    ) +
+    labs(x = NULL,
+         # title = "Formula assignment",
+         y = "TIC") +
+    guides(fill = guide_legend(
+      title = NULL,
+      reverse = F
+    ),
+    colour = guide_legend(
+      title = NULL,
+      label = F
+    )
+    ) +
+    # scale_y_continuous(expand = c(0,0),
+    #                    trans = "log10",
+    #                    labels = scales::trans_format("log10", math_format(10^.x)),
+    #                    breaks = c(1e3, 1e4, 1e5, 1e6, 1e7)
+    #                    # limits = c(1e3, 1e7)
+    #                    # breaks = scales::pretty_breaks(n = 5)
+    # ) + 
+    scale_y_continuous(expand = c(0,0),
+                       trans = 'dblog',
+                       limit=c(0,2e7), 
+                       breaks = c(0,10^4,10^5,10^6,10^7,10^8,10^9), 
+                       labels = fancy_scientific) + 
+    # scale_fill_manual(values = c("Correct" = my_palette[1],
+    #                              "Incorrect" = my_palette[5])) +
+    scale_fill_manual(values = c(my_palette[1:5])) + 
+    scale_color_manual(values = "grey") + 
+    scale_x_discrete(labels = c("C12H16N4OS\nThiamine", 
+                                "C12H16N4O2S\nThiamine+O", 
+                                "C14H18N4O2S\nThiamine+C2H2O", 
+                                "C14H20N4O2S\nThiamine+C2H4O")) +
+    # facet_wrap(~cohorts) +
+    theme_classic(base_size = 12 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+          axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
+          axis.ticks.x = element_blank()
+    )
+  print(figure_4B)
+  dev.off()
+}
+
+
+
+
+## Figure 1F - ppm_error summary accuracy ####
+{
+  ppm_errors = sapply(result_summary, function(x) return(x$sigma[1]) )
+  optimized_correct = sapply(result_summary, function(x) return(x$formula[1]) )
+  optimized_all = sapply(result_summary, function(x) return(x$formula[2]))
+  top1 = sapply(result_summary, function(x) return(x$brute_force[1]) )
+  top3 = sapply(result_summary, function(x) return(x$brute_force[2]) )
+  
+  HMDB_ppm_summary = data.frame(ppm_errors = ppm_errors,
+                                NetID = optimized_correct/optimized_all,
+                                `Heuristic top1` = top1 / optimized_all,
+                                `Heuristic top3` = top3 / optimized_all) %>%
+    gather(key = "cohorts", value = "number", -ppm_errors) %>%
+    mutate(cohorts = gsub("\\.", " ", cohorts)) %>%
+    mutate(color = case_when(
+      cohorts == "NetID" ~ "red",
+      cohorts == "Heuristic top1" ~ "black",
+      cohorts == "Heuristic top3" ~ "grey"
+    ))
+  
+  # num_x = 4
+  
+  # pdf("bar_error_summary.pdf",
+  #     width = 4,
+  #     height = 4)
+  # dev.new(width = 1, height = 1, unit = "in")
+  figure_2F = ggplot(HMDB_ppm_summary, aes(y = number, x = factor(ppm_errors), group = forcats::fct_rev(cohorts), color = cohorts)) +
+    geom_line(stat = "identity",
+              size = 1.5
+              # linetype = rep(c("solid", rep("dashed", 2)),2),
+              # color = rep(c("red", "black", "grey"), num_x)
+    ) + 
+    geom_point(shape = 16,
+               size = 4) + 
+    labs(x = "Gaussian noise level (ppm)",
+         title = "Formula assignment accuracy",
+         y = "Accuracy percentage") +
+    guides(color = guide_legend(
+      title = NULL,
+      reverse = T
+    )) +
+    scale_y_continuous(expand = c(0,0),
+                       labels = scales::percent,
+                       limits = c(0,1.05),
+                       breaks = scales::pretty_breaks(n = 8)
+    ) +
+    # scale_x_discrete(limits = c("0.5", "1")) + 
+    # scale_colour_manual(values=c("red", "black", "grey")) +
+    scale_colour_manual(values=c("NetID" = my_palette[1],"Heuristic top1" = my_palette[5], "Heuristic top3" = my_palette[3])) +
+    theme_classic(base_size = 14 # edit font size for all non-data text
+    ) +
+    theme(plot.title = element_text(hjust = 0.5),
+          plot.margin = margin(0.5,0.5,0.5,0.5,"cm"))
+  
+  # dev.off()
+  
+}
+
+
+
 
 
 
