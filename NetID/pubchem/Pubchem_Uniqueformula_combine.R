@@ -47,35 +47,34 @@ summary = bind_rows(check_formula_ls) %>%
   dplyr::select(-invalid_formula)
 
 print(paste0("summary nrow=", nrow(summary)))
-saveRDS(summary, "summary.rds")
+# saveRDS(summary, "summary.rds")
 sink()
 
-# unique_formulas_mz = numeric(length = nrow(unique_formulas))
-# 
-# bad = c()
-# for(i in 3441785:length(unique_formulas_mz)){
-#   temp = try(formula_mz(unique_formulas_formulas[i]))
-#   if(inherits(temp, "try-error")){
-#     bad = c(bad, i)
-#     next
-#   }
-#   unique_formulas_mz[i] = temp
-#   if(i %% 100 == 0)print(i)
-# }
 
+summary = readRDS("summary.rds")
 
-## not enough memory to run ####
-# unique_formulas_ls = split(unique_formulas, unique_formulas$origin)
-# summary_ls = list()
-# for(i in 1:length(unique_formulas_ls)){
-#   temp_result = readRDS(paste0("./Unique_formula/",gsub("_unique_formula","", unique_formulas_ls[[i]]$origin[1])))
-#   temp_result2 = temp_result[unique_formulas_ls[[i]]$n,]
-#   summary_ls[[i]] = temp_result2
-#   print(i)
-# }
-# 
-# summary = bind_rows(summary_ls)
+test = summary %>%
+  filter(invalid_formula)
 
+## Filter elements ####
+{
+  data(periodic_table)
+  data("elem_table")
+  all_elem = periodic_table$Symbol
+  keep_elem = elem_table$element 
+  keep_elem = keep_elem[keep_elem %in% all_elem & keep_elem!="Dy"]
+  filter_elem = all_elem[!all_elem %in% keep_elem]
+  filter_elem_char = paste(c(filter_elem), collapse = "|")
+  
+  
+  summary_filter = summary %>%
+    filter(!grepl(filter_elem_char, neutral_formula))
+}
 
-
+test = summary_filter %>%
+  filter(grepl("-", neutral_formula))
+  
+  
+  
+  
 

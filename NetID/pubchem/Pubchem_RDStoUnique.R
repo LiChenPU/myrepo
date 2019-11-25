@@ -56,7 +56,7 @@ for(repeating in 0:floor(length(rdsfilenames)/20))
     keep_elem = keep_elem[keep_elem %in% all_elem & keep_elem!="Dy"]
     filter_elem = all_elem[!all_elem %in% keep_elem]
     filter_elem_char = paste(c(filter_elem), collapse = "|")
-    # filter_elem_char = "Dy"
+    
     
     f1 = f0 %>%
       filter(!grepl(filter_elem_char, PUBCHEM_MOLECULAR_FORMULA)) %>%

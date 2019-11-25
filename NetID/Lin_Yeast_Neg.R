@@ -286,6 +286,12 @@ my_palette = c(brewer.pal(4, "Set3"), rep("#666666", 50))
   table(all_bio$Category3)
   tabyl(all_bio, Category3, Formula_match)
   
+  all_bio_filter = all_bio %>%
+    filter(Category3 == "Unknown") %>%
+    filter(!is.na(Status_validated)) %>%
+    filter(T)
+  
+  tabyl(all_bio_filter, Status_validated)
   
   all_bio_filter = all_bio %>%
     # filter(CN_match) %>%
