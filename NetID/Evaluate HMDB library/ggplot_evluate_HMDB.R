@@ -934,28 +934,56 @@ colfunc(5)[1]
 
 ## Figure 1E - summary of correct assignment in different group ####
 {
+  # result_ls = readRDS("various_ppm.rds")
+  # g_clu = readRDS("g_clu_HMDB_detected.rds")
+  # temp = table(g_clu$membership)
+  # merge_formula = result_ls[[3]] %>%
+  #   mutate(formula_match_NetID = replace_na(formula_match_NetID, F),
+  #          formula_match_mass = replace_na(formula_match_mass, F)) %>%
+  #   arrange(ID) %>%
+  #   mutate(membership = g_clu$membership) %>%
+  #   mutate(network_status = case_when(
+  #     temp[as.character(membership)] == max(temp) ~ "Main network",
+  #     temp[as.character(membership)] != 1 ~ "Subnetwork",
+  #     temp[as.character(membership)] == 1 ~ "Unconnected"
+  #   ))
+  # 
+  # saveRDS(merge_formula, "Figure_1E.rds")
+  # 
+  # tabyl(merge_formula, network_status, formula_match_NetID)
+  # tabyl(merge_formula, network_status, formula_match_mass)
+  # 
+  # merge_formula_filter = merge_formula %>%
+  #   filter(formula_match_NetID, !formula_match_mass) %>%
+  #   filter(elem_ratio_rule_position < 4) %>%
+  #   arrange(medMz)
   
+  merge_formula = readRDS("Figure_1E.rds")
+  formula_match_NetID = tabyl(merge_formula, network_status, formula_match_NetID)
+  formula_match_mass = tabyl(merge_formula, network_status, formula_match_mass)
   
-  HMDB_assignment_summary = data.frame(Mass_connection = c(,1,9142.38,91184.6,26224.39),
-                                       Mass_only = c(16236.96,13871.66,1,1,9868745),
+  HMDB_assignment_summary = data.frame(Mass_connection = formula_match_NetID$`TRUE`,
+                                       Mass_only = formula_match_mass$`TRUE`,
                                        category = c("Main network", "Subnetwork", "Unconnected")) %>%
     gather(key = "cohorts", value = "number", -category) %>%
-    mutate(cohorts = gsub("\\.", "-", cohorts))
+    mutate(cohorts = gsub("\\.", "-", cohorts)) %>%
+    mutate(ratio = number/rep(c(1715, 75, 137), 2))
   
-  pdf("tissue_thiamine_summary.pdf",
-      width = 8,
+  pdf("HMDB_assignment_summary.pdf",
+      width = 6,
       height = 2.5)
-  # dev.new(width = 4, height = 3, unit = "in")
-  figure_4B = 
-    ggplot(tissue_thiamine_summary, aes(y = number, x = cohorts, fill = category, width = .75)) +
+  figure_1E =
+    ggplot(HMDB_assignment_summary, aes(y = ratio, x = category, fill = cohorts, width = .75)) +
     
     geom_bar(stat = "identity",
              position = position_dodge(), # make percentage graph
              colour = "#333333"
     ) +
+    geom_text(size = 3, aes(label = number, y = ratio + 0.03), # use y to control position
+              position = position_dodge(width = .75)) +
     labs(x = NULL,
          # title = "Formula assignment",
-         y = "TIC") +
+         y = "Accuracy percentage") +
     guides(fill = guide_legend(
       title = NULL,
       reverse = F
@@ -965,68 +993,45 @@ colfunc(5)[1]
       label = F
     )
     ) +
-    # scale_y_continuous(expand = c(0,0),
-    #                    trans = "log10",
-    #                    labels = scales::trans_format("log10", math_format(10^.x)),
-    #                    breaks = c(1e3, 1e4, 1e5, 1e6, 1e7)
-    #                    # limits = c(1e3, 1e7)
-    #                    # breaks = scales::pretty_breaks(n = 5)
-    # ) + 
-    scale_y_continuous(expand = c(0,0),
-                       trans = 'dblog',
-                       limit=c(0,2e7), 
-                       breaks = c(0,10^4,10^5,10^6,10^7,10^8,10^9), 
-                       labels = fancy_scientific) + 
-    # scale_fill_manual(values = c("Correct" = my_palette[1],
-    #                              "Incorrect" = my_palette[5])) +
-    scale_fill_manual(values = c(my_palette[1:5])) + 
+    scale_fill_manual(values=c("Mass_connection" = my_palette[1],"Mass_only" = my_palette[5])) +
     scale_color_manual(values = "grey") + 
-    scale_x_discrete(labels = c("C12H16N4OS\nThiamine", 
-                                "C12H16N4O2S\nThiamine+O", 
-                                "C14H18N4O2S\nThiamine+C2H2O", 
-                                "C14H20N4O2S\nThiamine+C2H4O")) +
-    # facet_wrap(~cohorts) +
-    theme_classic(base_size = 12 # edit font size for all non-data text
+    scale_y_continuous(expand = c(0,0),
+                       labels = scales::percent,
+                       breaks = scales::pretty_breaks(n = 5)
+    ) +
+    expand_limits(y = 1.05) +
+    theme_classic(base_size = 14 # edit font size for all non-data text
     ) +
     theme(plot.title = element_text(size = 12, hjust = 0.5),
           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
           axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7),
           axis.ticks.x = element_blank()
     )
-  print(figure_4B)
+  print(figure_1E)
   dev.off()
 }
 
 
-
-
 ## Figure 1F - ppm_error summary accuracy ####
 {
-  ppm_errors = sapply(result_summary, function(x) return(x$sigma[1]) )
-  optimized_correct = sapply(result_summary, function(x) return(x$formula[1]) )
-  optimized_all = sapply(result_summary, function(x) return(x$formula[2]))
-  top1 = sapply(result_summary, function(x) return(x$brute_force[1]) )
-  top3 = sapply(result_summary, function(x) return(x$brute_force[2]) )
+  temp = readRDS("various_ppm.rds")[-1]
+  
+  ppm_errors = gsub("ppm","", names(temp))
+  Mass_connection = sapply(result_ls, function(x) return(sum(x$formula_match_NetID, na.rm = T)) )
+  optimized_all = rep(1910, length(ppm_errors))
+  Mass_only = sapply(result_ls, function(x) return(sum(x$formula_match_mass, na.rm = T))  )
   
   HMDB_ppm_summary = data.frame(ppm_errors = ppm_errors,
-                                NetID = optimized_correct/optimized_all,
-                                `Heuristic top1` = top1 / optimized_all,
-                                `Heuristic top3` = top3 / optimized_all) %>%
+                                Mass_connection = Mass_connection/optimized_all,
+                                Mass_only = Mass_only / optimized_all) %>%
     gather(key = "cohorts", value = "number", -ppm_errors) %>%
-    mutate(cohorts = gsub("\\.", " ", cohorts)) %>%
-    mutate(color = case_when(
-      cohorts == "NetID" ~ "red",
-      cohorts == "Heuristic top1" ~ "black",
-      cohorts == "Heuristic top3" ~ "grey"
-    ))
+    mutate(cohorts = gsub("\\.", " ", cohorts))
   
   # num_x = 4
   
-  # pdf("bar_error_summary.pdf",
-  #     width = 4,
-  #     height = 4)
+ 
   # dev.new(width = 1, height = 1, unit = "in")
-  figure_2F = ggplot(HMDB_ppm_summary, aes(y = number, x = factor(ppm_errors), group = forcats::fct_rev(cohorts), color = cohorts)) +
+  figure_1F = ggplot(HMDB_ppm_summary, aes(y = number, x = factor(ppm_errors), group = forcats::fct_rev(cohorts), color = cohorts)) +
     geom_line(stat = "identity",
               size = 1.5
               # linetype = rep(c("solid", rep("dashed", 2)),2),
@@ -1035,7 +1040,7 @@ colfunc(5)[1]
     geom_point(shape = 16,
                size = 4) + 
     labs(x = "Gaussian noise level (ppm)",
-         title = "Formula assignment accuracy",
+         # title = "Formula assignment accuracy",
          y = "Accuracy percentage") +
     guides(color = guide_legend(
       title = NULL,
@@ -1044,16 +1049,20 @@ colfunc(5)[1]
     scale_y_continuous(expand = c(0,0),
                        labels = scales::percent,
                        limits = c(0,1.05),
-                       breaks = scales::pretty_breaks(n = 8)
+                       breaks = scales::pretty_breaks(n = 5)
     ) +
     # scale_x_discrete(limits = c("0.5", "1")) + 
     # scale_colour_manual(values=c("red", "black", "grey")) +
-    scale_colour_manual(values=c("NetID" = my_palette[1],"Heuristic top1" = my_palette[5], "Heuristic top3" = my_palette[3])) +
+    scale_colour_manual(values=c("Mass_connection" = my_palette[1],"Mass_only" = my_palette[5])) +
     theme_classic(base_size = 14 # edit font size for all non-data text
     ) +
     theme(plot.title = element_text(hjust = 0.5),
           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"))
   
+  # pdf("Figure_1F.pdf",
+  #     width = 5,
+  #     height = 3)
+  print(figure_1F)
   # dev.off()
   
 }
@@ -1096,6 +1105,15 @@ colfunc(5)[1]
   ) %>%
     ggexport(filename = "figure_S4B.pdf", width = 8, height = 4)
    
+  
+  ggarrange(
+    figure_1E,
+    figure_1F,
+    common.legend = T, legend = "top",
+    align = "hv",
+    nrow = 2, ncol = 1
+  ) %>%
+    ggexport(filename = "figure_1EF.pdf", width = 5, height = 6)
 }
 
 save(result_summary, file = "result_summary.RData")
