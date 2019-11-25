@@ -1,9 +1,15 @@
 source("~/myrepo/NetID/NetID_function.R")
 library(readr)
 library(igraph)
+library(janitor)
+# devtools::install_github("LiChenPU/Formula_manipulation")
+options(digits = 10)
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
+result_ls = list()
+for(ppm_error in c(5,2,1,0.5,0.2)){
+sigma = ppm_error
 # Read HMDB_files & library_data ####
 {
   HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
@@ -58,74 +64,6 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-result = list()
-# for(ppm_error in c(0.5, 1, 2, 5)){
-#   sigma = ppm_error
-# Read HMDB_files & library_data ####
-{
-  HMDB_clean = read_tsv('hmdb_structure_sdf_unique_neutral_formula.tsv')
-  ## Run these if use detected/quantified HMDB
-  {
-    HMDB_xml = read_csv("hmdb_xml_checkchemform.csv")
-
-    HMDB_quantified_detected_unique = HMDB_xml %>%
-      filter(status %in% c("detected", "quantified")) %>%
-      distinct(chemical_formula, .keep_all=T)
-
-    HMDB_quantified_detected_formula = HMDB_xml %>%
-      filter(chemical_formula %in% HMDB_quantified_detected_unique$chemical_formula)
-
-    HMDB_clean_quantified_detected = HMDB_clean %>%
-      filter(HMDB_ID %in% HMDB_quantified_detected_formula$accession)
-
-
-    HMDB_clean = HMDB_clean_quantified_detected
-  }
-  
-  HMDB_clean2 = HMDB_clean %>%
-    mutate(medMz = Exact_Mass, ID = 1:nrow(.)) %>%
-    rename(Compound_name = Name) %>%
-    dplyr::select(ID, HMDB_ID, Compound_name, Exact_Mass, MF, medMz) %>%
-    mutate(medRt = 0, pseudo_inten = 10)
-  
-  library_formula_num = 1
-  
-  set.seed(random_seed)
-  library_formula = sample(HMDB_clean2$MF, library_formula_num)
-  if(library_formula_num==1){library_formula = "C6H12O6"} 
-  library_data = expand_formula_to_library(library_formula)
-  
-}
-
-## adding variation to absolute mz
-{
-  ppm_error = ppm_error 
-  
-  set.seed(random_seed )
-  HMDB_clean2 = HMDB_clean2 %>%
-    mutate(medMz = medMz * (1+ rnorm(nrow(.), 0, ppm_error)/10^6)) # add ppm error
-  # mutate(mz = mz * (1+ rnorm(nrow(.), 0, 2)/10^3)) # add abs error
-  
-  HMDB_clean_test = HMDB_clean2 %>%
-    mutate(ppm = (medMz-Exact_Mass)/Exact_Mass*10^6) %>%
-    mutate(abs = medMz-Exact_Mass) 
-  
-  # HMDB_clean_test%>%
-  #   arrange(abs) %>% dplyr::select(abs) %>% tail()
-  
-}
 
 
 ## NetID run scripts ####
@@ -158,6 +96,7 @@ result = list()
   Mset[["ID"]] = Mset$Data$ID
 }
 
+
 # Network ####
 {
   EdgeSet = list()
@@ -173,17 +112,111 @@ result = list()
   
   EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet)
   
-  Mset[["NodeSet_network"]] = Network_prediction(Mset, 
-                                                 EdgeSet,
-                                                 biotransform_step = 16,
-                                                 artifact_step = 0,
-                                                 propagation_score_threshold = 0.2,
-                                                 propagation_intensity_threshold = 0,
-                                                 max_formula_num = 1e6,
-                                                 top_n = 50)
+  # Mset[["NodeSet_network"]] = Network_prediction(Mset, 
+  #                                                EdgeSet,
+  #                                                biotransform_step = 16,
+  #                                                artifact_step = 0,
+  #                                                propagation_score_threshold = 0.2,
+  #                                                propagation_intensity_threshold = 0,
+  #                                                max_formula_num = 1e6,
+  #                                                top_n = 50)
 }
 
+
+# evaluate brute force formula results ####
+{
+  Brute_force_formula = HMDB_clean2 %>%
+    dplyr::select(ID, Exact_Mass, medMz, MF) 
+  
+  # Max number of element
+  element_range = c()
+  for(i in c("C","H","N","O","P","S")){
+    element_range = c(element_range, max(sapply(Brute_force_formula$MF, elem_num_query, i)))
+  }
+  
+  Elem_ratio_rule_formula_ls = list()
+  for(i in 1:nrow(Brute_force_formula)){
+    Elem_ratio_rule_formula_ls[[Brute_force_formula$ID[i]]] = mz_formula(Brute_force_formula$medMz[i],
+                                                                         C_range = 0:element_range[1],
+                                                                         H_range = 0:element_range[2],
+                                                                         N_range = 0:element_range[3],
+                                                                         O_range = 0:element_range[4],
+                                                                         P_range = 0:element_range[5],
+                                                                         S_range = 0:element_range[6],
+                                                                         db_max = 99,
+                                                                         charge=0,
+                                                                         Elem_ratio_rule = T,
+                                                                         ppm = 5) %>%
+      mutate(ID = i)
+  }
+  
+  Brute_force_formula = Brute_force_formula %>%
+    mutate(elem_ratio_rule_position = apply(Brute_force_formula, 1, function(x){
+      temp_ID = as.numeric(x["ID"])
+      temp_formula = x["MF"]
+      temp_df = Elem_ratio_rule_formula_ls[[temp_ID]]
+      if(!is.data.frame(temp_df)){return(-2)} # means no matched formulas
+      if(!temp_formula %in% temp_df$formula){return(-1)} # means no matched formula
+      which(temp_df$formula==temp_formula)
+    })) %>%
+    mutate(chosen_formula = sapply(Elem_ratio_rule_formula_ls, function(x){
+      return(x$formula[1])
+    }))
+  
+  
+  
+  brute_force_summary = as.data.frame(table(Brute_force_formula$elem_ratio_rule_position), stringsAsFactors = F) %>%
+    mutate(Var1 = as.numeric(Var1))
+  
+  brute_force_top1 = brute_force_summary %>%
+    filter(Var1==1) %>%
+    dplyr::select(Freq) %>% sum()
+  
+  
+  brute_force_pool = bind_rows(Elem_ratio_rule_formula_ls) %>%
+    rename(rdbe = db_r) %>%
+    mutate(parent = 0,
+           is_metabolite = T,
+           score = 1,
+           steps = 0) %>%
+    dplyr::select(ID, formula, steps, parent, is_metabolite, score, rdbe)
+  
+  
+  {
+    data_str = data.frame(ID=as.numeric(),
+                          formula=as.character(), 
+                          steps=as.numeric(), 
+                          parent=as.numeric(), 
+                          is_metabolite = as.logical(),
+                          score=as.numeric(),
+                          rdbe=as.numeric(),
+                          stringsAsFactors = F)
+    #sf stands for summary_formula
+    mnl=Mset$NodeSet
+    sf = lapply(1:nrow(mnl),function(i)(data_str))
+    
+    for(i in mnl$ID[mnl$category==0]){
+      Initial_formula =sf[[i]]
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,T,1,mnl$rdbe[i])
+      sf[[i]]=Initial_formula
+    }
+    for(i in mnl$ID[mnl$category==-1]){
+      Initial_formula =sf[[i]]
+      Initial_formula[1,]= list(i,mnl$MF[i],0,0,F,1,mnl$rdbe[i])
+      sf[[i]]=Initial_formula
+    }
+  }
+  # sf = list()
+  for(n in 1: max(brute_force_pool$ID)){
+    sf[[n]]=brute_force_pool[brute_force_pool$ID==n,]
+  }
+  
+  Mset[["NodeSet_network"]] = sf
+}
+
+
 ## CPLEX optimiazation ####
+library(cplexAPI)
 {
   CPLEXset = list()
   CPLEXset[["formula"]] = Prepare_CPLEX_formula(Mset, mass_dist_sigma = mass_dist_sigma,
@@ -224,7 +257,81 @@ result = list()
       arrange(edge_ilp_id)
     print(paste("pred formula num =", nrow(unknown_formula_CPLEX)))
   }
+  
+  merge_formula = HMDB_clean2 %>%
+    merge(unknown_formula_CPLEX, by = "ID", all.x = T) %>%
+    merge(Brute_force_formula) 
+  
+  merge_formula$formula[is.na(merge_formula$formula)] = merge_formula$chosen_formula[is.na(merge_formula$formula)] 
+  merge_formula = merge_formula %>%
+    mutate(formula_match_NetID = MF == formula,
+           formula_match_mass = chosen_formula == MF)
+  
+  tabyl(merge_formula, formula_match_NetID, formula_match_mass)
 }
+
+####
+result_ls [[length(result_ls)+1 ]] = merge_formula
+}
+names(result_ls) = paste0(c(5,2,1,0.5,0.2), "ppm")
+# saveRDS(result_ls, "various_ppm.rds")
+# lapply(result_ls, tabyl, formula_match_NetID, formula_match_mass)
+
+
+
+
+## Query NetID ####
+{
+  selected_node = 259
+  selected_node = 62
+  selected_formula = unknown_formula %>%
+    filter(ID == selected_node)
+  selected_edge = edge_info_sum %>%
+    filter(node1 == selected_node | node2 == selected_node)
+  selected_ILP_id = 2960
+  selected_ILP_edge = edge_info_sum %>%
+    filter(ILP_id1 == selected_ILP_id | ILP_id2 == selected_ILP_id)
+}
+
+  
+{
+  ## Identify all correct_connects
+  {
+    all_connects = EdgeSet$Merge %>% filter(node1 %in% 1:nrow(Mset$Data), node2 %in% 1:nrow(Mset$Data))
+    
+    node1_formula = HMDB_clean2$MF[all_connects$node1]
+    node2_formula = HMDB_clean2$MF[all_connects$node2]
+    linktype_formula = all_connects$linktype
+    correct_log = rep(F, nrow(all_connects))
+    for(i in 1:nrow(all_connects)){
+      if(linktype_formula[i] == ""){next}
+      correct_log[i] = my_calculate_formula(node1_formula[i], linktype_formula[i]) == node2_formula[i]
+    }
+    correct_connects = all_connects %>% filter(correct_log)
+  }
+  
+  ## All network with correct linkage
+  {
+    merge_node_list = Mset$NodeSet %>% 
+      merge(HMDB_clean2, by = "ID", all=T) %>%
+      filter(category == 1)
+    merge_edge_list = correct_connects %>%
+      filter(node1 %in% merge_node_list$ID, node2 %in% merge_node_list$ID)
+    
+    g_all <- graph_from_data_frame(d = merge_edge_list, vertices = merge_node_list, directed = FALSE)
+    
+    merge_node_list = igraph::as_data_frame(g_all, "vertices")
+    merge_edge_list = igraph::as_data_frame(g_all, "edges")
+    
+    g_clu = components(g_all)
+    g_edge_size=table(g_clu$csize)
+  }
+  
+  # saveRDS(g_clu, "g_clu_HMDB_detected.rds")
+  
+}
+
+
 
 
 
@@ -263,7 +370,7 @@ result = list()
     
     g_clu = components(g_all)
     g_edge_size=table(g_clu$csize)
-    
+  
     basic_linktype = c("H2", "C1H2", "H2O1","H1N1", "H3N1", "C16H30O1", "H1O3P1", "C5H8", "H2S1", 
                        "C1O2", "C2H4", "C6H10O5", "O1", "C2H2O1", "C6H4O1")
     merge_node_list_basic = merge_node_list
