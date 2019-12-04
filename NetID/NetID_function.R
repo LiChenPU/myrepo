@@ -25,7 +25,7 @@ read_raw_data = function(filename){
   raw_data = read_csv(filename) 
   if("groupId" %in% colnames(raw_data)){
     raw_data = raw_data %>%
-      rename(ID = groupId)
+      dplyr::rename(ID = groupId)
   }
   return(raw_data)
 }
@@ -218,7 +218,7 @@ Peak_cleanup = function(Mset,
   s6 = s5 %>%
     distinct(MZRT_group, .keep_all=T) %>%
     arrange(ID) %>%
-    rename(Input_id = ID) %>%
+    dplyr::rename(Input_id = ID) %>%
     mutate(ID = 1:nrow(.)) %>%
     dplyr::select(-c("MZ_group", "MZRT_group")) %>%
     # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
