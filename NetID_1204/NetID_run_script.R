@@ -4,12 +4,16 @@
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source("NetID_function.R")
 
-work_dir = "Liver_WL_Neg"
+work_dir = "Lin_Yeast_Neg"
+ion_mode = -1
+Empirical_rules_file = "./dependent/Empirical_rules.csv"
+
+sigma = 0.5
 print(work_dir)
 print(ion_mode)
 
-printtime = Sys.time()
-timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+# printtime = Sys.time()
+# timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 # sink(paste(timestamp,"log.txt"))
 # sink()
 
@@ -17,8 +21,8 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 {
   Mset = list()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Biotransform"]]=Read_rule_table(rule_table_file = biotransform_file)
-  Mset[["Artifacts"]]=Read_rule_table(rule_table_file = artifact_file)
+  Mset[["Empirical_rules"]]=Read_rule_table(rule_table_file = Empirical_rules_file)
+  
   setwd(work_dir)
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
@@ -42,6 +46,30 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   Mset[["ID"]] = Mset$Data$ID
 }
+
+## Initiate nodeset and edgeset
+{
+  NodeSet = Initiate_nodeset(Mset)
+  
+  EdgeSet = Initiate_edgeset(Mset, NodeSet, 
+                             mass_abs = 0, mass_ppm = 10, 
+                             nonbio_RT_tol = 0.1)
+  
+  LibrarySet = Initiate_libraryset(Mset)
+  
+  test = EdgeSet %>% filter(linktype == "H-2K2")
+  test = sapply(NodeSet, "[[", "mz")
+  
+}
+
+
+## Candidate formula pool
+{
+  
+  
+}
+
+
 
 # Network ####
 {

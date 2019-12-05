@@ -227,6 +227,198 @@ Peak_cleanup = function(Mset,
   return(s6)
 }
 
+## New_function 1204 ####
+## Initiate_nodeset ####
+Initiate_nodeset = function(Mset){
+  NodeSet = apply(Mset$Data, 1, function(x){
+    list(
+      mz = as.vector(x["medMz"]),
+      RT = as.vector(x["medRt"]),
+      inten = as.vector(x["log10_inten"]),
+      sample_inten = x[Mset$Cohort$sample_names],
+      blank_inten = x[Mset$Cohort$blank_names],
+      formula = list()
+    )
+  })
+  names(NodeSet) = 1:nrow(Mset$Data)
+  return(NodeSet)
+}
+## Initiate_edgeset ####
+Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT_tol = 0.1){
+  mass_ppm = mass_ppm/1e6
+  
+  temp_mz_list = NodeSet %>%
+    sapply("[[","mz") %>%
+    sort()
+  
+  temp_RT_list = NodeSet %>%
+    sapply("[[","RT") 
+  temp_ID_list = names(temp_mz_list)
+  
+  merge_nrow = length(temp_mz_list)
+  
+  temp_rules = Mset$Empirical_rules %>%
+    arrange(mass)
+  timer=Sys.time()
+  {
+    edge_ls = list()
+    for (k in 1:nrow(Mset$Empirical_rules)){
+      temp_fg=temp_rules$mass[k]
+      temp_deltaRT = ifelse(temp_rules$category[k] == "Biotransform", Inf, nonbio_RT_tol)
+      
+      # Find the i,j combination gives potential transformation 
+      ## Memeory efficient, but may be slower
+      ## matrix calculation could be a faster & simpler approach 
+      temp_edge_list = list()
+      i=j=j_pos=1
+      while(i<=merge_nrow){
+        mass_tol = max(temp_mz_list[i]*mass_ppm,mass_abs)
+        while(1){
+          j=j+1
+          if(j>merge_nrow){break}
+          temp_ms = temp_mz_list[j]-temp_mz_list[i]
+          
+          if(temp_ms < (temp_fg - mass_tol)){
+            j_pos = j # locate the last j that has smaller ms
+            next
+          }
+          # Criteria to entry
+          if(abs(temp_ms-temp_fg)<mass_tol){
+            delta_RT = temp_RT_list[names(temp_mz_list[j])] - temp_RT_list[names(temp_mz_list[i])]
+            if(abs(delta_RT) < temp_deltaRT){
+              temp_edge_list[[length(temp_edge_list)+1]]= list(node1=temp_ID_list[i],
+                                                        node2=temp_ID_list[j], 
+                                                        mass_dif=(temp_ms-temp_fg)/temp_mz_list[j]*1E6)
+            }
+          }
+          if(temp_ms> (temp_fg + mass_tol)){break}
+        }
+        i = i + 1
+        j = j_pos - 1
+      }
+ 
+      edge_ls[[k]]= bind_rows(temp_edge_list) %>%
+        mutate(category = temp_rules$category[k],
+               linktype = temp_rules$Formula[k],
+               direction = temp_rules$direction[k],
+               rdbe = temp_rules$rdbe[k])
+      print(paste(temp_rules$category[k], temp_rules$Formula[k], nrow(edge_ls[[k]]),"found."))
+    }
+  }
+  
+  print(Sys.time()-timer)
+  edge_list = bind_rows(edge_ls) %>%
+    # mutate(linktype = Mset$Biotransform$Formula[linktype]) %>%
+    # filter(node1<=nrow(Mset$Data) | node2<=nrow(Mset$Data),
+    #        node1!=node2) %>%
+    filter(!linktype == "") %>% # remove data-data isomer connection
+    # mutate(category = "biotransform")
+    mutate(RT1 = temp_RT_list[node1], 
+           RT2 = temp_RT_list[node2]) %>%
+    mutate(node1 = as.numeric(node1),
+           node2 = as.numeric(node2)) %>%
+    
+    filter(T)
+  
+  
+  # 
+  # edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
+  # 
+  # edge_list_sub = subset(edge_list, 
+  #                        (edge_list$node1<=nrow(Mset$Data)|
+  #                           edge_list$node2<=nrow(Mset$Data))&
+  #                          edge_list$node1!=edge_list$node2
+  # )
+  # edge_list_sub["category"]=1
+  
+  return(edge_list)
+}
+## Initiate_libraryset ####
+Initiate_libraryset = function(Mset){
+  Metabolites = Mset$Library %>%
+    mutate(category = "Metabolite") %>%
+    dplyr::rename(Note = HMDB_ID)
+  Adducts = Mset$Empirical_rules %>%
+    filter(category == "Adduct") %>%
+    dplyr::rename(Name = Symbol,
+           Exact_Mass = mass,
+           MF = Formula
+           ) %>%
+    dplyr::select(-direction)
+  
+  LibrarySet = bind_rows(Metabolites, Adducts) %>%
+    mutate(library_ID = 1:nrow(.)) %>%
+    # Remove entries in HMDB that are adducts 
+    arrange(category) %>%
+    distinct(MF, .keep_all = T) %>%
+    arrange(library_ID) %>%
+    mutate(library_ID = 1:nrow(.))
+    # group_by(MF) %>%
+    # filter(n()>1)
+
+  return(LibrarySet)
+}
+## Formula_pool ####
+Formula_pool = function(Mset, NodeSet, 
+                        EdgeSet,
+                        LibrarySet,
+                        biotransform_step = 5,
+                        artifact_step = 5,
+                        propagation_score_threshold = 0.2,
+                        propagation_intensity_threshold = 2e4,
+                        max_formula_num = 1e6,
+                        top_n = 50)
+{
+  seed_library = LibrarySet %>%
+    mutate(formula = MF,
+           mi_mass = Exact_Mass,
+           RT = -1,
+           base_ID = library_ID,
+           base = MF,
+           parent_ID = library_ID,
+           parent = MF,
+           transform = "",
+           direction = 1,
+           rdbe = rdbe,
+           category = category
+           ) %>%
+    dplyr::select(formula, mi_mass,RT, base_ID, base, parent_ID, parent, transform, direction, rdbe, category)
+  
+  
+  initial_rule = Mset$Empirical_rules %>%
+    filter(category %in% c("Biotransform", "Adduct"))
+  
+  initial_library = expand_library(seed_library, initial_rule)
+  
+  
+  lib = seed_library %>% filter(category == "Metabolite")
+  rule = initial_rule %>% filter(category == "Biotransform")
+  expand_library = function(lib, rule){
+    mz_lib = lib$mi_mass
+    mz_rule = rule$mass
+    test = outer(mz_lib, mz_rule)
+    test2 = outer(mz_lib, -mz_rule)
+    
+    rdbe_lib = lib$rdbe
+    rdbe_rule = rule$rdbe
+    test = outer(rdbe_lib, rdbe_rule)
+    test2 = outer(rdbe_lib, -rdbe_rule)
+    
+    formula_lib = lib$formula
+    formula_rule = rule$Formula
+    profvis::profvis({
+      test = my_calculate_formula(formula_lib, formula_rule)
+    })
+    
+  }
+  
+  
+  formula
+}
+
+
+
+
 ## High_blank - Identify peaks with high blanks ####
 High_blank = function(Mset, fold_cutoff = 2)
 {
@@ -488,6 +680,7 @@ Edge_biotransform = function(Mset, mass_abs = 0.001, mass_ppm = 5)
   {
     edge_ls = list()
     temp_mz_list=merge_node_list$mz
+    
     
     for (k in 1:nrow(Mset$Biotransform)){
       temp_fg=Mset$Biotransform$mass[k]
