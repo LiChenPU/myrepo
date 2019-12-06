@@ -65,7 +65,15 @@ print(ion_mode)
 
 ## Candidate formula pool
 {
+  FormulaSet = Initilize_formulaset(Mset, NodeSet, 
+                                    LibrarySet,
+                                    ppm_tol = 5e-6)
   
+  FormulaSet = Propagate_formulaset(Mset, 
+                                    FormulaSet,
+                                    ppm_tol = 5e-6)
+  
+  all_bind = bind_rows(FormulaSet)
   
 }
 

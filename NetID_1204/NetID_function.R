@@ -50,8 +50,8 @@ Read_rule_table = function(rule_table_file, extend_rule = F){
   for(i in 1: nrow(Connect_rules)){
     if(Connect_rules$Formula[i]==""){next}
     Connect_rules$Formula[i] = check_chemform(isotopes,Connect_rules$Formula[i])$new_formula
-    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1",Is_valid = F)
-    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1 ,Is_valid = F)
+    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1")
+    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1)
     Connect_rules$mass[i] = formula_mz(Connect_rules$Formula[i])
   }
   
@@ -64,7 +64,7 @@ Read_rule_table = function(rule_table_file, extend_rule = F){
         temp_rule = Connect_rules[i,]
         temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
         temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
-                                                 sign = j-1,Is_valid = F)
+                                                 sign = j-1)
         temp_rule$mass = temp_rule$mass * j
         temp_rule$rdbe = temp_rule$rdbe * j
         
@@ -334,7 +334,7 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT
   return(edge_list)
 }
 ## Initiate_libraryset ####
-Initiate_libraryset = function(Mset){
+Initiate_libraryset = function(Mset, NodeSet){
   Metabolites = Mset$Library %>%
     mutate(category = "Metabolite") %>%
     dplyr::rename(Note = HMDB_ID)
@@ -352,68 +352,302 @@ Initiate_libraryset = function(Mset){
     arrange(category) %>%
     distinct(MF, .keep_all = T) %>%
     arrange(library_ID) %>%
-    mutate(library_ID = 1:nrow(.))
+    mutate(library_ID = (1+nrow(Mset$Data)):(nrow(Mset$Data)+nrow(.)))
     # group_by(MF) %>%
     # filter(n()>1)
 
   return(LibrarySet)
 }
-## Formula_pool ####
-Formula_pool = function(Mset, NodeSet, 
-                        EdgeSet,
-                        LibrarySet,
-                        biotransform_step = 5,
-                        artifact_step = 5,
-                        propagation_score_threshold = 0.2,
-                        propagation_intensity_threshold = 2e4,
-                        max_formula_num = 1e6,
-                        top_n = 50)
+### Expand_library ####
+expand_library = function(lib, rule, direction, category){
+  mz_lib = lib$mass
+  mz_rule = rule$mass
+  mass_exp = outer(mz_lib, mz_rule * direction, FUN = "+")
+  
+  rdbe_lib = lib$rdbe
+  rdbe_rule = rule$rdbe
+  rdbe_exp = outer(rdbe_lib, rdbe_rule * direction, FUN = "+")
+  
+  formula_lib = lib$formula
+  formula_rule = rule$Formula
+  formula_exp = my_calculate_formula(formula_lib, formula_rule, sign = direction)
+  
+  parent_lib = lib$formula
+  transformation_rule = rule$Formula
+  
+  exp = merge(parent_lib, transformation_rule, all=T) %>%
+    rename(parent = x,
+           transform = y) %>%
+    mutate(parent = as.character(parent),
+           transform = as.character(transform),
+           mass = as.vector(mass_exp),
+           rdbe = as.vector(rdbe_exp),
+           formula = as.vector(formula_exp),
+           direction = direction,
+           parent_ID = rep(lib$parent_ID, nrow(rule)),
+           category = category)
+  return(exp)
+}
+## Initialize formula pool ####
+Initilize_formulaset = function(Mset, NodeSet, 
+                                LibrarySet,
+                                ppm_tol = 5e-6)
 {
+  ## initialize
   seed_library = LibrarySet %>%
     mutate(formula = MF,
-           mi_mass = Exact_Mass,
-           RT = -1,
-           base_ID = library_ID,
-           base = MF,
+           mass = Exact_Mass,
            parent_ID = library_ID,
            parent = MF,
            transform = "",
            direction = 1,
            rdbe = rdbe,
            category = category
-           ) %>%
-    dplyr::select(formula, mi_mass,RT, base_ID, base, parent_ID, parent, transform, direction, rdbe, category)
+    ) %>%
+    dplyr::select(formula, mass, parent_ID, parent, transform, direction, rdbe, category) %>%
+    filter(T)
+    
+  initial_rule = Mset$Empirical_rules %>%
+    filter(category %in% c("Biotransform", "Adduct"))
+  
+  lib_met = seed_library %>% filter(category == "Metabolite")
+  rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
+  rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
+  
+  initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
+  initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
+  initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2, lib_met) 
+  
+  lib_adduct = seed_library %>% filter(category == "Adduct")
+  rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
+  rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
+  
+  initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Adduct")
+  initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1, category = "Adduct")
+  
+  initial_lib_adduct = bind_rows(lib_adduct, initial_lib_adduct_1, initial_lib_adduct_2)
+  
+  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct) %>%
+    mutate(RT = -1) %>%
+    # filter(grepl("(?<!H)-.", formula, perl=T))
+    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+    arrange(mass)
+  
+  initial_lib_mass = initial_lib$mass
+  node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+  temp_id = names(node_mass)
+  node_RT = sapply(NodeSet, "[[", "RT")[temp_id]
+  
+  
+  i=i_min=i_max=1
+  # sf = lapply(1:length(node_mass), function(x)initial_lib[0,])
+  sf = list()
+  while(i <= length(node_mass)){
+    mass_tol = node_mass[i]*ppm_tol
+    while(initial_lib_mass[i_min] - node_mass[i] < -mass_tol){
+      i_min = i_min + 1
+    }
+    if(initial_lib_mass[i_min] - node_mass[i] > mass_tol){
+      i = i+1
+      next
+    }
+    
+    i_max = i_min
+    while(initial_lib_mass[i_max] - node_mass[i] < mass_tol){
+      i_max = i_max + 1
+    }
+    i_max = i_max - 1
+    if(i_min == i_max){
+      i = i+1
+      next
+    }
+    
+    sf[[as.numeric(temp_id[i])]]=initial_lib[i_min:i_max,] %>%
+      mutate(node_id = as.numeric(temp_id[i])) %>%
+      mutate(msr.mz = node_mass[i]) %>% 
+      mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
+      mutate(steps = 0)
+    i = i+1
+    # print(i)
+  }
+  
+  
+  
+  
+  # 
+  # ## make a complete length sf list
+  # sf_template = sf
+  # sf[[]]
+  
+  return(sf)
+
+}
+
+
+## Propagate_formulaset ####
+Propagate_formulaset = function(Mset, 
+                                NodeSet,
+                                FormulaSet,
+                                ppm_tol = 5e-6,
+                                biotransform_step = 5,
+                                artifact_step = 5,
+                                propagation_ppm_threshold = 2.5,
+                                propagation_intensity_threshold = 2e4,
+                                max_formula_num = 1e6,
+                                top_n = 50)
+{
+  sf = FormulaSet
+  propagation_ppm_threshold = 2.5
+  biotransform_step = 5
+  artifact_step = 5
+  max_formula_num = 1e6
+  top_n = 50
+  
+  empirical_rules = Mset$Empirical_rules
+  
+  ## Expansion 
+  step_count = 0
+  while(step_count < biotransform_step){
+    all_nodes_df = bind_rows(sf)
+    # Handle artifacts
+    sub_step = 0
+    while(sub_step < 0.01 * artifact_step){
+      # print(paste("sub_step",sub_step,"elapsed="))
+      # print((Sys.time()-timer))
+      all_nodes_df = bind_rows(sf)
+      new_nodes_df = all_nodes_df %>%
+        distinct(node_id,formula, .keep_all=T) %>%
+        filter(steps==(step_count + sub_step),
+               ppm_error<propagation_ppm_threshold) %>%
+        filter(!grepl("\\.", formula)) %>%  # Do not propagate from formula with decimal point
+        filter(!grepl("Ring_artifact", formula)) # Do not propagate from ring artifacts
+      
+      sub_step = sub_step+0.01
+      if(nrow(new_nodes_df)==0){break}
+      
+      rule_1 = empirical_rules %>% filter(category != "Biotransform") %>% filter(direction %in% c(0,1))
+      rule_2 = empirical_rules %>% filter(category != "Biotransform") %>% filter(direction %in% c(0,-1))
+      
+      
+      lib_adduct_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = "Artifact")
+      lib_adduct_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Artifact")
+      
+      lib_adduct = bind_rows(lib_adduct_1, lib_adduct_2) 
+      
+      lib_mass = lib_adduct$mass
+      node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+      temp_id = names(node_mass)
+      node_RT = sapply(NodeSet, "[[", "RT")[temp_id]
+      
+      
+      while(i <= length(node_mass)){
+        mass_tol = node_mass[i]*ppm_tol
+        while(lib_mass[i_min] - node_mass[i] < -mass_tol){
+          i_min = i_min + 1
+        }
+        if(lib_mass[i_min] - node_mass[i] > mass_tol){
+          i = i+1
+          next
+        }
+        
+        i_max = i_min
+        while(lib_mass[i_max] - node_mass[i] < mass_tol){
+          i_max = i_max + 1
+        }
+        i_max = i_max - 1
+        if(i_min == i_max){
+          i = i+1
+          next
+        }
+        
+        sf[[temp_id[i]]]=lib_adduct[i_min:i_max,] %>%
+          mutate(node_id = temp_id[i]) %>%
+          mutate(msr.mz = node_mass[i]) %>% ## node_id in character
+          mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
+          mutate(msr.RT = node_RT[i])
+        i = i+1
+        # print(i)
+      }
+    }
+
+  }
+    
+  
+  
   
   
   initial_rule = Mset$Empirical_rules %>%
     filter(category %in% c("Biotransform", "Adduct"))
   
-  initial_library = expand_library(seed_library, initial_rule)
+  lib_met = seed_library %>% filter(category == "Metabolite")
+  rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
+  rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
   
+  initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1)
+  initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1)
   
-  lib = seed_library %>% filter(category == "Metabolite")
-  rule = initial_rule %>% filter(category == "Biotransform")
-  expand_library = function(lib, rule){
-    mz_lib = lib$mi_mass
-    mz_rule = rule$mass
-    test = outer(mz_lib, mz_rule)
-    test2 = outer(mz_lib, -mz_rule)
+  initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2) %>%
+    mutate(category = "Metabolite")
+  
+  lib_adduct = seed_library %>% filter(category == "Adduct")
+  rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
+  rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
+  
+  initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1)
+  initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1)
+  
+  initial_lib_adduct = bind_rows(initial_lib_adduct_1, initial_lib_adduct_2) %>%
+    mutate(category = "Adduct")
+  
+  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct) %>%
+    mutate(RT = -1) %>%
+    # filter(grepl("(?<!H)-.", formula, perl=T))
+    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+    arrange(mass)
+  
+  initial_lib_mass = initial_lib$mass
+  node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+  temp_id = as.numeric(names(node_mass))
+  
+  i=i_min=i_max=1
+  ppm_tol = 5e-6
+  # sf = lapply(1:length(node_mass), function(x)initial_lib[0,])
+  sf = list()
+  while(i <= length(node_mass)){
+    mass_tol = node_mass[i]*ppm_tol
+    while(initial_lib_mass[i_min] - node_mass[i] < -mass_tol){
+      i_min = i_min + 1
+    }
+    if(initial_lib_mass[i_min] - node_mass[i] > mass_tol){
+      i = i+1
+      next
+    }
     
-    rdbe_lib = lib$rdbe
-    rdbe_rule = rule$rdbe
-    test = outer(rdbe_lib, rdbe_rule)
-    test2 = outer(rdbe_lib, -rdbe_rule)
+    i_max = i_min
+    while(initial_lib_mass[i_max] - node_mass[i] < mass_tol){
+      i_max = i_max + 1
+    }
+    i_max = i_max - 1
+    if(i_min == i_max){
+      i = i+1
+      next
+    }
     
-    formula_lib = lib$formula
-    formula_rule = rule$Formula
-    profvis::profvis({
-      test = my_calculate_formula(formula_lib, formula_rule)
-    })
-    
+    sf[[temp_id[i]]]=initial_lib[i_min:i_max,] %>%
+      mutate(node_id = temp_id[i]) %>%
+      mutate(msr.mz = node_mass[i]) %>% ## node_id in character
+      mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6)
+    i = i+1
+    # print(i)
   }
   
+  tictoc::toc()
   
-  formula
+  
+  
+  
+  
+  
 }
 
 
