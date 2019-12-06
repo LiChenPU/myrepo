@@ -466,6 +466,7 @@ Initilize_formulaset = function(Mset, NodeSet,
       mutate(node_id = as.numeric(temp_id[i])) %>%
       mutate(msr.mz = node_mass[i]) %>% 
       mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
+      mutate(msr.RT = node_RT[i]) %>%
       mutate(steps = 0)
     i = i+1
     # print(i)
@@ -523,55 +524,81 @@ Propagate_formulaset = function(Mset,
         filter(!grepl("Ring_artifact", formula)) # Do not propagate from ring artifacts
       
       sub_step = sub_step+0.01
+      curent_step = step_count + sub_step
+      
       if(nrow(new_nodes_df)==0){break}
       
       rule_1 = empirical_rules %>% filter(category != "Biotransform") %>% filter(direction %in% c(0,1))
       rule_2 = empirical_rules %>% filter(category != "Biotransform") %>% filter(direction %in% c(0,-1))
       
-      
+      new_nodes_df = new_nodes_df %>%
+        mutate(parent_ID = node_id)
       lib_adduct_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = "Artifact")
       lib_adduct_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Artifact")
       
-      lib_adduct = bind_rows(lib_adduct_1, lib_adduct_2) 
+      
+      node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+      node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
+      temp_id = as.numeric(names(node_mass)) # numeric
+      
+      lib_adduct = bind_rows(lib_adduct_1, lib_adduct_2) %>%
+        filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+        mutate(RT = node_RT[as.character(parent_ID)]) %>%
+        arrange(mass)
       
       lib_mass = lib_adduct$mass
-      node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
-      temp_id = names(node_mass)
-      node_RT = sapply(NodeSet, "[[", "RT")[temp_id]
+      length_lib = length(lib_mass)
       
-      
+      i=i_min=i_max=1
+      RT_tol = 0.2
+      ppm_tol = 5e-6
       while(i <= length(node_mass)){
+        if(i%%100==0)print(i)
         mass_tol = node_mass[i]*ppm_tol
-        while(lib_mass[i_min] - node_mass[i] < -mass_tol){
+        # Move i_min to a position larger than lower threshold
+        while(lib_mass[i_min] < node_mass[i] - mass_tol & i_min < length_lib){
           i_min = i_min + 1
         }
-        if(lib_mass[i_min] - node_mass[i] > mass_tol){
+        
+        # if i_min's position larger than upper threhold, then move up i 
+        if(lib_mass[i_min] > node_mass[i] + mass_tol){
           i = i+1
           next
         }
         
+        # Arriving here, means i_min reaches maximum or/and i_min's position is larger than lower threhold
         i_max = i_min
-        while(lib_mass[i_max] - node_mass[i] < mass_tol){
+        
+        # Move i_max to a position that is below upper threhold
+        while(lib_mass[i_max] - node_mass[i] < mass_tol & i_max < length_lib){
           i_max = i_max + 1
         }
         i_max = i_max - 1
-        if(i_min == i_max){
-          i = i+1
-          next
-        }
         
-        sf[[temp_id[i]]]=lib_adduct[i_min:i_max,] %>%
-          mutate(node_id = temp_id[i]) %>%
-          mutate(msr.mz = node_mass[i]) %>% ## node_id in character
-          mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
-          mutate(msr.RT = node_RT[i])
+        # if there is no overlap of between i_min above lower threhold and i_max below upper threhold 
+        # it means i_min is maximum and i_max is maximum - 1, then break 
+        if(i_min > i_max){break}
+        
+        # Otherwise, record
+        candidate = lib_adduct[i_min:i_max,]
+        candidate = candidate %>%
+          filter(abs(node_RT[i] - RT) < RT_tol)
+        
+        if(nrow(candidate)!=0){
+          adding=lib_adduct[i_min:i_max,] %>%
+            mutate(node_id = temp_id[i]) %>%
+            mutate(msr.mz = node_mass[i]) %>% 
+            mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
+            mutate(msr.RT = node_RT[i]) %>%
+            mutate(steps = curent_step)
+          sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], adding)
+        }
         i = i+1
-        # print(i)
       }
     }
 
   }
-    
+  test = bind_rows(sf)
   
   
   
