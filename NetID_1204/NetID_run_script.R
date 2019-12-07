@@ -57,9 +57,6 @@ print(ion_mode)
   
   LibrarySet = Initiate_libraryset(Mset)
   
-  test = EdgeSet %>% filter(linktype == "H-2K2")
-  test = sapply(NodeSet, "[[", "mz")
-  
 }
 
 
@@ -70,12 +67,37 @@ print(ion_mode)
                                     ppm_tol = 5e-6)
   
   FormulaSet = Propagate_formulaset(Mset, 
+                                    NodeSet,
                                     FormulaSet,
-                                    ppm_tol = 5e-6)
-  
-  all_bind = bind_rows(FormulaSet)
+                                    biotransform_step = 2,
+                                    artifact_step = 2,
+                                    propagation_ppm_threshold = 1,
+                                    record_RT_tol = 0.1,
+                                    record_ppm_tol = 5e-6,
+                                    propagation_intensity_threshold = 2e4,
+                                    max_formula_num = 1e6,
+                                    top_n = 50)
+
+  all_bind = bind_rows(FormulaSet) %>%
+    # mutate(origin = 1) %>%
+    distinct(node_id,formula, .keep_all=T) %>%
+    filter(T)
+  # all_bind2 = bind_rows(sf) %>% 
+  #   mutate(origin = 2) %>%
+  #   bind_rows(all_bind) %>%
+  #   distinct(node_id,formula, .keep_all=T) %>%
+  #   filter(!node_id %in% all_bind$node_id)
   
 }
+
+## Candidate edge pool 
+{
+  
+  
+  
+}
+
+
 
 
 

@@ -247,18 +247,12 @@ Initiate_nodeset = function(Mset){
 Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT_tol = 0.1){
   mass_ppm = mass_ppm/1e6
   
-  temp_mz_list = NodeSet %>%
-    sapply("[[","mz") %>%
-    sort()
-  
-  temp_RT_list = NodeSet %>%
-    sapply("[[","RT") 
+  temp_mz_list = NodeSet %>% sapply("[[","mz") %>% sort()
+  temp_RT_list = NodeSet %>% sapply("[[","RT") 
   temp_ID_list = names(temp_mz_list)
-  
   merge_nrow = length(temp_mz_list)
   
-  temp_rules = Mset$Empirical_rules %>%
-    arrange(mass)
+  temp_rules = Mset$Empirical_rules %>% arrange(mass)
   timer=Sys.time()
   {
     edge_ls = list()
@@ -308,11 +302,7 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT
   
   print(Sys.time()-timer)
   edge_list = bind_rows(edge_ls) %>%
-    # mutate(linktype = Mset$Biotransform$Formula[linktype]) %>%
-    # filter(node1<=nrow(Mset$Data) | node2<=nrow(Mset$Data),
-    #        node1!=node2) %>%
     filter(!linktype == "") %>% # remove data-data isomer connection
-    # mutate(category = "biotransform")
     mutate(RT1 = temp_RT_list[node1], 
            RT2 = temp_RT_list[node2]) %>%
     mutate(node1 = as.numeric(node1),
@@ -320,16 +310,6 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT
     
     filter(T)
   
-  
-  # 
-  # edge_list$linktype=Mset$Biotransform$Formula[edge_list$linktype]
-  # 
-  # edge_list_sub = subset(edge_list, 
-  #                        (edge_list$node1<=nrow(Mset$Data)|
-  #                           edge_list$node2<=nrow(Mset$Data))&
-  #                          edge_list$node1!=edge_list$node2
-  # )
-  # edge_list_sub["category"]=1
   
   return(edge_list)
 }
@@ -388,6 +368,59 @@ expand_library = function(lib, rule, direction, category){
            category = category)
   return(exp)
 }
+### Match_library ####
+match_library = function(lib, sf, record_ppm_tol, record_RT_tol, curent_step){
+  lib_mass = lib$mass
+  length_lib = length(lib_mass)
+  node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+  node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
+  temp_id = as.numeric(names(node_mass)) # numeric
+  
+  i=i_min=i_max=1
+  while(i <= length(node_mass)){
+    # if(i%%100==0)print(i)
+    mass_tol = node_mass[i]*record_ppm_tol
+    # Move i_min to a position larger than lower threshold
+    while(lib_mass[i_min] < node_mass[i] - mass_tol & i_min < length_lib){
+      i_min = i_min + 1
+    }
+    # if i_min's position larger than upper threhold, then move up i 
+    if(lib_mass[i_min] > node_mass[i] + mass_tol){
+      i = i+1
+      next
+    }
+    # Arriving here, means i_min reaches maximum or/and i_min's position is larger than lower threhold
+    i_max = i_min
+    
+    # Move i_max to a position that is below upper threhold
+    while(lib_mass[i_max] - node_mass[i] < mass_tol & i_max < length_lib){
+      i_max = i_max + 1
+    }
+    i_max = i_max - 1
+    
+    # if there is no overlap of between i_min above lower threhold and i_max below upper threhold 
+    # it means i_min is maximum and i_max is maximum - 1, then break 
+    if(i_min > i_max){break}
+    
+    # Otherwise, record
+    candidate = lib[i_min:i_max,]
+    candidate = candidate %>%
+      filter(abs(node_RT[i] - RT) < record_RT_tol)
+    
+    if(nrow(candidate)!=0){
+      adding=candidate %>%
+        mutate(node_id = temp_id[i]) %>%
+        mutate(msr.mz = node_mass[i]) %>% 
+        mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
+        mutate(msr.RT = node_RT[i]) %>%
+        mutate(steps = curent_step)
+      sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], adding)
+    }
+    i = i+1
+  }
+  return(sf)
+}
+
 ## Initialize formula pool ####
 Initilize_formulaset = function(Mset, NodeSet, 
                                 LibrarySet,
@@ -433,7 +466,8 @@ Initilize_formulaset = function(Mset, NodeSet,
     filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
     arrange(mass)
   
-  initial_lib_mass = initial_lib$mass
+  lib_mass = initial_lib$mass
+  length_lib = length(lib_mass)
   node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
   temp_id = names(node_mass)
   node_RT = sapply(NodeSet, "[[", "RT")[temp_id]
@@ -444,23 +478,27 @@ Initilize_formulaset = function(Mset, NodeSet,
   sf = list()
   while(i <= length(node_mass)){
     mass_tol = node_mass[i]*ppm_tol
-    while(initial_lib_mass[i_min] - node_mass[i] < -mass_tol){
+    # Move i_min to a position larger than lower threshold
+    while(lib_mass[i_min] < node_mass[i] - mass_tol & i_min < length_lib){
       i_min = i_min + 1
     }
-    if(initial_lib_mass[i_min] - node_mass[i] > mass_tol){
+    # if i_min's position larger than upper threhold, then move up i 
+    if(lib_mass[i_min] > node_mass[i] + mass_tol){
       i = i+1
       next
     }
-    
+    # Arriving here, means i_min reaches maximum or/and i_min's position is larger than lower threhold
     i_max = i_min
-    while(initial_lib_mass[i_max] - node_mass[i] < mass_tol){
+    
+    # Move i_max to a position that is below upper threhold
+    while(lib_mass[i_max] - node_mass[i] < mass_tol & i_max < length_lib){
       i_max = i_max + 1
     }
     i_max = i_max - 1
-    if(i_min == i_max){
-      i = i+1
-      next
-    }
+    
+    # if there is no overlap of between i_min above lower threhold and i_max below upper threhold 
+    # it means i_min is maximum and i_max is maximum - 1, then break 
+    if(i_min > i_max){break}
     
     sf[[as.numeric(temp_id[i])]]=initial_lib[i_min:i_max,] %>%
       mutate(node_id = as.numeric(temp_id[i])) %>%
@@ -469,16 +507,9 @@ Initilize_formulaset = function(Mset, NodeSet,
       mutate(msr.RT = node_RT[i]) %>%
       mutate(steps = 0)
     i = i+1
-    # print(i)
+
   }
   
-  
-  
-  
-  # 
-  # ## make a complete length sf list
-  # sf_template = sf
-  # sf[[]]
   
   return(sf)
 
@@ -489,32 +520,37 @@ Initilize_formulaset = function(Mset, NodeSet,
 Propagate_formulaset = function(Mset, 
                                 NodeSet,
                                 FormulaSet,
-                                ppm_tol = 5e-6,
                                 biotransform_step = 5,
                                 artifact_step = 5,
-                                propagation_ppm_threshold = 2.5,
+                                propagation_ppm_threshold = 1,
+                                record_RT_tol = 0.1,
+                                record_ppm_tol = 5e-6,
                                 propagation_intensity_threshold = 2e4,
                                 max_formula_num = 1e6,
                                 top_n = 50)
 {
-  sf = FormulaSet
-  propagation_ppm_threshold = 2.5
-  biotransform_step = 5
-  artifact_step = 5
+  propagation_ppm_threshold = 1
+  biotransform_step = 2
+  artifact_step = 2
   max_formula_num = 1e6
   top_n = 50
+  record_RT_tol = 0.2
+  record_ppm_tol = 5e-6
   
+  sf = FormulaSet
   empirical_rules = Mset$Empirical_rules
+
+  
+
   
   ## Expansion 
+  timer = Sys.time()
   step_count = 0
   while(step_count < biotransform_step){
     all_nodes_df = bind_rows(sf)
     # Handle artifacts
     sub_step = 0
     while(sub_step < 0.01 * artifact_step){
-      # print(paste("sub_step",sub_step,"elapsed="))
-      # print((Sys.time()-timer))
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df %>%
         distinct(node_id,formula, .keep_all=T) %>%
@@ -525,6 +561,8 @@ Propagate_formulaset = function(Mset,
       
       sub_step = sub_step+0.01
       curent_step = step_count + sub_step
+      print(paste("Step",curent_step,"elapsed="))
+      print((Sys.time()-timer))
       
       if(nrow(new_nodes_df)==0){break}
       
@@ -533,149 +571,62 @@ Propagate_formulaset = function(Mset,
       
       new_nodes_df = new_nodes_df %>%
         mutate(parent_ID = node_id)
-      lib_adduct_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = "Artifact")
-      lib_adduct_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Artifact")
+      lib_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = "Artifact")
+      lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Artifact")
       
-      
-      node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
-      node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
-      temp_id = as.numeric(names(node_mass)) # numeric
-      
-      lib_adduct = bind_rows(lib_adduct_1, lib_adduct_2) %>%
+      lib_adduct = bind_rows(lib_1, lib_2) %>%
         filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
         mutate(RT = node_RT[as.character(parent_ID)]) %>%
         arrange(mass)
       
-      lib_mass = lib_adduct$mass
-      length_lib = length(lib_mass)
+      sf = match_library(lib_adduct,
+                         sf,
+                         record_ppm_tol,
+                         record_RT_tol,
+                         curent_step)
       
-      i=i_min=i_max=1
-      RT_tol = 0.2
-      ppm_tol = 5e-6
-      while(i <= length(node_mass)){
-        if(i%%100==0)print(i)
-        mass_tol = node_mass[i]*ppm_tol
-        # Move i_min to a position larger than lower threshold
-        while(lib_mass[i_min] < node_mass[i] - mass_tol & i_min < length_lib){
-          i_min = i_min + 1
-        }
-        
-        # if i_min's position larger than upper threhold, then move up i 
-        if(lib_mass[i_min] > node_mass[i] + mass_tol){
-          i = i+1
-          next
-        }
-        
-        # Arriving here, means i_min reaches maximum or/and i_min's position is larger than lower threhold
-        i_max = i_min
-        
-        # Move i_max to a position that is below upper threhold
-        while(lib_mass[i_max] - node_mass[i] < mass_tol & i_max < length_lib){
-          i_max = i_max + 1
-        }
-        i_max = i_max - 1
-        
-        # if there is no overlap of between i_min above lower threhold and i_max below upper threhold 
-        # it means i_min is maximum and i_max is maximum - 1, then break 
-        if(i_min > i_max){break}
-        
-        # Otherwise, record
-        candidate = lib_adduct[i_min:i_max,]
-        candidate = candidate %>%
-          filter(abs(node_RT[i] - RT) < RT_tol)
-        
-        if(nrow(candidate)!=0){
-          adding=lib_adduct[i_min:i_max,] %>%
-            mutate(node_id = temp_id[i]) %>%
-            mutate(msr.mz = node_mass[i]) %>% 
-            mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
-            mutate(msr.RT = node_RT[i]) %>%
-            mutate(steps = curent_step)
-          sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], adding)
-        }
-        i = i+1
-      }
+
     }
+    all_nodes_df = bind_rows(sf)
+    new_nodes_df = all_nodes_df %>%
+      distinct(node_id,formula, .keep_all=T) %>%
+      filter(category == "Metabolite") %>%
+      filter(steps==step_count,
+             ppm_error<propagation_ppm_threshold) %>%
+      filter(!grepl("\\.", formula)) %>%  # Do not propagate from formula with decimal point
+      filter(!grepl("Ring_artifact", formula)) # Do not propagate from ring artifacts
+    
+    step_count = step_count+1
+    curent_step = step_count
+    print(paste("Step",curent_step,"elapsed="))
+    print((Sys.time()-timer))
+    
+    if(nrow(new_nodes_df)==0){break}
+    
+    rule_1 = empirical_rules %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
+    rule_2 = empirical_rules %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
+    
+    new_nodes_df = new_nodes_df %>%
+      mutate(parent_ID = node_id)
+    lib_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = "Metabolite")
+    lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Metabolite")
+    
+    lib_met = bind_rows(lib_1, lib_2) %>%
+      filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+      mutate(RT = node_RT[as.character(parent_ID)]) %>%
+      arrange(mass)
+    
+    sf = match_library(lib_met,
+                       sf,
+                       record_ppm_tol,
+                       record_RT_tol=Inf,
+                       curent_step)
 
   }
-  test = bind_rows(sf)
   
-  
-  
-  
-  initial_rule = Mset$Empirical_rules %>%
-    filter(category %in% c("Biotransform", "Adduct"))
-  
-  lib_met = seed_library %>% filter(category == "Metabolite")
-  rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
-  rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
-  
-  initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1)
-  initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1)
-  
-  initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2) %>%
-    mutate(category = "Metabolite")
-  
-  lib_adduct = seed_library %>% filter(category == "Adduct")
-  rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
-  rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
-  
-  initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1)
-  initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1)
-  
-  initial_lib_adduct = bind_rows(initial_lib_adduct_1, initial_lib_adduct_2) %>%
-    mutate(category = "Adduct")
-  
-  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct) %>%
-    mutate(RT = -1) %>%
-    # filter(grepl("(?<!H)-.", formula, perl=T))
-    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
-    arrange(mass)
-  
-  initial_lib_mass = initial_lib$mass
-  node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
-  temp_id = as.numeric(names(node_mass))
-  
-  i=i_min=i_max=1
-  ppm_tol = 5e-6
-  # sf = lapply(1:length(node_mass), function(x)initial_lib[0,])
-  sf = list()
-  while(i <= length(node_mass)){
-    mass_tol = node_mass[i]*ppm_tol
-    while(initial_lib_mass[i_min] - node_mass[i] < -mass_tol){
-      i_min = i_min + 1
-    }
-    if(initial_lib_mass[i_min] - node_mass[i] > mass_tol){
-      i = i+1
-      next
-    }
-    
-    i_max = i_min
-    while(initial_lib_mass[i_max] - node_mass[i] < mass_tol){
-      i_max = i_max + 1
-    }
-    i_max = i_max - 1
-    if(i_min == i_max){
-      i = i+1
-      next
-    }
-    
-    sf[[temp_id[i]]]=initial_lib[i_min:i_max,] %>%
-      mutate(node_id = temp_id[i]) %>%
-      mutate(msr.mz = node_mass[i]) %>% ## node_id in character
-      mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6)
-    i = i+1
-    # print(i)
-  }
-  
-  tictoc::toc()
-  
-  
-  
-  
-  
-  
+  return(sf)
 }
+
 
 
 
