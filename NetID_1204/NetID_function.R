@@ -369,7 +369,7 @@ expand_library = function(lib, rule, direction, category){
   return(exp)
 }
 ### Match_library ####
-match_library = function(lib, sf, record_ppm_tol, record_RT_tol, curent_step){
+match_library = function(lib, sf, record_ppm_tol, record_RT_tol, curent_step, NodeSet){
   lib_mass = lib$mass
   length_lib = length(lib_mass)
   node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
@@ -405,7 +405,9 @@ match_library = function(lib, sf, record_ppm_tol, record_RT_tol, curent_step){
     # Otherwise, record
     candidate = lib[i_min:i_max,]
     candidate = candidate %>%
-      filter(abs(node_RT[i] - RT) < record_RT_tol)
+      filter(abs(node_RT[i] - RT) < record_RT_tol) 
+      # We may implement another filter to break a cycle a->b->a, but it is not necessary
+      # Actually, keeping both propagation direction makes it easier to trace parents
     
     if(nrow(candidate)!=0){
       adding=candidate %>%
@@ -469,8 +471,8 @@ Initilize_formulaset = function(Mset, NodeSet,
   lib_mass = initial_lib$mass
   length_lib = length(lib_mass)
   node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
-  temp_id = names(node_mass)
-  node_RT = sapply(NodeSet, "[[", "RT")[temp_id]
+  node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
+  temp_id = as.numeric(names(node_mass)) # numeric
   
   
   i=i_min=i_max=1
@@ -500,8 +502,8 @@ Initilize_formulaset = function(Mset, NodeSet,
     # it means i_min is maximum and i_max is maximum - 1, then break 
     if(i_min > i_max){break}
     
-    sf[[as.numeric(temp_id[i])]]=initial_lib[i_min:i_max,] %>%
-      mutate(node_id = as.numeric(temp_id[i])) %>%
+    sf[[temp_id[i]]]=initial_lib[i_min:i_max,] %>%
+      mutate(node_id = temp_id[i]) %>%
       mutate(msr.mz = node_mass[i]) %>% 
       mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
       mutate(msr.RT = node_RT[i]) %>%
@@ -529,18 +531,19 @@ Propagate_formulaset = function(Mset,
                                 max_formula_num = 1e6,
                                 top_n = 50)
 {
-  propagation_ppm_threshold = 1
-  biotransform_step = 2
-  artifact_step = 2
-  max_formula_num = 1e6
-  top_n = 50
-  record_RT_tol = 0.2
-  record_ppm_tol = 5e-6
+  # propagation_ppm_threshold = 1
+  # biotransform_step = 2
+  # artifact_step = 2
+  # max_formula_num = 1e6
+  # top_n = 50
+  # record_RT_tol = 0.2
+  # record_ppm_tol = 5e-6
   
   sf = FormulaSet
   empirical_rules = Mset$Empirical_rules
-
-  
+  node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
+  node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
+  temp_id = as.numeric(names(node_mass)) # numeric
 
   
   ## Expansion 
@@ -553,9 +556,9 @@ Propagate_formulaset = function(Mset,
     while(sub_step < 0.01 * artifact_step){
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df %>%
-        distinct(node_id,formula, .keep_all=T) %>%
+        distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
         filter(steps==(step_count + sub_step),
-               ppm_error<propagation_ppm_threshold) %>%
+               ppm_error<propagation_ppm_threshold) %>% # This garantee only formulas generated from the step go to next propagation
         filter(!grepl("\\.", formula)) %>%  # Do not propagate from formula with decimal point
         filter(!grepl("Ring_artifact", formula)) # Do not propagate from ring artifacts
       
@@ -583,7 +586,8 @@ Propagate_formulaset = function(Mset,
                          sf,
                          record_ppm_tol,
                          record_RT_tol,
-                         curent_step)
+                         curent_step,
+                         NodeSet)
       
 
     }
@@ -620,7 +624,8 @@ Propagate_formulaset = function(Mset,
                        sf,
                        record_ppm_tol,
                        record_RT_tol=Inf,
-                       curent_step)
+                       curent_step,
+                       NodeSet)
 
   }
   

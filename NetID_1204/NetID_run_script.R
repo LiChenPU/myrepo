@@ -12,7 +12,7 @@ sigma = 0.5
 print(work_dir)
 print(ion_mode)
 
-# printtime = Sys.time()
+printtime = Sys.time()
 # timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 # sink(paste(timestamp,"log.txt"))
 # sink()
@@ -80,15 +80,17 @@ print(ion_mode)
 
   all_bind = bind_rows(FormulaSet) %>%
     # mutate(origin = 1) %>%
-    distinct(node_id,formula, .keep_all=T) %>%
+    # distinct(node_id,formula, .keep_all=T) %>%
+    filter(steps != 0) %>%
     filter(T)
   # all_bind2 = bind_rows(sf) %>% 
   #   mutate(origin = 2) %>%
   #   bind_rows(all_bind) %>%
   #   distinct(node_id,formula, .keep_all=T) %>%
   #   filter(!node_id %in% all_bind$node_id)
-  
 }
+
+Sys.time()-printtime
 
 ## Candidate edge pool 
 {
