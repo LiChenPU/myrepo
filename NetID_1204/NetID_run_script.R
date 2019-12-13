@@ -43,8 +43,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
                                 remove_high_blank_ratio = 0,
                                 first_sample_col_num = 15)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
-  
-  Mset[["ID"]] = Mset$Data$ID
+
 }
 
 ## Initiate nodeset and edgeset
@@ -53,37 +52,35 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
                              mass_abs = 0, mass_ppm = 10, 
-                             nonbio_RT_tol = 0.1)
+                             nonbio_RT_tol = 0.2)
   
   LibrarySet = Initiate_libraryset(Mset)
   
   
 }
 
-## Candidate edge pool ####
+## Extension of EdgeSet ####
 {
-  
   peak_group = Peak_grouping(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
-  Ring_artifact = Ring_artifact_connection(peak_group, 
-                                           ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
-  Oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
-  Heterodimer = Heterodimer_connection(peak_group, 
-                                       ppm_tol = 10, inten_threshold = 1e5)
-  
+  EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
+  EdgeSet_oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
+  EdgeSet_heterodimer = Heterodimer_connection(peak_group, ppm_tol = 10, inten_threshold = 1e6)
 }
 
 ## Candidate formula pool
 {
-  FormulaSet = Initilize_formulaset(Mset, NodeSet, 
-                                    LibrarySet,
-                                    ppm_tol = 5e-6)
+  FormulaSet = Initilize_empty_formulaset(NodeSet)
+  FormulaSet = Match_library_formulaset(FormulaSet, 
+                                        Mset, NodeSet, 
+                                        LibrarySet,
+                                        ppm_tol = 5e-6)
   
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
-                                    biotransform_step = 5,
-                                    artifact_step = 5,
-                                    propagation_ppm_threshold = 2,
+                                    biotransform_step = 2,
+                                    artifact_step = 2,
+                                    propagation_ppm_threshold = 1e-6,
                                     record_RT_tol = 0.1,
                                     record_ppm_tol = 5e-6,
                                     propagation_intensity_threshold = 2e4,
@@ -103,25 +100,22 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   #   filter(!node_id %in% all_bind$node_id)
 }
 
-Sys.time()-printtime
-
 
 
 ## CplexSet & Scoring ####
 {
-  profvis::profvis({
-    
-  
+
   CplexSet = list()
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet) 
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet$ilp_nodes, MassDistsigma = MassDistsigma, 
                                             rdbe_score=F, step_score=F)
   
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet, CplexSet$ilp_nodes)
+  
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet$ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
                                             rule_score_biotransform = 0.5, rule_score_artifact = 1.5, inten_score_isotope = 1.5)
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
-  })
+  
   CplexSet[["init_solution"]] = list(Run_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj))
 }
 
