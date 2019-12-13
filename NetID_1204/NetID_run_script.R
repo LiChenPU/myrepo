@@ -8,12 +8,12 @@ work_dir = "Lin_Yeast_Neg"
 ion_mode = -1
 Empirical_rules_file = "./dependent/Empirical_rules.csv"
 
-sigma = 0.5
+MassDistsigma = 0.5
 print(work_dir)
 print(ion_mode)
 
 printtime = Sys.time()
-# timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 # sink(paste(timestamp,"log.txt"))
 # sink()
 
@@ -57,8 +57,20 @@ printtime = Sys.time()
   
   LibrarySet = Initiate_libraryset(Mset)
   
+  
 }
 
+## Candidate edge pool ####
+{
+  
+  peak_group = Peak_grouping(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
+  Ring_artifact = Ring_artifact_connection(peak_group, 
+                                           ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
+  Oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
+  Heterodimer = Heterodimer_connection(peak_group, 
+                                       ppm_tol = 10, inten_threshold = 1e5)
+  
+}
 
 ## Candidate formula pool
 {
@@ -69,9 +81,9 @@ printtime = Sys.time()
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
-                                    biotransform_step = 2,
-                                    artifact_step = 2,
-                                    propagation_ppm_threshold = 1,
+                                    biotransform_step = 5,
+                                    artifact_step = 5,
+                                    propagation_ppm_threshold = 2,
                                     record_RT_tol = 0.1,
                                     record_ppm_tol = 5e-6,
                                     propagation_intensity_threshold = 2e4,
@@ -83,6 +95,7 @@ printtime = Sys.time()
     # distinct(node_id,formula, .keep_all=T) %>%
     filter(steps != 0) %>%
     filter(T)
+  
   # all_bind2 = bind_rows(sf) %>% 
   #   mutate(origin = 2) %>%
   #   bind_rows(all_bind) %>%
@@ -92,107 +105,90 @@ printtime = Sys.time()
 
 Sys.time()-printtime
 
-## Candidate edge pool 
+
+
+## CplexSet & Scoring ####
 {
+  profvis::profvis({
+    
+  
+  CplexSet = list()
+  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet) 
+  CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet$ilp_nodes, MassDistsigma = MassDistsigma, 
+                                            rdbe_score=F, step_score=F)
+  
+  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet, CplexSet$ilp_nodes)
+  CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet$ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
+                                            rule_score_biotransform = 0.5, rule_score_artifact = 1.5, inten_score_isotope = 1.5)
+  CplexSet[["para"]] = Initiate_cplexset(CplexSet)
+  })
+  CplexSet[["init_solution"]] = list(Run_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj))
+}
+
+## Results ####
+{
+  CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
+  # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+  
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    mutate(ilp_result = CPLEX_x[1:nrow(.)])
+  
+  ilp_edges = CplexSet$ilp_edges %>%
+    mutate(ilp_result = CPLEX_x[(nrow(ilp_nodes)+1):length(CPLEX_x)])
+}
+
+## PAVE evaluation ####
+{
+  library(readxl)
+  library(janitor)
+  groundtruth = read_xlsx("./4-4-Table S10-Annotation of all peaks detected in S. cerevisiae and E. coli-xi_LC.xlsx",
+                          sheet = "Yeast-neg-truth") %>%
+    arrange(ID...1) %>%
+    # dplyr::select(-c(36:67)) %>%
+    dplyr::select(ID...1,
+                  c(6:7,68:ncol(.)))
+  
+  ID_input_id_map = Mset$Data %>%
+    dplyr::select(ID, Input_id)
+  
+  merge_result = ilp_nodes %>%
+    merge(ID_input_id_map, by.x="node_id", by.y="ID") %>%
+    merge(groundtruth, by.x="Input_id", by.y="ID...1")
+  
+  merge_result = merge_result %>%
+    mutate(formula_match = formula == Formula...68)
+  
+  merge_result_filter = merge_result %>%
+    filter(ilp_result != 0 | is.na(ilp_result)) %>%
+    filter(!formula_match) %>%
+    filter(!is.na(Formula_validated)) %>%
+    filter(T)
   
   
+  tabyl(merge_result, ilp_result, formula_match)
+  
+  test = ilp_edges %>%
+    group_by(ilp_nodes1, ilp_nodes2) %>%
+    filter(n()>1)
   
 }
 
 
-
-
-
-# Network ####
+## Query specific nodes or edges
 {
-  EdgeSet = list()
+  node_id_selected = 951
+  ilp_nodes_selected = ilp_nodes %>%
+    filter(node_id == node_id_selected)
+  ilp_edges_node_related = ilp_edges %>%
+    filter(node1 == 871 | node2 == 871)
   
-  Mset[["NodeSet"]]=Form_node_list(Mset)
-  
-  EdgeSet[["Biotransform"]] = Edge_biotransform(Mset, 
-                                                mass_abs = 0, 
-                                                mass_ppm = 5)
-  
-  adjust = Check_sys_measure_error(EdgeSet$Biotransform, inten_threshold=1e5)
-  if(abs(adjust[1])>0.5 | abs(adjust[2])> 0.0001){
-    Mset$Data$medMz = Mset$Data$medMz*(1+adjust[1]/10^6)+adjust[2]
-    Mset[["NodeSet"]]=Form_node_list(Mset)
-    EdgeSet[["Biotransform"]] = Edge_biotransform(Mset,
-                                                  mass_abs = 0,
-                                                  mass_ppm = 5)
-  }
-  
-  mass_dist_sigma = sigma
-  EdgeSet[["Biotransform"]] = Edge_score(EdgeSet$Biotransform, mass_dist_sigma = mass_dist_sigma)
-  
-  EdgeSet[["Peak_inten_correlation"]] = Peak_variance(Mset,
-                                                      time_cutoff=0.1,
-                                                      TIC_cutoff = 10000,
-                                                      correlation_cutoff = -1)
-  
-  EdgeSet[["Artifacts"]] = Artifact_prediction(Mset, 
-                                               EdgeSet$Peak_inten_correlation, 
-                                               search_ms_cutoff=0,
-                                               search_ppm_cutoff=10)
-  EdgeSet[["Artifacts"]] = Edge_score(EdgeSet$Artifacts, mass_dist_sigma = mass_dist_sigma)
-  
-  #heterodimer  
-  EdgeSet[["Heterodimer"]] = Hetero_dimer(EdgeSet$Peak_inten_correlation, ppm_tolerance = 5, inten_threshold = 1e6)
-  EdgeSet[["Heterodimer"]] = Edge_score(EdgeSet$Heterodimer, mass_dist_sigma = mass_dist_sigma)
-  
-  # Mass_ring_artifact
-  EdgeSet[["Ring_artifact"]] = Ring_artifact(Peak_inten_correlation = EdgeSet$Peak_inten_correlation, 
-                                             ppm_range_lb = 50, 
-                                             ppm_range_ub = 1000, 
-                                             ring_fold = 50, 
-                                             inten_threshold = 1e6)
-  
-  EdgeSet[["Merge"]] = Merge_edgeset(EdgeSet) 
-  
-  Mset[["NodeSet_network"]] = Formula_propagate(Mset, 
-                                                 EdgeSet,
-                                                 biotransform_step = 6,
-                                                 artifact_step = 6,
-                                                 propagation_score_threshold = 0.2,
-                                                 propagation_intensity_threshold = 2e4,
-                                                 max_formula_num = 1e6,
-                                                 top_n = 50)
+  edge_id_selected = 2191
+  EdgeSet_selected = EdgeSet %>%
+    filter(edge_id == edge_id_selected)
+  ilp_nodes_edge_related = ilp_nodes %>%
+    filter(node_id %in% c(EdgeSet_selected$node1, EdgeSet_selected$node2))
 }
-
-## CPLEX optimiazation ####
-{
-  CPLEXset = list()
-  CPLEXset[["formula"]] = Prepare_CPLEX_formula(Mset, mass_dist_sigma = mass_dist_sigma,
-                                                rdbe=F, step_score=F, iso_penalty_score=F)
-  CPLEXset[["edge"]] = Prepare_CPLEX_edge(EdgeSet, 
-                                          CPLEXset,
-                                          edge_bonus = edge_bonus, 
-                                          isotope_bonus = isotope_bonus,
-                                          artifact_bonus = artifact_bonus)
-  CPLEXset[["para"]] = Prepare_CPLEX_para(Mset, EdgeSet, CPLEXset)
-}
-
-
-
-
-# ## Feature generation ####
-# {
-#   #Identify peaks with high blanks
-#   Mset[["High_blanks"]]=High_blank(Mset, fold_cutoff = 2)
-#   
-#   #library_match
-#   Mset[["library_match"]] = library_match(Mset, ppm=5/10^6)
-#   
-#   #Metaboanalyst_Statistic
-#   if(length(unique(Mset$Cohort$sample_cohort))>1 & 
-#      min(table(Mset$Cohort$sample_cohort))>2){
-#     Mset[["Metaboanalyst_Statistic"]]=Metaboanalyst_Statistic(Mset)
-#   }
-#   
-#   # output assigned formula
-#   Mset[["Summary"]] = Summary_Mset(Mset)
-# }
-
 
 save.image(paste0(timestamp,".RData"))
 
@@ -201,3 +197,34 @@ print(Sys.time()-printtime)
 
 
 
+## deprecated ####
+# {
+#   ConnectionSet = list()
+#   
+#   FormulaSet_df = bind_rows(FormulaSet)
+#   library_edge = FormulaSet_df %>%
+#     filter(RT == -1) %>% # parent RT = -1 means it is library
+#     mutate(edge_ID = 1:nrow(.),
+#            edge_category = "library_edge") %>%
+#     dplyr::rename(node1 = parent_ID, 
+#                   node2 = node_id,
+#                   formula1 = parent,
+#                   formula2 = formula) %>%
+#     dplyr::select(edge_ID, node1, node2, formula1, formula2, transform, direction, edge_category) %>%
+#     filter(T)
+#   
+#   data_edge = FormulaSet_df %>%
+#     filter(RT != -1) %>% # parent RT != -1 means it is data edge
+#     mutate(edge_ID = 1:nrow(.),
+#            edge_category = "data_edge") %>%
+#     dplyr::rename(node1 = parent_ID, 
+#                   node2 = node_id,
+#                   formula1 = parent,
+#                   formula2 = formula) %>%
+#     dplyr::select(edge_ID, node1, node2, formula1, formula2, transform, direction, edge_category) %>%
+#     filter(T)
+#   
+#   ConnectionSet[["library_edge"]] = library_edge
+#   ConnectionSet[["data_edge"]] = data_edge
+#   
+# }

@@ -307,7 +307,7 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 5, nonbio_RT
            RT2 = temp_RT_list[node2]) %>%
     mutate(node1 = as.numeric(node1),
            node2 = as.numeric(node2)) %>%
-    
+    mutate(edge_id = 1:nrow(.)) %>%
     filter(T)
   
   
@@ -338,6 +338,103 @@ Initiate_libraryset = function(Mset, NodeSet){
 
   return(LibrarySet)
 }
+
+## Peak_grouping ####
+Peak_grouping = function(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
+{
+  node_mass = sapply(NodeSet, "[[", "mz")
+  node_RT = sapply(NodeSet, "[[", "RT") 
+  node_inten = sapply(NodeSet, "[[", "inten")
+  temp_id = as.numeric(names(node_RT)) # numeric
+
+  peak_group_ls = list()
+  
+  for(i in 1:length(node_RT)){
+    if(node_inten[i] < log10(inten_cutoff)){next}
+    RT_min = node_RT[i] - RT_cutoff
+    RT_max = node_RT[i] + RT_cutoff
+    partner_id = temp_id[which(node_RT <= RT_max & node_RT >= RT_min)]
+    peak_group_ls[[length(peak_group_ls)+1]] = list(node1 = rep(temp_id[i], length(partner_id)),
+                                                    node2 = partner_id)
+    
+  }
+  
+  peak_group = bind_rows(peak_group_ls) %>%
+    mutate(mass1 = node_mass[node1],
+           mass2 = node_mass[node2]) %>%
+    mutate(RT1 = node_RT[node1],
+           RT2 = node_RT[node2]) %>%
+    mutate(inten1 = node_inten[node1],
+           inten2 = node_inten[node2]) %>%
+    filter(T)
+  
+  return(peak_group)
+}
+
+## Ring_artifact_connection ####
+Ring_artifact_connection = function(peak_group,
+                                        ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6){
+  
+  ring_artifact = peak_group %>%
+    filter(inten1 > log10(inten_threshold)) %>%
+    mutate(mz_dif = mass2 - mass1) %>%
+    mutate(ppm_mz_dif = mz_dif / mass2 * 1e6) %>%
+    filter(abs(ppm_mz_dif) < ppm_range_ub & abs(ppm_mz_dif) > ppm_range_lb) %>%
+    mutate(inten_ratio = inten2 - inten1) %>%
+    filter(inten_ratio < log10(1/ring_fold))
+  
+  return(ring_artifact)
+}
+
+## Oligomer_connection ####
+Oligomer_connection = function(peak_group, ppm_tol = 10){
+  
+  oligomer = peak_group %>%
+    mutate(mz_ratio12 = mass1/mass2,
+           mz_ratio21 = mass2/mass1) %>% 
+    filter(mz_ratio12 > 1.5 | mz_ratio21 > 1.5) %>%
+    mutate(mz_ratio12_dif = mz_ratio12 - round(mz_ratio12),
+           mz_ratio21_dif = mz_ratio21 - round(mz_ratio21)) %>%
+    filter(abs(mz_ratio12_dif) < (ppm_tol / 1e6) | abs(mz_ratio21_dif) < (ppm_tol / 1e6))
+  
+  return(oligomer)
+}
+
+## Heterodimer_connection ####
+Heterodimer_connection = function(peak_group, ppm_tol = 10, inten_threshold = 1e5){
+  
+  peak_group_ls = peak_group %>%
+    split(.$node2)
+  
+  hetero_dimer_ls = list()
+  for(i in 1: length(peak_group_ls)){
+    # print(i)
+    temp_e = peak_group_ls[[i]]
+    temp_matrix = outer(temp_e$mass1, temp_e$mass1, FUN = "+")  # mz_node1 and mz_dif are the same.
+    temp_matrix = (temp_matrix - temp_e$mass2[1])/temp_e$mass2[1] * 10^6
+    temp_index = which(abs(temp_matrix) < ppm_tol, arr.ind = T)
+    if(dim(temp_index)[1]>0){
+      temp_ppm = temp_matrix[temp_index]
+      temp_node_1 = temp_e$node1[temp_index[,1]]
+      linktype = temp_e$node1[temp_index[,2]]
+      temp_df = data.frame(node1 = temp_node_1, linktype = linktype, node2 = temp_e$node2[1], mass_dif = temp_ppm)
+      hetero_dimer_ls[[length(hetero_dimer_ls)+1]] = temp_df
+    }
+  }
+  
+  hetero_dimer_df = bind_rows(hetero_dimer_ls) %>% 
+    merge(peak_group, all.x = T) %>%
+    filter(inten1 > log10(inten_threshold)) %>% # retain only high intensity as node1
+    filter(node1 != linktype) %>% # remove homo-dimer
+    arrange(node1) %>%
+    mutate(category = "Heterodimer",
+           direction = 1,
+           rdbe = 0)
+  
+  return(hetero_dimer_df)
+  
+}
+ 
 ### Expand_library ####
 expand_library = function(lib, rule, direction, category){
   mz_lib = lib$mass
@@ -588,7 +685,17 @@ Propagate_formulaset = function(Mset,
                          record_RT_tol,
                          curent_step,
                          NodeSet)
-      
+      if(heterodimer){
+        sf = propagate_heterodimer(sf, rule)
+        
+        
+        
+        
+        
+      }
+      if(ring_artifact){
+        sf = propagate_ring_artifact(sf, rule)
+      }
 
     }
     all_nodes_df = bind_rows(sf)
@@ -636,6 +743,335 @@ Propagate_formulaset = function(Mset,
 
 
 
+## initiate_ilp_nodes ####
+initiate_ilp_nodes = function(FormulaSet){
+  ilp_nodes = bind_rows(FormulaSet) %>%
+    distinct(node_id, formula, .keep_all=T) %>%
+    mutate(ilp_node_id = 1:nrow(.)) %>%
+    dplyr::select(ilp_node_id, node_id, formula, steps, msr.mz, msr.RT, mass, ppm_error, rdbe) %>%
+    filter(T)
+  
+  return(ilp_nodes)
+}
+## score_ilp_nodes ####
+score_ilp_nodes = function(ilp_nodes, MassDistsigma = MassDistsigma, 
+                           rdbe_score=F, step_score=F){
+  # Score mass accuracy
+  ilp_nodes = ilp_nodes %>%
+    mutate(score_mass = dnorm(ppm_error, 0, MassDistsigma)/dnorm(0, 0, MassDistsigma)) %>%
+    mutate(score_mass = score_mass+1e-10) %>%
+    mutate(score_mass = log10(score_mass)) %>%
+    filter(T)
+  
+  # Score rdbe 
+  # when rdbe < -1, penalty to each rdbe less
+  if(rdbe_score==T){
+    ilp_nodes = ilp_nodes %>%
+      mutate(score_rdbe = ifelse(rdbe < 0, 0.2*rdbe, 0))
+  }
+  
+  # Score steps
+  # Penalty happens when it takes too many steps to get to the formula
+  if(step_score==T){
+    ilp_nodes = ilp_nodes %>%
+      mutate(score_steps = ifelse(steps > 3, -0.1*steps, 0))
+  } 
+  
+  cplex_score_node = ilp_nodes %>% 
+    dplyr::select(starts_with("score_")) %>% 
+    rowSums()
+  
+  ilp_nodes = ilp_nodes %>%
+    mutate(cplex_score = cplex_score_node)
+  
+  return(ilp_nodes)
+}
+
+## initiate_ilp_edges ####
+initiate_ilp_edges = function(EdgeSet, ilp_nodes){
+  
+  EdgeSet.temp = EdgeSet %>%
+    arrange(edge_id) %>%
+    # filter(direction == -1) %>%
+    filter(T)
+  
+  node_id_ilp_node_mapping = ilp_nodes %>%
+    dplyr::select(node_id, ilp_node_id) %>%
+    pull(ilp_node_id) %>%
+    split(ilp_nodes$node_id)
+  ilp_nodes_formula = ilp_nodes %>%
+    arrange(ilp_node_id) %>%
+    pull(formula)
+  
+  profvis::profvis({
+    
+  
+  match_matrix_index_ls = vector("list", nrow(EdgeSet.temp))
+  for(i in 1:nrow(EdgeSet.temp)){
+    edge_id = EdgeSet.temp$edge_id[i]
+    
+    node1 = EdgeSet.temp$node1[i]
+    ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+    formula1 = ilp_nodes_formula[ilp_nodes1]
+    if(length(formula1) == 0){next}
+
+    node2 = EdgeSet.temp$node2[i]
+    ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
+    formula2 = ilp_nodes_formula[ilp_nodes2]
+    if(length(formula2) == 0){next}
+    
+    transform = EdgeSet.temp$linktype[i]
+    ## Takes about 2/3 of time
+    formula_transform = my_calculate_formula(formula1, transform)
+    
+    formula_match_matrix = matrix(TRUE, length(formula_transform), length(formula2))
+    for(j in 1:length(formula_transform)){
+      formula_match_matrix[j,] = formula_transform[j] == formula2
+    }
+    
+    ## Takes about 1/3 of time
+    formula_match_matrix_index = which(formula_match_matrix == T, arr.ind = TRUE) 
+    
+    if(dim(formula_match_matrix_index)[1] == 0){next}
+
+    match_matrix_index_ls[[length(match_matrix_index_ls)+1]] = list(edge_id = rep(edge_id, dim(formula_match_matrix_index)[1]),
+                                      ilp_nodes1 = ilp_nodes1[formula_match_matrix_index[, 1]],
+                                      ilp_nodes2 = ilp_nodes2[formula_match_matrix_index[, 2]])
+  }
+  
+  },interval = 0.1)
+  
+  ilp_edges = bind_rows(match_matrix_index_ls) %>%
+    merge(EdgeSet.temp, all.x = T) %>%
+    mutate(formula1 = ilp_nodes_formula[ilp_nodes1],
+           formula2 = ilp_nodes_formula[ilp_nodes2]) %>%
+    mutate(ilp_edge_id = 1:nrow(.))
+  
+  return(ilp_edges)
+}
+
+## score_ilp_edges ####
+score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
+                           rule_score_biotransform = 0.1, rule_score_artifact = 1, inten_score_isotope = 1){
+  # Score rule category 
+  ilp_edges = ilp_edges %>%
+    mutate(score_category = case_when(
+      category == "Biotransform" ~ rule_score_biotransform,
+      category != "Biotransform" ~ rule_score_artifact, 
+    )) %>%
+    filter(T)
+  
+  if(inten_score_isotope != 0){
+    node_inten = sapply(NodeSet, "[[", "inten")
+    ilp_edges_isotope = ilp_edges %>%
+      filter(category == "Natural_abundance") %>%
+      mutate(inten1 = node_inten[node1],
+             inten2 = node_inten[node2]) %>%
+      mutate(inten_ratio_measured = inten2 - inten1, 
+             inten_ratio_calculated = log10(mapply(isotopic_abundance, .$formula1, .$linktype)),
+             measured_calculated_ratio = 10^(inten_ratio_measured-inten_ratio_calculated)) %>%
+      mutate(p_obs = dnorm(measured_calculated_ratio, 1, 0.2+10^(3-pmin(inten1, inten2))),
+             p_theory = dnorm(1, 1, 0.2+10^(3-pmin(inten1, inten2)))) %>%
+      mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10) + inten_score_isotope)
+    
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_isotope %>% dplyr::select(ilp_edge_id, score_inten_isotope), all.x = T)
+    # hist(ilp_edges_isotope %>% filter(score_inten_isotope<1 & score_inten_isotope>-8 ) %>% pull(score_inten_isotope))
+  }
+  
+  cplex_score_edge = ilp_edges %>% 
+    dplyr::select(starts_with("score_")) %>% 
+    rowSums(na.rm=T)
+  
+  ilp_edges = ilp_edges %>%
+    mutate(cplex_score = cplex_score_edge)
+}
+## Prepare_CPLEX parameter ####
+Initiate_cplexset = function(CplexSet){
+  
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    arrange(ilp_node_id)
+  ilp_edges = CplexSet$ilp_edges
+  
+  ## Core codes
+  # Construct constraint matrix 
+  # triplet_nodes
+  ilp_rows = rep(1,length = nrow(ilp_nodes))
+  ilp_nodes.node_id = ilp_nodes$node_id
+  for(i in 2:length(ilp_nodes.node_id)){
+    if(ilp_nodes.node_id[i] == ilp_nodes.node_id[i-1]){
+      ilp_rows[i] = ilp_rows[i-1]
+    } else{
+      ilp_rows[i] = ilp_rows[i-1] + 1
+    }
+  }
+  
+  triplet_node = ilp_nodes %>%
+    mutate(ilp_row_id = ilp_rows) %>%
+    dplyr::select(ilp_row_id, ilp_node_id) %>%
+    transmute(i = ilp_row_id,  ## Caution: row number is discontinous as not all node_id exist
+              j = ilp_node_id, 
+              v = 1)
+  
+  # triplet_edges
+  # Because triplet_node take max(triplet_node$i) rows, and max(triplet_node$j) columns
+  triplet_edge_edge = ilp_edges %>%
+    transmute(i = ilp_edge_id + max(triplet_node$i), 
+              j = ilp_edge_id + max(triplet_node$j),
+              v = 2)
+    
+  triplet_edge_node1 = ilp_edges %>%
+    transmute(i = ilp_edge_id + max(triplet_node$i),
+              j = ilp_nodes1,
+              v = -1)
+  
+  triplet_edge_node2 = ilp_edges %>%
+    transmute(i = ilp_edge_id + max(triplet_node$i),
+              j = ilp_nodes2,
+              v = -1)
+  
+  triplet_edge = bind_rows(triplet_edge_edge, 
+                           triplet_edge_node1,
+                           triplet_edge_node2)
+  
+  
+  # triplet_isotope
+  # constrain an isotope formula must come with an isotope edge
+  ilp_edges_isotope = ilp_edges %>%
+    filter(category == "Natural_abundance")
+  triplet_isotope_edge = ilp_edges_isotope %>%
+    transmute(i = 1:nrow(.) + max(triplet_edge$i), 
+              j = ilp_edge_id + max(triplet_node$j),
+              v = 1)
+  triplet_isotope_node = ilp_edges_isotope %>%
+    transmute(i = 1:nrow(.) + max(triplet_edge$i), 
+              j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+              v = -1)
+  triplet_isotope = bind_rows(triplet_isotope_edge, 
+                              triplet_isotope_node)
+      
+  # Generate sparse matrix on left hand side
+  triplet_df = rbind(
+    triplet_node,
+    triplet_edge,
+    triplet_isotope
+  )
+  
+  
+  # converts the triplet into matrix
+  mat = slam::simple_triplet_matrix(i=triplet_df$i,
+                                    j=triplet_df$j,
+                                    v=triplet_df$v)
+  
+  
+  #CPLEX solver parameter
+  {
+    nc <- max(mat$j)
+    obj <- c(ilp_nodes$cplex_score, 
+             ilp_edges$cplex_score)
+    lb <- rep(0, nc)
+    ub <- rep(1, nc)
+    ctype <- rep("B",nc)
+    
+    nr <- max(mat$i)
+    ## Three parts of constraints:
+    ## 1. For each peak, binary sum of formula <= 1. Each peak chooses 0 or 1 formula from potential formulas for the peak
+    ## 2. For each edge, an edge exists only both formula it connects exists
+    ## 3. For isotopic peak, an isotopic formula is given only if the isotope edge is chosen.
+    rhs = c(rep(1, max(ilp_rows)),rep(0, nrow(ilp_edges)),rep(0, nrow(ilp_edges_isotope)))
+    sense <- c(rep("L", max(ilp_rows)), rep("L", nrow(ilp_edges)), rep("E", nrow(ilp_edges_isotope)))
+    
+    triplet_df = triplet_df %>% arrange(j)
+    cnt=as.vector(table(triplet_df$j))
+    beg=vector()
+    beg[1]=0
+    for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
+    ind=triplet_df$i-1
+    val = triplet_df$v
+  }
+  CPX_MAX = -1
+  CPLEX_para = list(nc = nc,
+                    nr = nr,
+                    CPX_MAX = CPX_MAX,
+                    obj = obj,
+                    rhs = rhs,
+                    sense = sense,
+                    beg = beg,
+                    cnt = cnt,
+                    ind = ind, 
+                    val = val,
+                    lb = lb,
+                    ub = ub,
+                    ctype = ctype
+  )
+  
+  return(CPLEX_para)
+}
+## Run_cplex
+Run_cplex = function(CplexSet, obj_cplex){
+  # obj_cplex = CPLEXset$para$obj
+  env <- openEnvCPLEX()
+  prob <- initProbCPLEX(env)
+  
+  nc = CPLEXset$para$nc
+  nr = CPLEXset$para$nr
+  CPX_MAX = CPLEXset$para$CPX_MAX
+  rhs = CPLEXset$para$rhs
+  sense = CPLEXset$para$sense
+  beg = CPLEXset$para$beg
+  cnt = CPLEXset$para$cnt
+  ind = CPLEXset$para$ind
+  val = CPLEXset$para$val
+  lb = CPLEXset$para$lb
+  ub = CPLEXset$para$ub
+  ctype = CPLEXset$para$ctype
+  
+  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
+                    beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+  
+  copyColTypeCPLEX(env, prob, ctype)
+  
+  # Conserve memory true
+  setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+  setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
+  # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
+  # setDefaultParmCPLEX(env)
+  # getChgParmCPLEX(env)
+  
+  # Assess parameters
+  # getParmNameCPLEX(env, 1082)
+  
+  
+  # Access Relative Objective Gap for a MIP Optimization Description
+  # getMIPrelGapCPLEX(env, prob)
+  
+  tictoc::tic()
+  # test = basicPresolveCPLEX(env, prob)
+  return_code = mipoptCPLEX(env, prob)
+  result_solution=solutionCPLEX(env, prob)
+  # result_solution_info = solnInfoCPLEX(env, prob)
+  
+  print(paste(return_codeCPLEX(return_code),"-",
+              status_codeCPLEX(env, getStatCPLEX(env, prob)),
+              " - OBJ_value =", result_solution$objval))
+  tictoc::toc()
+  
+  # writeProbCPLEX(env, prob, "prob.lp")
+  delProbCPLEX(env, prob)
+  closeEnvCPLEX(env)
+  
+  return(list(obj = obj_cplex, result_solution = result_solution))
+}
+## Read CPLEX result ####
+Read_cplex_result = function(solution){
+  CPLEX_all_x=list()
+  for(i in 1:length(solution)){
+    CPLEX_all_x[[i]] =  solution[[i]]$result_solution$x
+  }
+  CPLEX_all_x = bind_cols(CPLEX_all_x)
+  return(CPLEX_all_x)
+}
+## ---------------------- ####
 ## High_blank - Identify peaks with high blanks ####
 High_blank = function(Mset, fold_cutoff = 2)
 {
