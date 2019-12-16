@@ -46,7 +46,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 
 }
 
-## Initiate nodeset and edgeset
+## Initiate nodeset and edgeset ####
 {
   NodeSet = Initiate_nodeset(Mset)
   
@@ -64,7 +64,11 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   peak_group = Peak_grouping(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
   EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
   EdgeSet_oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
-  EdgeSet_heterodimer = Heterodimer_connection(peak_group, ppm_tol = 10, inten_threshold = 1e6)
+  EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
+  
+  
+  EdgeSet_all_df = merge_edgeset(EdgeSet, EdgeSet_ring_artifact, EdgeSet_oligomer, EdgeSet_heterodimer)
+    
 }
 
 ## Candidate formula pool
@@ -78,26 +82,16 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
-                                    biotransform_step = 2,
-                                    artifact_step = 2,
+                                    biotransform_step = 5,
+                                    artifact_step = 5,
                                     propagation_ppm_threshold = 1e-6,
                                     record_RT_tol = 0.1,
-                                    record_ppm_tol = 5e-6,
-                                    propagation_intensity_threshold = 2e4,
-                                    max_formula_num = 1e6,
-                                    top_n = 50)
+                                    record_ppm_tol = 5e-6)
 
   all_bind = bind_rows(FormulaSet) %>%
-    # mutate(origin = 1) %>%
-    # distinct(node_id,formula, .keep_all=T) %>%
     filter(steps != 0) %>%
     filter(T)
   
-  # all_bind2 = bind_rows(sf) %>% 
-  #   mutate(origin = 2) %>%
-  #   bind_rows(all_bind) %>%
-  #   distinct(node_id,formula, .keep_all=T) %>%
-  #   filter(!node_id %in% all_bind$node_id)
 }
 
 
@@ -108,17 +102,29 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   CplexSet = list()
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet) 
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet$ilp_nodes, MassDistsigma = MassDistsigma, 
+                                            formula_score = 1,
                                             rdbe_score=F, step_score=F)
   
-  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet, CplexSet$ilp_nodes)
+  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet)
   
-  CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet$ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
-                                            rule_score_biotransform = 0.5, rule_score_artifact = 1.5, inten_score_isotope = 1.5)
+  CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
+  
+  CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
+                                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
+                                            rule_score_oligomer = 1, rule_score_ring_artifact = 1,
+                                            inten_score_isotope = 1)
+  
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
+  
+  
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
-  
-  CplexSet[["init_solution"]] = list(Run_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj))
 }
+  
 
+## Run_cplex ####
+{
+  CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj))
+}
 ## Results ####
 {
   CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
@@ -126,11 +132,24 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   ilp_nodes = CplexSet$ilp_nodes %>%
-    mutate(ilp_result = CPLEX_x[1:nrow(.)])
+    mutate(ilp_result = CPLEX_x[1:nrow(.)]) %>%
+    # filter(ilp_result == 1) %>%
+    filter(T)
   
   ilp_edges = CplexSet$ilp_edges %>%
-    mutate(ilp_result = CPLEX_x[(nrow(ilp_nodes)+1):length(CPLEX_x)])
+    mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes)]) %>%
+    # filter(ilp_result == 1) %>%
+    filter(T)
+  
+  heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
 }
+
+save.image(paste0(timestamp,".RData"))
+
+print("total run time")
+print(Sys.time()-printtime)
+
 
 ## PAVE evaluation ####
 {
@@ -143,11 +162,11 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
     dplyr::select(ID...1,
                   c(6:7,68:ncol(.)))
   
-  ID_input_id_map = Mset$Data %>%
-    dplyr::select(ID, Input_id)
+  id_Input_id_map = Mset$Data %>%
+    dplyr::select(id, Input_id)
   
   merge_result = ilp_nodes %>%
-    merge(ID_input_id_map, by.x="node_id", by.y="ID") %>%
+    merge(id_Input_id_map, by.x="node_id", by.y="id") %>%
     merge(groundtruth, by.x="Input_id", by.y="ID...1")
   
   merge_result = merge_result %>%
@@ -184,10 +203,6 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
     filter(node_id %in% c(EdgeSet_selected$node1, EdgeSet_selected$node2))
 }
 
-save.image(paste0(timestamp,".RData"))
-
-print("total run time")
-print(Sys.time()-printtime)
 
 
 
