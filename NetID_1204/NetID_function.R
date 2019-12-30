@@ -639,7 +639,10 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
   initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
   initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2, lib_met) 
   
-  lib_adduct = seed_library %>% filter(category == "Artifact")
+  lib_adduct = seed_library %>% 
+    filter(category == "Artifact") %>%
+    filter(T)
+  
   rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
   rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
   
@@ -697,6 +700,7 @@ propagate_ring_artifact = function(new_nodes_df, sf, EdgeSet_ring_artifact, Node
 }
 ## propagate_oligomer ####
 propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, current_step){
+  
   node_mass = sapply(NodeSet, "[[", "mz")
   
   node1_node2_mapping = bind_rows(EdgeSet_oligomer) %>%
@@ -715,7 +719,7 @@ propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, curre
            transform = as.character(linktype)) %>%
     mutate(node_id = node2, 
            mass = mass * linktype,
-           formula = mapply(my_calculate_formula, formula, formula, sign = linktype - 1),
+           formula = as.character(mapply(my_calculate_formula, formula, formula, sign = linktype - 1)),
            rdbe = rdbe * linktype) %>%
     dplyr::select(-c("node2","linktype"))
   
@@ -731,16 +735,14 @@ propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, curre
            transform = as.character(linktype)) %>%
     mutate(node_id = node1, 
            mass = mass / linktype,
-           formula = mapply(my_calculate_formula, formula, formula, sign = -(linktype-1)/linktype),
+           formula = as.character(mapply(my_calculate_formula, formula, formula, sign = -(linktype-1)/linktype)),
            rdbe = rdbe / linktype) %>%
     dplyr::select(-c("node1","linktype"))
   
+  
   new_nodes_df_oligomer = bind_rows(new_nodes_df1, new_nodes_df2)
   
-  
-  # for(i in unique(new_nodes_df_oligomer$node_id)){
-  #   sf[[i]] = bind_rows(sf[[i]], new_nodes_df_oligomer[new_nodes_df_oligomer$node_id == i, ])
-  # }
+
   
   
   return(new_nodes_df_oligomer)
@@ -830,6 +832,7 @@ Propagate_formulaset = function(Mset,
       new_nodes_df = all_nodes_df %>%
         distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
         filter(steps==(step_count + sub_step)) %>% # This garantee only formulas generated from the step go to next propagation
+        filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
         filter(!grepl("\\.|Ring_artifact", formula)) %>%  # filter formula with decimal point and ring artifacts
         filter(node_mass[as.character(node_id)] - mass < propagation_ppm_threshold * mass) # propagate from accurate formulas
       
@@ -878,6 +881,7 @@ Propagate_formulaset = function(Mset,
       distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
       filter(steps == step_count) %>% # only formulas generated from the step go to next propagation
       filter(category == "Metabolite") %>% # only metabolites go to biotransformation
+      filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
       filter(!grepl("\\.|Ring_artifact", formula)) %>%  # filter formula with decimal point and ring artifacts
       filter(node_mass[as.character(node_id)] - mass < propagation_ppm_threshold * mass) # propagate from accurate formulas
     
@@ -913,31 +917,122 @@ Propagate_formulaset = function(Mset,
   return(sf)
 }
 
-
-
+## Score_formulaset ####
+Score_formulaset = function(FormulaSet,
+                            database_match = 0.2, 
+                            bio_decay = -0.5,
+                            artifact_decay = -0.1){
+  
+  FormulaSet_df = bind_rows(FormulaSet)
+  
+  # Score database_match
+  {
+    FormulaSet_df = FormulaSet_df %>%
+      mutate(database_prior = case_when(
+        steps == 0 & transform == "" ~ database_match,
+        TRUE ~ 0 # Everything else
+      ))
+  }
+  
+  # Prior formula scores 
+  {
+    prior_formula_score = FormulaSet_df %>% 
+      dplyr::select(ends_with("_prior")) %>% 
+      rowSums()
+    
+    FormulaSet_df = FormulaSet_df %>%
+      mutate(prior_score = prior_formula_score)
+  }
+  
+  # Score propagation
+  {
+    summary_ls = list()
+    
+    initial = FormulaSet_df %>%
+      filter(steps == 0) %>%
+      mutate(score = prior_score)
+    
+    summary_ls[[length(summary_ls)+1]] = initial
+    
+    nonzero = initial %>%
+      filter(score > 0) %>%
+      dplyr::select(node_id, formula, score) %>%
+      distinct(node_id, formula, .keep_all=T)
+    
+    unique_steps = unique(FormulaSet_df)$steps
+    step = 0
+    floating_error = 1e-8
+    while(any(abs(step - unique_steps) < floating_error)){
+      # artifact step
+      sub_step = step + 0.01
+      sub_nonzero = nonzero 
+      while(any(abs(sub_step - unique_steps) < floating_error)){
+        temp = FormulaSet_df %>%
+          filter(abs(steps - sub_step) < floating_error)
+        
+        temp = temp %>%
+          left_join(sub_nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
+          mutate(score = score + artifact_decay)
+        
+        sub_nonzero = temp %>%
+          filter(score > 0) %>%
+          dplyr::select(node_id, formula, score) %>%
+          distinct(node_id, formula, .keep_all=T)
+        
+        summary_ls[[length(summary_ls)+1]] = temp
+        
+        sub_step = sub_step + 0.01
+      }
+      
+      step = step + 1
+      temp = FormulaSet_df %>%
+        filter(abs(steps - step) < floating_error)
+      
+      temp = temp %>%
+        left_join(nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
+        mutate(score = score + bio_decay)
+      
+      summary_ls[[length(summary_ls)+1]] = temp
+      
+      nonzero = temp %>%
+        filter(score > 0) %>%
+        dplyr::select(node_id, formula, score) %>%
+        distinct(node_id, formula, .keep_all=T)
+      
+    }
+    
+    summary = bind_rows(summary_ls) %>%
+      mutate(score = replace_na(score, 0),
+             score = ifelse(score < 0, 0, score)) %>%
+      dplyr::rename(score_prior_propagation = score)
+  }
+  
+  return(summary)
+}
 
 
 ## initiate_ilp_nodes ####
-initiate_ilp_nodes = function(FormulaSet){
-  ilp_nodes = bind_rows(FormulaSet) %>%
+initiate_ilp_nodes = function(FormulaSet_df){
+  ilp_nodes = FormulaSet_df %>%
+    arrange(-score_prior_propagation) %>%
     distinct(node_id, formula, .keep_all=T) %>%
+    arrange(node_id) %>%
     mutate(ilp_node_id = 1:nrow(.)) %>%
     dplyr::select(ilp_node_id, everything()) %>%
     filter(T)
-  
   return(ilp_nodes)
 }
+
 ## score_ilp_nodes ####
 score_ilp_nodes = function(ilp_nodes, MassDistsigma = MassDistsigma, 
-                           formula_score = 1,
-                           rdbe_score=F, step_score=F){
+                           formula_score = 1){
   
   node_mass = sapply(NodeSet, "[[", "mz")
   
   ilp_nodes = ilp_nodes %>%
     mutate(msr_mass = node_mass[node_id],
            ppm_error = (mass - msr_mass) / mass * 1e6) %>%
-    mutate(score_formula = 1)
+    mutate(score_formula = formula_score)
   
   # Score mass accuracy
   ilp_nodes = ilp_nodes %>%
@@ -945,20 +1040,6 @@ score_ilp_nodes = function(ilp_nodes, MassDistsigma = MassDistsigma,
     mutate(score_mass = score_mass+1e-10) %>%
     mutate(score_mass = log10(score_mass)) %>%
     filter(T)
-  
-  # Score rdbe 
-  # when rdbe < -1, penalty to each rdbe less
-  if(rdbe_score==T){
-    ilp_nodes = ilp_nodes %>%
-      mutate(score_rdbe = ifelse(rdbe < 0, 0.2*rdbe, 0))
-  }
-  
-  # Score steps
-  # Penalty happens when it takes too many steps to get to the formula
-  if(step_score==T){
-    ilp_nodes = ilp_nodes %>%
-      mutate(score_steps = ifelse(steps > 3, -0.1*steps, 0))
-  } 
   
   cplex_score_node = ilp_nodes %>% 
     dplyr::select(starts_with("score_")) %>% 
@@ -1002,7 +1083,6 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
     ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
     formula2 = ilp_nodes_formula[ilp_nodes2]
     if(length(formula2) == 0){next}
-    
     
     category = EdgeSet_df$category[i]
     

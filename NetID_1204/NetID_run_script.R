@@ -56,7 +56,6 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   LibrarySet = Initiate_libraryset(Mset)
   
-  
 }
 
 ## Extension of EdgeSet ####
@@ -65,15 +64,13 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
   EdgeSet_oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
   EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
-  
-  
   EdgeSet_all_df = merge_edgeset(EdgeSet, EdgeSet_ring_artifact, EdgeSet_oligomer, EdgeSet_heterodimer)
-    
 }
 
 ## Candidate formula pool
 {
   FormulaSet = Initilize_empty_formulaset(NodeSet)
+  
   FormulaSet = Match_library_formulaset(FormulaSet, 
                                         Mset, NodeSet, 
                                         LibrarySet,
@@ -93,17 +90,20 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
     filter(T)
   
 }
-
+print(Sys.time()-printtime)
 
 
 ## CplexSet & Scoring ####
 {
-
   CplexSet = list()
-  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet) 
+  FormulaSet_df = Score_formulaset(FormulaSet,
+                                   database_match = 0.2, 
+                                   bio_decay = -0.5,
+                                   artifact_decay = -0.1)
+  
+  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet_df) 
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet$ilp_nodes, MassDistsigma = MassDistsigma, 
-                                            formula_score = 1,
-                                            rdbe_score=F, step_score=F)
+                                            formula_score = 1)
   
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet)
   
@@ -116,7 +116,6 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
   
-  
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
 }
   
@@ -125,6 +124,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj))
 }
+
 ## Results ####
 {
   CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
@@ -190,11 +190,11 @@ print(Sys.time()-printtime)
 
 ## Query specific nodes or edges
 {
-  node_id_selected = 951
+  node_id_selected = 5111
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id == node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
-    filter(node1 == 871 | node2 == 871)
+    filter(node1 == node_id_selected | node2 == node_id_selected)
   
   edge_id_selected = 2191
   EdgeSet_selected = EdgeSet %>%
