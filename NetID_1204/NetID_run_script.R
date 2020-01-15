@@ -110,8 +110,8 @@ print(Sys.time()-printtime)
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
-                                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
-                                            rule_score_oligomer = 1, rule_score_ring_artifact = 1,
+                                            rule_score_biotransform = 0.05, rule_score_artifact = 1, 
+                                            rule_score_oligomer = 1, rule_score_ring_artifact = 10,
                                             inten_score_isotope = 1)
   
   CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
@@ -190,7 +190,7 @@ print(Sys.time()-printtime)
 
 ## Query specific nodes or edges
 {
-  node_id_selected = 5111
+  node_id_selected = 951
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id == node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
