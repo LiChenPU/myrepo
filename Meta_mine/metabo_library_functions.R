@@ -141,39 +141,54 @@ data_impute = function(pre_impute,
 
 
 # Normalize ####
-data_normalize = function(pre_norm, 
+data_normalize_row = function(pre_norm, 
                           nor_method = "row_mean", 
                           sample_name = "", 
                           cohort_name = "")
 {
   if(nor_method == "row_median"){
     row_median = apply(pre_norm, 1, median, na.rm=T)
-    norm_factor = row_median
+    row_factor = row_median
   } else if(nor_method == "row_mean"){
     row_mean = apply(pre_norm, 1, mean, na.rm=T)
-    norm_factor = row_mean
+    row_factor = row_mean
   } else if(nor_method == "sample"){
     sample_pos = which(sample_name == colnames(pre_norm))
-    norm_factor = pre_norm[,sample_pos]
+    row_factor = pre_norm[,sample_pos]
   } else if(nor_method == "cohort"){
     col_name = colnames(pre_norm)
-    cohort = stri_replace_last_regex(col_name,'_\\d+|-\\d+', '',stri_opts_regex(case_insensitive=T))
+    cohort = stri_replace_last_regex(sample_names,'[:punct:]?[:alnum:]+', '')
     sample_pos = which(cohort == cohort_name)
-    norm_factor = rowMeans(pre_norm[,sample_pos])
-  } else if(nor_method == "col_median"){
-    col_median = apply(pre_norm, 2, median, na.rm=T)
-    col_median = col_median/mean(col_median)
-    norm_factor = col_median
-    post_norm = sweep(pre_norm, 2, norm_factor, "/")
-    return(post_norm)
+    row_factor = rowMeans(pre_norm[,sample_pos])
   } else {
-    print("Warnings: no normalize")
+    print("Warnings: no row normalize")
     return(pre_norm)
   }
   
-  post_norm = sweep(pre_norm, 1, norm_factor, "/")
+  post_norm = sweep(pre_norm, 1, row_factor, "/")
+  
   return(post_norm)
 }
+
+data_normalize_col = function(pre_norm, 
+                              nor_method = "col_median")
+{
+  if(nor_method == "col_median"){
+    col_median = apply(pre_norm, 2, median, na.rm=T)
+    col_median = col_median/mean(col_median)
+    col_factor = col_median
+  } else if(nor_method == "col_sum"){
+    col_sum = apply(pre_norm, 2, sum, na.rm=T)
+    col_sum = col_sum/mean(col_sum)
+    col_factor = col_sum
+  } else {
+    print("Warnings: no column normalize")
+    return(pre_norm)
+  }
+  
+  post_norm = sweep(pre_norm, 2, col_factor, "/")
+}
+
 
 # data_transform ####
 data_transform = function(pre_trsf, transform_method = "log10")
