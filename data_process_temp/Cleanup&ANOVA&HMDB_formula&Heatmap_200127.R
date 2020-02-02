@@ -18,10 +18,16 @@
   known_mz = read_csv("known_mz.csv")
   hmdb_full_df = read_csv("hmdb_full.csv")
   
-  mode = -1
+  setwd("C:/Users/Li Chen/Desktop/CPMMR/RM")
+  filename = "group_neg.csv"
+  filename = "allM.csv"
+  
+  raw <- read_csv(filename) %>%
+    dplyr::rename(ID = groupId)
+  
+  mode = 1
   normalized_to_col_median = F
   full_hmdb = T
-  ANOVA = F
   
   ms_dif_ppm=5
   ms_dif_ppm = ms_dif_ppm/10^6
@@ -31,11 +37,7 @@
   detection_limit=2500
   replace_random = F
   
-  # setwd("C:/Users/Li Chen/Desktop/CPMMR/RM")
-  # filename = "group_neg.csv"
-  setwd("./test")
-  filename = "neg.csv"
-  raw <- read_csv(filename)
+
 }
 
 ## Read cohorts ####
@@ -58,7 +60,9 @@
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
   sample_cohort=stri_replace_last_regex(sample_names,'[:punct:]?[:alnum:]+', '')
-
+  
+  print(sample_names)
+  print(sample_cohort)
 }
 
 
@@ -169,9 +173,9 @@
 ## Flag high blank samples ####
 {
   s4 = s3 %>%
-    mutate(high_blank = NA)
+    mutate(high_blank = F)
   if(length(blank_names)>0){
-    s4["high_blank"]= rowMeans(s4[,sample_names]) < 2*rowMeans(s4[,sample_names])
+    s4["high_blank"]= rowMeans(s4[,sample_names]) < 2*rowMeans(s4[,blank_names])
   }
 }
 
@@ -219,12 +223,11 @@
 }
 
 ## Output files for MetaboAnalyst ####
-if(min(table(sample_cohort)) >= 3){
+
+if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
   {
     MA_output = s5 %>%
-      dplyr::select(sample_names) %>%
-      mutate(ID = s5$groupId) %>%
-      dplyr::select(ID, everything())
+      dplyr::select(ID, sample_names)
     MA_output = rbind(c("Cohort", sample_cohort), MA_output)
     MetaboAnalyst_filename = paste("MA_", filename, sep="")
     write.csv(MA_output, file=MetaboAnalyst_filename, row.names=F)
@@ -233,19 +236,12 @@ if(min(table(sample_cohort)) >= 3){
   {
     library(MetaboAnalystR)
     mSet <- InitDataObjects("pktable", "stat", FALSE)
-    # mSet<-Read.TextData(mSet, MetaboAnalyst_filename, "colu", "disc");
-    mSet<-Read.TextData(mSet, "test.csv", "colu", "disc");
+    mSet<-Read.TextData(mSet, MetaboAnalyst_filename, "colu", "disc");
     mSet<-Normalization(mSet, "NULL", "NULL", "NULL", ratio=FALSE, ratioNum=20)
     mSet<-SanityCheckData(mSet)
     mSet<-ReplaceMin(mSet)
     mSet<-PreparePrenormData(mSet)
     mSet<-Normalization(mSet, "NULL", "NULL", "NULL", ratio=FALSE, ratioNum=20)
-    
-    
-    
-    #mSet<-PlotHeatMap(mSet, "heatmap_0_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "overview", T, T, NA, T, F)
-    #mSet<-PlotSubHeatMap(mSet, "heatmap_1_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 25, "overview", F, T, T, F)
-    #mSet<-PlotSubHeatMap(mSet, "heatmap_1_", "png", 72, width=NA, "norm", "row", "euclidean", "ward.D","bwm", "tanova", 50, "overview", T, T, T, F)
     if(length(table(sample_cohort)) == 2){
       mSet<-Ttests.Anal(mSet, F, 0.05, FALSE, TRUE, FALSE)
       FDR_file = "t_test.csv"
@@ -256,7 +252,7 @@ if(min(table(sample_cohort)) >= 3){
 
     FDR_raw <- read_csv(FDR_file) %>%
       dplyr::select(c("X1","FDR")) %>%
-      mutate(log10_FDR = -log10(FDR))
+      mutate(FDR = -log10(FDR))
     
   }
   
@@ -268,70 +264,89 @@ if(min(table(sample_cohort)) >= 3){
   }
 }
 
-##Output
+## Output ####
 {
-  hmdb_match_output=s7[with(s7, order(ID)),]
-  merge_output=merge_output[with(merge_output,order(ID)),]
+  hmdb_match_output=s5 %>%
+    arrange(ID) %>%
+    filter(flag) %>%
+    filter(!high_blank) %>%
+    dplyr::select(-flag)
   
-  hmdb_match_output=merge(hmdb_match_output,ANOVA_FDR,by="ID",all=T)
-  hmdb_match_output$`_log10_FDR`[is.na(hmdb_match_output$`_log10_FDR`)]=0
-  
-  refcols = c("ID","medMz","medRt","Formula","Metabolite","_log10_FDR","high_blank")
-  hmdb_match_output = hmdb_match_output[,c(refcols, setdiff(colnames(hmdb_match_output), refcols))]
-}
-
-if(normalized_to_col_median){
-  write.csv(hmdb_match_output, file=paste("hmdb_","normalized_col_median_",filename,sep=""), row.names=F)
-}else{
-  write.csv(hmdb_match_output, file=paste("hmdb_","without_normalization_",filename,sep=""), row.names=F)
-}
- 
-## Include alternative names and SMILE ####
-if(full_hmdb){
-  
-  
-  hmdb_SMILE = hmdb_full_df[,c("MF","Name","HMDB_ID","SMILES") ]
-  
-  s6 = s5[!is.na(s5$Formula),]
-  
-  ls = list()
-  for (i in 1:nrow(s6)){
-    temp_df = hmdb_SMILE[hmdb_SMILE$MF==s6$Formula[i],]
-    temp_data = s6[rep(i,nrow(temp_df)),1:(ncol(s6)-2)]
-    ls[[i]] = cbind(temp_df, temp_data)
+  if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
+    hmdb_match_output = hmdb_match_output %>%
+      merge(FDR_raw, by = "ID") %>%
+      mutate(FDR = ifelse(is.na(FDR), 0, FDR))
+  } else {
+    hmdb_match_output = hmdb_match_output %>%
+      mutate(FDR = 0)
   }
   
-  s7 = bind_rows(ls)
+  refcols = c("ID","medMz","medRt","Formula","Metabolite","FDR","high_blank")
+  hmdb_match_output = hmdb_match_output %>%
+    dplyr::select(refcols, all_names)
   
-  
-  write.csv(s7, file=paste("ful_hmdb_SMILE_",filename,sep=""), row.names=F)
+  write.csv(hmdb_match_output, file=paste("hmdb_",filename,sep=""), row.names=F)
 }
 
+# ## Include alternative names and SMILE ####
+# if(full_hmdb){
+#   
+#   
+#   hmdb_SMILE = hmdb_full_df[,c("MF","Name","HMDB_ID","SMILES") ]
+#   
+#   s6 = s5[!is.na(s5$Formula),]
+#   
+#   ls = list()
+#   for (i in 1:nrow(s6)){
+#     temp_df = hmdb_SMILE[hmdb_SMILE$MF==s6$Formula[i],]
+#     temp_data = s6[rep(i,nrow(temp_df)),1:(ncol(s6)-2)]
+#     ls[[i]] = cbind(temp_df, temp_data)
+#   }
+#   
+#   s7 = bind_rows(ls)
+#   
+#   
+#   write.csv(s7, file=paste("full_hmdb_SMILE_",filename,sep=""), row.names=F)
+# }
 
 
-
-
-
-
-## Heat map ####
+## Data pre-clean ####
 {
-  mdata_pre_clean = s5[,sample_names]
+  mdata_pre_clean = hmdb_match_output %>%
+    filter(Metabolite != "") %>%
+    mutate(row_label = paste(stri_sub(Metabolite,1,30), medRt, sep="_"))
+  
+  row_labels = mdata_pre_clean$row_label
+  row_labels = NULL
+  
+  mdata_pre_clean = mdata_pre_clean %>%
+    dplyr::select(sample_names)
   
   mdata_clean = mdata_pre_clean %>% 
     data_impute(impute_method = "threshold", random = F) %>%  # "min", "percentile", "threshold"
     data_normalize_row(nor_method = "") %>% # row_median, row_mean, sample, cohort
-    data_normalize_col(nor_method = "") %>% # col_median, col_sum
+    data_normalize_col(nor_method = "col_sum") %>% # col_median, col_sum
     data_transform(transform_method = "log2") %>%
-    data_scale(scale_method = "auto") # mean_center, auto(mean_center + divide sd)
+    data_scale(scale_method = "mean_center") # mean_center, auto(mean_center + divide sd)
   
   # method "ward.D", "ward.D2", "ward", "single", "complete", "average", "mcquitty", "median", "centroid"
   # distance "correlation", "euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski"
   # correlation is default as pearson correlation
   row_cluster = cluster_mat(mdata_clean, method = "complete", distance = "correlation")
-  col_cluster = cluster_mat(mdata_clean, method = "complete", distance = "correlation")
-  my_plot_heatmap(mdata_clean = mdata_clean,
-                  cohort = cohort,
-                  imgName = "Plot", 
+  col_cluster = cluster_mat(t(mdata_clean), method = "complete", distance = "correlation")
+  
+  # col_cluster = F
+}
+
+
+## Heat map ####
+{
+ 
+
+  my_plot_heatmap(raw_data = mdata_clean,
+                  cohort = sample_cohort,
+                  row_labels = row_labels, 
+                  imgName = sub(".csv","", filename), 
                   format = "pdf", # pdf
                   dpi = 72,
                   width = NA, # define output graph width
@@ -341,7 +356,7 @@ if(full_hmdb){
                   colV = col_cluster, # cluster by column, "F" if not clutser
                   border = T, # border for each pixel
                   grp.ave = F, # group average
-                  scale_ub = 3, scale_lb = 3 # heatmap scale, auto if ub = lb
+                  scale_ub = 3, scale_lb = -3 # heatmap scale, auto if ub = lb
   )
 }
 
