@@ -18,15 +18,14 @@
   known_mz = read_csv("known_mz.csv")
   hmdb_full_df = read_csv("hmdb_full.csv")
   
-  setwd("C:/Users/Li Chen/Desktop/CPMMR/RM")
-  filename = "group_neg.csv"
-  filename = "allM.csv"
+  setwd("C:/Users/Li Chen/Desktop/Matt")
+  filename = "1.csv"
+  # filename = "allM.csv"
   
   raw <- read_csv(filename) %>%
     dplyr::rename(ID = groupId)
   
-  mode = 1
-  normalized_to_col_median = F
+  mode = -1
   full_hmdb = T
   
   ms_dif_ppm=5
@@ -63,6 +62,7 @@
   
   print(sample_names)
   print(sample_cohort)
+  print(blank_names)
 }
 
 
@@ -252,6 +252,7 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
 
     FDR_raw <- read_csv(FDR_file) %>%
       dplyr::select(c("X1","FDR")) %>%
+      dplyr::rename(ID = X1) %>%
       mutate(FDR = -log10(FDR))
     
   }
@@ -268,8 +269,9 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
 {
   hmdb_match_output=s5 %>%
     arrange(ID) %>%
-    filter(flag) %>%
+    filter(flag) %>% 
     filter(!high_blank) %>%
+    filter(T) %>%
     dplyr::select(-flag)
   
   if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
@@ -314,7 +316,8 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
 {
   mdata_pre_clean = hmdb_match_output %>%
     filter(Metabolite != "") %>%
-    mutate(row_label = paste(stri_sub(Metabolite,1,30), medRt, sep="_"))
+    mutate(row_label = paste(stri_sub(Metabolite,1,30), medRt, sep="_")) %>%
+    arrange(-FDR) 
   
   row_labels = mdata_pre_clean$row_label
   row_labels = NULL
@@ -325,7 +328,7 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
   mdata_clean = mdata_pre_clean %>% 
     data_impute(impute_method = "threshold", random = F) %>%  # "min", "percentile", "threshold"
     data_normalize_row(nor_method = "") %>% # row_median, row_mean, sample, cohort
-    data_normalize_col(nor_method = "col_sum") %>% # col_median, col_sum
+    data_normalize_col(nor_method = "col_median") %>% # col_median, col_sum
     data_transform(transform_method = "log2") %>%
     data_scale(scale_method = "mean_center") # mean_center, auto(mean_center + divide sd)
   
@@ -341,8 +344,6 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
 
 ## Heat map ####
 {
- 
-
   my_plot_heatmap(raw_data = mdata_clean,
                   cohort = sample_cohort,
                   row_labels = row_labels, 

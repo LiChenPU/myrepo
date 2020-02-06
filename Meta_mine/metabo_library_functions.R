@@ -307,6 +307,7 @@ correlated_peaks = function(mdata = raw_ls[[1]],
 ## my_plot_heatmap ####
 my_plot_heatmap = function(raw_data,
                            cohort,
+                           row_labels = NA, 
                            imgName = "Test", 
                            format = "pdf", # pdf, png, or jpeg
                            dpi = 72,
@@ -319,31 +320,29 @@ my_plot_heatmap = function(raw_data,
                            scale_ub = 3, scale_lb = -3 # heatmap scale
 )
 {
-  
-  # imgName = "Test" 
+  # 
+  # imgName = "Test"
   # format = "png" # pdf
   # dpi = 72
   # width = NA # define output graph width
   # palette = "RdBu"  # RdBu gbr heat topo
   # viewOpt = "overview" # Detail
-  # rowV = T 
+  # rowV = T
   # colV = T # cluster by row/column
   # border = T # border for each pixel
   # grp.ave = F # group average
-  # scale_ub = 3 
+  # scale_ub = 3
   # scale_lb = -3 # heatmap scale
-  # 
+  # rowV = row_cluster
+  # colV = col_cluster
   
- 
+
   imgName = paste0(imgName, "_dpi", dpi)
   if(file.exists(paste0(imgName, ".", format))){
     imgName = paste0(imgName, timestamp(), ".", format)
   }else{
     imgName = paste0(imgName, ".", format)
   }
-     
-     
-     
      
   hc.dat <- as.matrix(raw_data)
   colnames(hc.dat) <- substr(colnames(hc.dat), 1, 32)
@@ -456,15 +455,12 @@ my_plot_heatmap = function(raw_data,
   breaksList = seq(scale_lb, scale_ub, by =(scale_ub-scale_lb)/length(colors))
   pheatmap::pheatmap(hc.dat, 
                      annotation = annotation, 
+                     labels_row = row_labels,
                      fontsize = 8, 
                      fontsize_row = 8, 
-                     # clustering_distance_rows = smplDist, 
-                     # clustering_distance_cols = smplDist, 
-                     # clustering_method = clstDist, 
                      border_color = border.col, 
                      cluster_rows = rowV, 
                      cluster_cols = colV, 
-                     # scale = scaleOpt, 
                      color = colors, 
                      annotation_colors = ann_colors,
                      breaks = breaksList)
