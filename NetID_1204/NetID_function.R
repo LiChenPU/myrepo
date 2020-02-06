@@ -582,9 +582,6 @@ match_library = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, N
     
     adding = candidate %>%
       mutate(node_id = temp_id[i]) %>%
-      # mutate(msr.mz = node_mass[i]) %>% 
-      # mutate(ppm_error = (msr.mz - mass)/msr.mz*1e6) %>%
-      # mutate(msr.RT = node_RT[i]) %>%
       mutate(steps = current_step)
     sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], adding)
     
