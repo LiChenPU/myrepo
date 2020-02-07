@@ -233,9 +233,9 @@ Peak_cleanup = function(Mset,
 Initiate_nodeset = function(Mset){
   NodeSet = apply(Mset$Data, 1, function(x){
     list(
-      mz = as.vector(x["medMz"]),
-      RT = as.vector(x["medRt"]),
-      inten = as.vector(x["log10_inten"]),
+      mz = as.numeric(x["medMz"]),
+      RT = as.numeric(x["medRt"]),
+      inten = as.numeric(x["log10_inten"]),
       sample_inten = x[Mset$Cohort$sample_names],
       blank_inten = x[Mset$Cohort$blank_names],
       formula = list()
@@ -504,6 +504,8 @@ merge_edgeset = function(EdgeSet, ...){
 }
 ### Expand_library ####
 expand_library = function(lib, rule, direction, category){
+  
+  # initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Artifact")
   mz_lib = lib$mass
   mz_rule = rule$mass
   mass_exp = outer(mz_lib, mz_rule * direction, FUN = "+")
@@ -803,12 +805,12 @@ Propagate_formulaset = function(Mset,
                                 record_ppm_tol = 5e-6)
 {
   
-  biotransform_step = 5
-  artifact_step = 5
-  propagation_ppm_threshold = 1e-6
-  record_RT_tol = 0.1
-  record_ppm_tol = 5e-6
-  
+  # biotransform_step = 5
+  # artifact_step = 5
+  # propagation_ppm_threshold = 1e-6
+  # record_RT_tol = 0.1
+  # record_ppm_tol = 5e-6
+
   
   sf = FormulaSet
   empirical_rules = Mset$Empirical_rules
