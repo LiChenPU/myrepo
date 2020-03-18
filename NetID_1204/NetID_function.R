@@ -32,6 +32,24 @@ read_raw_data = function(filename){
 }
 
 
+## read_manual library ####
+read_manual_library = function(manual_library_file){
+  if(!file.exists(manual_library_file)){
+    return(NULL)
+  }
+  data("isotopes")
+  manual_library = read.csv(manual_library_file, stringsAsFactors = F)
+  check_formula = check_chemform(isotopes, manual_library$MF) 
+  if(any(check_formula$warning)){
+    stop(paste("Check manual library for formula error:", 
+               paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
+  }
+  manual_library = manual_library %>%
+    mutate(MF = check_formula$new_formula) %>%
+    mutate(Exact_Mass = formula_mz(MF),
+           rdbe = formula_rdbe(MF))
+  return(manual_library)
+}
 ## read_library ####
 read_library = function(library_file){
   data(isotopes)
@@ -335,8 +353,10 @@ Initiate_libraryset = function(Mset, NodeSet){
            MF = Formula
            ) %>%
     dplyr::select(-direction)
+  Manual = Mset$Manual_library
   
-  LibrarySet = bind_rows(Metabolites, Adducts) %>%
+  
+  LibrarySet = bind_rows(Metabolites, Adducts, Manual) %>%
     mutate(library_id = 1:nrow(.)) %>%
     # Remove entries in HMDB that are adducts 
     arrange(category) %>%
@@ -650,7 +670,11 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
   
   initial_lib_adduct = bind_rows(lib_adduct, initial_lib_adduct_1, initial_lib_adduct_2)
   
-  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct) %>%
+  lib_manual = seed_library %>%
+    filter(category == "Manual")
+    
+  
+  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct, lib_manual) %>%
     # mutate(RT = -1) %>%
     # filter(grepl("(?<!H)-.", formula, perl=T))
     filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
@@ -764,6 +788,10 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
     dplyr::select(-c("linktype"))
   
   heterodimer_ls = list()
+  
+  if(nrow(new_nodes_df_heterodimer) == 0){
+    return(NULL)
+  }
  
   
   for(i in 1:nrow(new_nodes_df_heterodimer)){
@@ -919,6 +947,7 @@ Propagate_formulaset = function(Mset,
 ## Score_formulaset ####
 Score_formulaset = function(FormulaSet,
                             database_match = 0.2, 
+                            manual_match = 1,
                             bio_decay = -0.5,
                             artifact_decay = -0.1){
   
@@ -928,9 +957,19 @@ Score_formulaset = function(FormulaSet,
   {
     FormulaSet_df = FormulaSet_df %>%
       mutate(database_prior = case_when(
+        category == "Manual" ~ manual_match,
         steps == 0 & transform == "" ~ database_match,
         TRUE ~ 0 # Everything else
       ))
+  }
+  
+  # Score formula based on empricial rule
+  {
+    temp_formula = FormulaSet_df$formula
+    formula_P = sapply(temp_formula, elem_num_query, "P")
+    formula_O = sapply(temp_formula, elem_num_query, "O")
+    FormulaSet_df = FormulaSet_df %>%
+      mutate(empirical_POratio_prior = ifelse(formula_P <= 1/3*formula_O, 0, -10))
   }
   
   # Prior formula scores 
