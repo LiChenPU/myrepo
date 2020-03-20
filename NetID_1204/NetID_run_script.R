@@ -17,15 +17,20 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 # sink(paste(timestamp,"log.txt"))
 # sink()
 
-
 {
   Mset = list()
   Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
+  test = read.csv("./dependent/hmdb_structure_full.csv", stringsAsFactors = F)
+  test2 = Mset$Library
+  
   Mset[["Empirical_rules"]]=Read_rule_table(rule_table_file = Empirical_rules_file)
   
   setwd(work_dir)
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
+  manual_library_file = "manual_library.csv"
+  
+  Mset[["Manual_library"]] = read_manual_library(manual_library_file)
 }
 
 ## Initialise ####
@@ -37,10 +42,10 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                ms_dif_ppm=0/10^6, 
-                                rt_dif_min=0.1,
-                                detection_limit=0,
-                                remove_high_blank_ratio = 0,
+                                mz_tol=1/10^6, 
+                                rt_tol=0.1,
+                                inten_cutoff=0,
+                                high_blank_cutoff = 0,
                                 first_sample_col_num = 15)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
 
@@ -51,8 +56,8 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   NodeSet = Initiate_nodeset(Mset)
   
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
-                             mass_abs = 0, mass_ppm = 10, 
-                             nonbio_RT_tol = 0.2)
+                             mz_tol_abs = 0, mz_tol_ppm = 10, 
+                             rt_tol_bio = Inf, rt_tol_nonbio = 0.2)
   
   LibrarySet = Initiate_libraryset(Mset)
   
@@ -79,7 +84,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
-                                    biotransform_step = 5,
+                                    biotransform_step = 3,
                                     artifact_step = 5,
                                     propagation_ppm_threshold = 1e-6,
                                     record_RT_tol = 0.1,
@@ -97,7 +102,8 @@ print(Sys.time()-printtime)
 {
   CplexSet = list()
   FormulaSet_df = Score_formulaset(FormulaSet,
-                                   database_match = 0.2, 
+                                   database_match = 0.5, 
+                                   manual_match = 1,
                                    bio_decay = -0.5,
                                    artifact_decay = -0.1)
   
@@ -110,15 +116,19 @@ print(Sys.time()-printtime)
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
-                                            rule_score_biotransform = 0.05, rule_score_artifact = 1, 
-                                            rule_score_oligomer = 1, rule_score_ring_artifact = 10,
-                                            inten_score_isotope = 1)
+                                            rule_score_biotransform = 0, rule_score_artifact = 1, 
+                                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
+                                            inten_score_isotope = 2)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 2)
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
 }
   
+save.image(paste0(timestamp,".RData"))
+
+print("total run time")
+print(Sys.time()-printtime)
 
 ## Run_cplex ####
 {
@@ -133,7 +143,7 @@ print(Sys.time()-printtime)
   
   ilp_nodes = CplexSet$ilp_nodes %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.)]) %>%
-    # filter(ilp_result == 1) %>%
+    inner_join(Mset$Data %>% dplyr::select(id, Input_id), by = c("node_id"="id")) %>%
     filter(T)
   
   ilp_edges = CplexSet$ilp_edges %>%
@@ -145,13 +155,7 @@ print(Sys.time()-printtime)
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
 }
 
-save.image(paste0(timestamp,".RData"))
-
-print("total run time")
-print(Sys.time()-printtime)
-
-
-## PAVE evaluation ####
+# ## PAVE evaluation ####
 {
   library(readxl)
   library(janitor)
@@ -161,41 +165,41 @@ print(Sys.time()-printtime)
     # dplyr::select(-c(36:67)) %>%
     dplyr::select(ID...1,
                   c(6:7,68:ncol(.)))
-  
+
   id_Input_id_map = Mset$Data %>%
     dplyr::select(id, Input_id)
-  
+
   merge_result = ilp_nodes %>%
-    merge(id_Input_id_map, by.x="node_id", by.y="id") %>%
     merge(groundtruth, by.x="Input_id", by.y="ID...1")
-  
+
   merge_result = merge_result %>%
     mutate(formula_match = formula == Formula...68)
-  
+
   merge_result_filter = merge_result %>%
     filter(ilp_result != 0 | is.na(ilp_result)) %>%
     filter(!formula_match) %>%
+    # filter(formula_match) %>%
     filter(!is.na(Formula_validated)) %>%
     filter(T)
-  
-  
+
+
   tabyl(merge_result, ilp_result, formula_match)
-  
+
   test = ilp_edges %>%
     group_by(ilp_nodes1, ilp_nodes2) %>%
     filter(n()>1)
-  
+
 }
-
-
+# 
+# 
 ## Query specific nodes or edges
 {
-  node_id_selected = 951
+  node_id_selected = 1736
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id == node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
-  
+
   edge_id_selected = 2191
   EdgeSet_selected = EdgeSet %>%
     filter(edge_id == edge_id_selected)
@@ -236,4 +240,19 @@ print(Sys.time()-printtime)
 #   ConnectionSet[["library_edge"]] = library_edge
 #   ConnectionSet[["data_edge"]] = data_edge
 #   
+# }
+
+## Merge with ANOVA results ####
+# {
+#   temp = ilp_nodes %>%
+#     filter(Input_id == 1)
+#   
+#   HMDB_result = read.csv("mdata.csv") %>%
+#     inner_join(ilp_nodes %>%
+#                  filter(ilp_result != 0), 
+#                by = c("ID"="Input_id"))
+#   
+#   write.csv(HMDB_result, "merge.csv")
+#   
+#   # save.image()
 # }

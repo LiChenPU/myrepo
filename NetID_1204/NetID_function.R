@@ -120,10 +120,10 @@ Cohort_Info = function(Mset, first_sample_col_num = 15)
 
 ## Peak_cleanup - Clean up duplicate peaks from peak picking ####
 Peak_cleanup = function(Mset, 
-                        ms_dif_ppm=5/10^6, 
-                        rt_dif_min=0.1,
-                        detection_limit=500, 
-                        remove_high_blank_ratio = 2,
+                        mz_tol=5/10^6, 
+                        rt_tol=0.1,
+                        inten_cutoff=500, 
+                        high_blank_cutoff = 2,
                         first_sample_col_num = 15
 )
 {
@@ -144,7 +144,7 @@ Peak_cleanup = function(Mset,
     count = 1
     MZ_group = rep(1,(length(mzs)))
     for(i in 2:length(mzs)){
-      if(mzs[i]-mzs[i-1]>mzs[i-1]*ms_dif_ppm){
+      if(mzs[i]-mzs[i-1]>mzs[i-1]*mz_tol){
         count = count+1
       }
       MZ_group[i]=count
@@ -163,7 +163,7 @@ Peak_cleanup = function(Mset,
     
     count = 1
     for(i in 2:length(rts)){
-      if(MZ_group[i]!=MZ_group[i-1] | rts[i]-rts[i-1]>rt_dif_min){
+      if(MZ_group[i]!=MZ_group[i-1] | rts[i]-rts[i-1]>rt_tol){
         count = count+1
       }
       MZRT_group[i]=count
@@ -210,20 +210,20 @@ Peak_cleanup = function(Mset,
   {
     s4=s3 %>%
       mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
-      filter(mean_inten > detection_limit)
-    # s4[,4:ncol(s4)][s4[,4:ncol(s4)]<detection_limit]=sample(1:detection_limit, 
-    #                                                         size=sum(s4[,4:ncol(s4)]<detection_limit), 
+      filter(mean_inten > inten_cutoff)
+    # s4[,4:ncol(s4)][s4[,4:ncol(s4)]<inten_cutoff]=sample(1:inten_cutoff, 
+    #                                                         size=sum(s4[,4:ncol(s4)]<inten_cutoff), 
     #                                                         replace=T)
   }
   
   # Remove high blank
   {
-    if(!identical(remove_high_blank_ratio, F) & length(Mset$Cohort$blank_names) > 0){
-      if(identical(remove_high_blank_ratio, T)){remove_high_blank_ratio = 2}
+    if(!identical(high_blank_cutoff, F) & length(Mset$Cohort$blank_names) > 0){
+      if(identical(high_blank_cutoff, T)){high_blank_cutoff = 2}
       
       s5 = s4 %>%
         mutate(high_blank = rowMeans(s4[,Mset$Cohort$sample_names]) < 
-                 rowMeans(s4[,Mset$Cohort$blank_names]) * remove_high_blank_ratio) %>%
+                 rowMeans(s4[,Mset$Cohort$blank_names]) * high_blank_cutoff) %>%
         filter(!high_blank) %>%
         dplyr::select(-"high_blank")
     } else{
@@ -263,8 +263,8 @@ Initiate_nodeset = function(Mset){
   return(NodeSet)
 }
 ## Initiate_edgeset ####
-Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 10, nonbio_RT_tol = 0.2){
-  mass_ppm = mass_ppm/1e6
+Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_tol_bio = Inf, rt_tol_nonbio = 0.2){
+  mz_tol_ppm = mz_tol_ppm/1e6
   
   temp_mz_list = NodeSet %>% sapply("[[","mz") %>% sort()
   temp_RT_list = NodeSet %>% sapply("[[","RT") 
@@ -277,7 +277,7 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 10, nonbio_R
     edge_ls = list()
     for (k in 1:nrow(Mset$Empirical_rules)){
       temp_fg=temp_rules$mass[k]
-      temp_deltaRT = ifelse(temp_rules$category[k] == "Biotransform", Inf, nonbio_RT_tol)
+      temp_deltaRT = ifelse(temp_rules$category[k] == "Biotransform", rt_tol_bio, rt_tol_nonbio)
       
       # Find the i,j combination gives potential transformation 
       ## Memeory efficient, but may be slower
@@ -285,7 +285,7 @@ Initiate_edgeset = function(Mset, NodeSet, mass_abs = 0, mass_ppm = 10, nonbio_R
       temp_edge_list = list()
       i=j=j_pos=1
       while(i<=merge_nrow){
-        mass_tol = max(temp_mz_list[i]*mass_ppm,mass_abs)
+        mass_tol = max(temp_mz_list[i]*mz_tol_ppm,mz_tol_abs)
         while(1){
           j=j+1
           if(j>merge_nrow){break}
@@ -963,14 +963,22 @@ Score_formulaset = function(FormulaSet,
       ))
   }
   
-  # Score formula based on empricial rule
+  # Score formula based on PO ratio
   {
     temp_formula = FormulaSet_df$formula
+    # Slow here - may need optimization
     formula_P = sapply(temp_formula, elem_num_query, "P")
     formula_O = sapply(temp_formula, elem_num_query, "O")
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_POratio_prior = ifelse(formula_P <= 1/3*formula_O, 0, -10))
+      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P, 0, -10))
   }
+  
+  # Score formula based on RDBE rule
+  {
+    FormulaSet_df = FormulaSet_df %>%
+      mutate(empirical_RDBE_prior = ifelse(rdbe > 0 | category != "Metabolite", 0, -10))
+  }
+  
   
   # Prior formula scores 
   {
@@ -1041,7 +1049,7 @@ Score_formulaset = function(FormulaSet,
     
     summary = bind_rows(summary_ls) %>%
       mutate(score = replace_na(score, 0),
-             score = ifelse(score < 0, 0, score)) %>%
+             score = ifelse(score < 0 & score > -10, 0, score)) %>%
       dplyr::rename(score_prior_propagation = score)
   }
   
@@ -1095,9 +1103,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
   
   EdgeSet_df = EdgeSet_all_df %>%
     filter(category != "Heterodimer")
-    # filter(category == "Oligomer") %>%
-    # sample_n(200) %>%
-    # pull(category) %>% table() %>%
+
   
   node_id_ilp_node_mapping = ilp_nodes %>%
     dplyr::select(node_id, ilp_node_id) %>%
@@ -1133,6 +1139,9 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       fold = as.numeric(EdgeSet_df$linktype[i])
       formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
     }
+    
+    # Matrix can parallel calculate all formulas of node1
+    # And compares with all formulas of node2
 
     formula_match_matrix = matrix(TRUE, length(formula_transform), length(formula2))
     for(j in 1:length(formula_transform)){
@@ -1142,6 +1151,8 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
     formula_match_matrix_index = which(formula_match_matrix == T, arr.ind = TRUE) 
     
     if(dim(formula_match_matrix_index)[1] == 0){next}
+    
+    
 
     match_matrix_index_ls[[length(match_matrix_index_ls)+1]] = list(edge_id = rep(edge_id, dim(formula_match_matrix_index)[1]),
                                       ilp_nodes1 = ilp_nodes1[formula_match_matrix_index[, 1]],
@@ -1246,13 +1257,13 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
                            inten_score_isotope = 1){
-  
-  # rule_score_biotransform = 0.1
-  # rule_score_artifact = 1 
+
+  # rule_score_biotransform = 0
+  # rule_score_artifact = 1
   # rule_score_oligomer = 1
-  # rule_score_ring_artifact = 1
+  # rule_score_ring_artifact = 5
   # inten_score_isotope = 1
-  
+    
   # Score rule category 
   ilp_edges = CplexSet$ilp_edges %>%
     mutate(score_category = case_when(
@@ -1316,8 +1327,8 @@ Initiate_cplexset = function(CplexSet){
   
   ilp_nodes = CplexSet$ilp_nodes %>%
     arrange(ilp_node_id)
-  ilp_edges = CplexSet$ilp_edges
-  
+  ilp_edges = CplexSet$ilp_edges %>%
+    arrange(ilp_edge_id)
   
   ## Core codes
   # Construct constraint matrix 
@@ -1363,7 +1374,6 @@ Initiate_cplexset = function(CplexSet){
                              triplet_edge_node1,
                              triplet_edge_node2)
   }
-  
   
   # triplet_isotope
   # constrain an isotope formula must come with an isotope edge
