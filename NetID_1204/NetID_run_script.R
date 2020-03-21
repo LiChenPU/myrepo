@@ -9,6 +9,7 @@ ion_mode = -1
 Empirical_rules_file = "./dependent/Empirical_rules.csv"
 
 MassDistsigma = 0.5
+LC_method = "Hilic_25min_QE"
 print(work_dir)
 print(ion_mode)
 
@@ -19,9 +20,10 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 
 {
   Mset = list()
-  Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  test = read.csv("./dependent/hmdb_structure_full.csv", stringsAsFactors = F)
-  test2 = Mset$Library
+  # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
+  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_database.csv", stringsAsFactors = F)
+  Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
+    filter(!is.na(.[,eval(LC_method)]))
   
   Mset[["Empirical_rules"]]=Read_rule_table(rule_table_file = Empirical_rules_file)
   
@@ -36,7 +38,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 ## Initialise ####
 {
   Mset[["Global_parameter"]]=  list(mode = ion_mode,
-                                    normalized_to_col_median = F)
+                                    LC_method = LC_method)
   Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 15)
   print(Mset$Cohort)
   
@@ -48,7 +50,6 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
                                 high_blank_cutoff = 0,
                                 first_sample_col_num = 15)
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
-
 }
 
 ## Initiate nodeset and edgeset ####
@@ -60,7 +61,6 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
                              rt_tol_bio = Inf, rt_tol_nonbio = 0.2)
   
   LibrarySet = Initiate_libraryset(Mset)
-  
 }
 
 ## Extension of EdgeSet ####
@@ -85,18 +85,18 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
                                     NodeSet,
                                     FormulaSet,
                                     biotransform_step = 3,
-                                    artifact_step = 5,
+                                    artifact_step = 4,
                                     propagation_ppm_threshold = 1e-6,
                                     record_RT_tol = 0.1,
                                     record_ppm_tol = 5e-6)
 
   all_bind = bind_rows(FormulaSet) %>%
-    filter(steps != 0) %>%
-    filter(T)
+    # filter(steps != 0) %>%
+    distinct(formula, node_id, .keep_all = T) 
   
 }
 print(Sys.time()-printtime)
-
+save.image()
 
 ## CplexSet & Scoring ####
 {
@@ -104,6 +104,8 @@ print(Sys.time()-printtime)
   FormulaSet_df = Score_formulaset(FormulaSet,
                                    database_match = 0.5, 
                                    manual_match = 1,
+                                   rt_match = 1, 
+                                   known_rt_tol = 0.5,
                                    bio_decay = -0.5,
                                    artifact_decay = -0.1)
   

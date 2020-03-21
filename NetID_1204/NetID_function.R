@@ -26,7 +26,7 @@ read_raw_data = function(filename){
   raw_data = read_csv(filename) 
   if("groupId" %in% colnames(raw_data)){
     raw_data = raw_data %>%
-      rename(id = groupId)
+      dplyr::rename(id = groupId)
   }
   return(raw_data)
 }
@@ -35,31 +35,21 @@ read_raw_data = function(filename){
 ## read_manual library ####
 read_manual_library = function(manual_library_file){
   if(!file.exists(manual_library_file)){
+    # warning("No manual library file found in data folder.")
     return(NULL)
   }
   data("isotopes")
   manual_library = read.csv(manual_library_file, stringsAsFactors = F)
-  check_formula = check_chemform(isotopes, manual_library$MF) 
+  check_formula = check_chemform(isotopes, manual_library$formula) 
   if(any(check_formula$warning)){
     stop(paste("Check manual library for formula error:", 
                paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
   }
   manual_library = manual_library %>%
-    mutate(MF = check_formula$new_formula) %>%
-    mutate(Exact_Mass = formula_mz(MF),
-           rdbe = formula_rdbe(MF))
+    mutate(formula = check_formula$new_formula) %>%
+    mutate(mass = formula_mz(formula),
+           rdbe = formula_rdbe(formula))
   return(manual_library)
-}
-## read_library ####
-read_library = function(library_file){
-  data(isotopes)
-  hmdb_lib = read_csv(library_file)
-  hmdb_lib$MF = check_chemform(isotopes, hmdb_lib$MF)$new_formula
-  hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1")
-  hmdb_lib$MF = sapply(hmdb_lib$MF, my_calculate_formula,"C1",-1)
-  hmdb_lib$Exact_Mass = formula_mz(hmdb_lib$MF)
-  hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$MF)
-  return(hmdb_lib)
 }
 ## Read_rule_table - for Connect_rules ####
 Read_rule_table = function(rule_table_file, extend_rule = F){
@@ -67,35 +57,34 @@ Read_rule_table = function(rule_table_file, extend_rule = F){
   Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
   if(nrow(Connect_rules) == 0){return(Connect_rules)}
   for(i in 1: nrow(Connect_rules)){
-    if(Connect_rules$Formula[i]==""){next}
-    Connect_rules$Formula[i] = check_chemform(isotopes,Connect_rules$Formula[i])$new_formula
-    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1")
-    Connect_rules$Formula[i] = my_calculate_formula(Connect_rules$Formula[i], "C1", -1)
-    Connect_rules$mass[i] = formula_mz(Connect_rules$Formula[i])
+    Connect_rules$formula[i] = check_chemform(isotopes,Connect_rules$formula[i])$new_formula
+    Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1")
+    Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1", -1)
+    Connect_rules$mass[i] = formula_mz(Connect_rules$formula[i])
   }
   
-  if(extend_rule){
-    extend_rules = list()
-    i=3
-    for(i in 1: nrow(Connect_rules)){
-      if(Connect_rules$allow_rep[i] <= 1){next}
-      for(j in 2:Connect_rules$allow_rep[i]){
-        temp_rule = Connect_rules[i,]
-        temp_rule$Symbol = paste(temp_rule$Symbol, "x", j, sep="")
-        temp_rule$Formula = my_calculate_formula(temp_rule$Formula, temp_rule$Formula, 
-                                                 sign = j-1)
-        temp_rule$mass = temp_rule$mass * j
-        temp_rule$rdbe = temp_rule$rdbe * j
-        
-        extend_rules[[length(extend_rules)+1]] = temp_rule
-      }
-    }
-    
-    Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
-    Connect_rules = Connect_rules %>%
-      arrange(mass) %>%
-      dplyr::select(-allow_rep)
-  }
+  # if(extend_rule){
+  #   extend_rules = list()
+  #   i=3
+  #   for(i in 1: nrow(Connect_rules)){
+  #     if(Connect_rules$allow_rep[i] <= 1){next}
+  #     for(j in 2:Connect_rules$allow_rep[i]){
+  #       temp_rule = Connect_rules[i,]
+  #       temp_rule$name = paste(temp_rule$name, "x", j, sep="")
+  #       temp_rule$formula = my_calculate_formula(temp_rule$formula, temp_rule$formula, 
+  #                                                sign = j-1)
+  #       temp_rule$mass = temp_rule$mass * j
+  #       temp_rule$rdbe = temp_rule$rdbe * j
+  #       
+  #       extend_rules[[length(extend_rules)+1]] = temp_rule
+  #     }
+  #   }
+  #   
+  #   Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
+  #   Connect_rules = Connect_rules %>%
+  #     arrange(mass) %>%
+  #     dplyr::select(-allow_rep)
+  # }
   return(Connect_rules)
 }
 
@@ -132,7 +121,6 @@ Peak_cleanup = function(Mset,
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
   raw = Mset$Raw_data %>%
-    # rename(id = groupId) %>%
     mutate(medMz = medMz - (H_mass-e_mass)*ion_mode)
   
   
@@ -312,10 +300,10 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_t
  
       edge_ls[[k]]= bind_rows(temp_edge_list) %>%
         mutate(category = temp_rules$category[k],
-               linktype = temp_rules$Formula[k],
+               linktype = temp_rules$formula[k],
                direction = temp_rules$direction[k],
                rdbe = temp_rules$rdbe[k])
-      print(paste(temp_rules$category[k], temp_rules$Formula[k], nrow(edge_ls[[k]]),"found."))
+      print(paste(temp_rules$category[k], temp_rules$formula[k], nrow(edge_ls[[k]]),"found."))
     }
   }
   
@@ -341,30 +329,37 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_t
   return(EdgeSet)
 }
 ## Initiate_libraryset ####
-Initiate_libraryset = function(Mset, NodeSet){
-  Metabolites = Mset$Library %>%
+Initiate_libraryset = function(Mset){
+  Metabolites_HMDB = Mset$Library_HMDB %>%
     mutate(category = "Metabolite") %>%
-    dplyr::rename(Note = HMDB_ID)
+    dplyr::rename(note = accession) %>%
+    mutate(origin = "Library_HMDB")
+  
+  Metabolites_known = Mset$Library_known %>%
+    mutate(category = "Metabolite") %>%
+    dplyr::rename(note = HMDB) %>%
+    mutate(origin = "Library_known") %>%
+    mutate(rt = .[,eval(Mset$Global_parameter$LC_method)])
+
   Adducts = Mset$Empirical_rules %>%
     filter(category == "Adduct") %>%
     mutate(category = "Artifact") %>%
-    dplyr::rename(Name = Symbol,
-           Exact_Mass = mass,
-           MF = Formula
-           ) %>%
-    dplyr::select(-direction)
-  Manual = Mset$Manual_library
+    dplyr::select(-direction) %>%
+    mutate(origin = "Empirical_rules")
   
+  Manual = Mset$Manual_library %>%
+    mutate(origin = "Manual_library")
   
-  LibrarySet = bind_rows(Metabolites, Adducts, Manual) %>%
-    mutate(library_id = 1:nrow(.)) %>%
-    # Remove entries in HMDB that are adducts 
-    arrange(category) %>%
-    distinct(MF, .keep_all = T) %>%
-    arrange(library_id) %>%
-    mutate(library_id = (1+nrow(Mset$Data)):(nrow(Mset$Data)+nrow(.)))
-    # group_by(MF) %>%
-    # filter(n()>1)
+  # Remove entries in HMDB that are adducts 
+  Metabolites_HMDB = Metabolites_HMDB %>%
+    filter(!formula %in% Adducts$formula)
+  
+  LibrarySet = bind_rows(Metabolites_HMDB, Metabolites_known, Manual, Adducts) %>%
+    distinct(SMILES, formula, .keep_all = T) %>%
+    mutate(library_id = (1+nrow(Mset$Data)) : (nrow(Mset$Data)+nrow(.))) %>%
+    # group_by(SMILES) %>%
+    # filter(n()>1) %>%
+    filter(T)
 
   return(LibrarySet)
 }
@@ -535,11 +530,11 @@ expand_library = function(lib, rule, direction, category){
   rdbe_exp = outer(rdbe_lib, rdbe_rule * direction, FUN = "+")
   
   formula_lib = lib$formula
-  formula_rule = rule$Formula
+  formula_rule = rule$formula
   formula_exp = my_calculate_formula(formula_lib, formula_rule, sign = direction)
   
   parent_lib = lib$formula
-  transformation_rule = rule$Formula
+  transformation_rule = rule$formula
   
   expansion = merge(parent_lib, transformation_rule, all=T) %>%
     dplyr::rename(parent_formula = x,
@@ -629,16 +624,33 @@ Initilize_empty_formulaset = function(NodeSet){
   return(sf)
 }
 
+## Initialize formula pool ####
+Initilize_empty_structset = function(NodeSet){
+  sf_str = data.frame(
+    formula = as.character(),
+    mass = as.numeric(), 
+    rdbe = as.numeric(), 
+    category = as.character(), 
+    parent_id = as.numeric(), 
+    parent_formula = as.character(),
+    transform = as.character(),
+    direction = as.integer(),
+    stringsAsFactors = F
+  )
+  sf = lapply(1:length(NodeSet), function(x) sf_str)
+  return(sf)
+}
+
 ## Match_library_formulaset ####
 Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet, 
                                     ppm_tol = 5e-6){
   ## initialize
   seed_library = LibrarySet %>% 
     mutate(node_id = library_id,
-           formula = MF,
-           mass = Exact_Mass,
+           formula = formula,
+           mass = mass,
            parent_id = library_id,
-           parent_formula = MF,
+           parent_formula = formula,
            transform = "",
            direction = 1,
            rdbe = rdbe,
@@ -646,38 +658,38 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
     ) %>%
     dplyr::select(node_id, formula, mass, rdbe, parent_id, parent_formula, transform, direction, category) %>%
     filter(T)
-    
-  initial_rule = Mset$Empirical_rules %>%
-    filter(category %in% c("Biotransform", "Adduct"))
   
   lib_met = seed_library %>% filter(category == "Metabolite")
-  rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
-  rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
-  
-  initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
-  initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
-  initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2, lib_met) 
-  
-  lib_adduct = seed_library %>% 
+  lib_adduct = seed_library %>%
     filter(category == "Artifact") %>%
     filter(T)
-  
-  rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
-  rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
-  
-  initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Artifact")
-  initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1, category = "Artifact")
-  
-  initial_lib_adduct = bind_rows(lib_adduct, initial_lib_adduct_1, initial_lib_adduct_2)
-  
   lib_manual = seed_library %>%
     filter(category == "Manual")
-    
-  
+  ## Expansion of starting formula/structures ####
+  {
+    initial_rule = Mset$Empirical_rules %>%
+      filter(category %in% c("Biotransform", "Adduct"))
+
+    rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
+    rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
+
+    initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
+    initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
+    initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2, lib_met)
+
+    rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
+    rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
+
+    initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Artifact")
+    initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1, category = "Artifact")
+
+    initial_lib_adduct = bind_rows(lib_adduct, initial_lib_adduct_1, initial_lib_adduct_2)
+  }
+
   initial_lib = bind_rows(initial_lib_met, initial_lib_adduct, lib_manual) %>%
     # mutate(RT = -1) %>%
     # filter(grepl("(?<!H)-.", formula, perl=T))
-    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured, it will get filtered
     arrange(mass)
   
   sf = FormulaSet
@@ -799,7 +811,10 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
     transform = sf[[as.numeric(temp$transform)]] %>%
       distinct(formula, .keep_all = T) %>%
       filter(node_mass[node_id] - mass < mass * propagation_ppm_threshold,
-             !grepl("\\.|Ring_artifact", formula)) 
+             !grepl("\\.|Ring_artifact", formula)) %>%
+      # Need to avoid exponential growth because heterodimer entries grows at n^2 rate
+      filter(category != "Heterodimer") %>%
+      filter(steps < 0.02 | (steps >= 1  & steps <1.02))
     
     if(nrow(transform) == 0){next}
     heterodimer_ls[[length(heterodimer_ls)+1]] = list(parent_id = rep(temp$parent_id, length(transform$formula)),
@@ -832,14 +847,13 @@ Propagate_formulaset = function(Mset,
                                 record_RT_tol = 0.1,
                                 record_ppm_tol = 5e-6)
 {
-  
-  # biotransform_step = 5
-  # artifact_step = 5
+
+  # biotransform_step = 3
+  # artifact_step = 4
   # propagation_ppm_threshold = 1e-6
   # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
 
-  
   sf = FormulaSet
   empirical_rules = Mset$Empirical_rules
   node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
@@ -883,12 +897,7 @@ Propagate_formulaset = function(Mset,
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
-      sf = match_library(lib_adduct,
-                         sf,
-                         record_ppm_tol,
-                         record_RT_tol,
-                         current_step,
-                         NodeSet)
+
       ## sf[[11]] to test if [13]C1C15H30O2 is added
       ring_artifact = propagate_ring_artifact(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step)
       ## sf[[302]]
@@ -898,6 +907,13 @@ Propagate_formulaset = function(Mset,
       ## sf[[436]]
       sf_add = bind_rows(ring_artifact, oligomer, heterodimer)
       
+      sf = match_library(lib_adduct,
+                         sf,
+                         record_ppm_tol,
+                         record_RT_tol,
+                         current_step,
+                         NodeSet)
+      
       for(i in unique(sf_add$node_id)){
         sf[[i]] = bind_rows(sf[[i]], sf_add[sf_add$node_id == i, ])
       }
@@ -905,9 +921,9 @@ Propagate_formulaset = function(Mset,
     }
     all_nodes_df = bind_rows(sf)
     new_nodes_df = all_nodes_df %>%
+      filter(category == "Metabolite") %>% # only metabolites go to biotransformation, also garantee it is not filtered.
       distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
       filter(steps == step_count) %>% # only formulas generated from the step go to next propagation
-      filter(category == "Metabolite") %>% # only metabolites go to biotransformation
       filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
       filter(!grepl("\\.|Ring_artifact", formula)) %>%  # filter formula with decimal point and ring artifacts
       filter(node_mass[as.character(node_id)] - mass < propagation_ppm_threshold * mass) # propagate from accurate formulas
@@ -947,13 +963,23 @@ Propagate_formulaset = function(Mset,
 ## Score_formulaset ####
 Score_formulaset = function(FormulaSet,
                             database_match = 0.2, 
+                            rt_match = 1, 
+                            known_rt_tol = 0.2,
                             manual_match = 1,
                             bio_decay = -0.5,
                             artifact_decay = -0.1){
   
+  
+  # database_match = 0.2
+  # rt_match = 1
+  # known_rt_tol = 0.5
+  # manual_match = 1
+  # bio_decay = -0.5
+  # artifact_decay = -0.1
+  
   FormulaSet_df = bind_rows(FormulaSet)
   
-  # Score database_match
+  # Score HMDB and known adduct match
   {
     FormulaSet_df = FormulaSet_df %>%
       mutate(database_prior = case_when(
@@ -963,7 +989,21 @@ Score_formulaset = function(FormulaSet,
       ))
   }
   
-  # Score formula based on PO ratio
+  # Score known RT match
+  {
+    node_RT = sapply(NodeSet, "[[", "RT")
+    library_RT = LibrarySet$rt
+    names(library_RT) = LibrarySet$library_id
+    
+    FormulaSet_df = FormulaSet_df %>%
+      mutate(node_rt = node_RT[node_id], 
+             library_rt = library_RT[as.character(parent_id)]) %>%
+      mutate(known_rt_prior = ifelse(abs(node_rt - library_rt) < known_rt_tol & 
+                                       steps == 0 & transform == "", rt_match-abs(node_rt - library_rt), 0)) %>%
+      dplyr::select(-node_rt, -library_rt)
+  }
+  
+  # Penalize formula based on PO ratio
   {
     temp_formula = FormulaSet_df$formula
     # Slow here - may need optimization
@@ -973,10 +1013,10 @@ Score_formulaset = function(FormulaSet,
       mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P, 0, -10))
   }
   
-  # Score formula based on RDBE rule
+  # Penalize formula based on RDBE rule
   {
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_RDBE_prior = ifelse(rdbe > 0 | category != "Metabolite", 0, -10))
+      mutate(empirical_RDBE_prior = ifelse(rdbe >= 0 | category != "Metabolite", 0, -10))
   }
   
   
@@ -1049,7 +1089,7 @@ Score_formulaset = function(FormulaSet,
     
     summary = bind_rows(summary_ls) %>%
       mutate(score = replace_na(score, 0),
-             score = ifelse(score < 0 & score > -10, 0, score)) %>%
+             score = ifelse(score < 0 & score > -2, 0, score)) %>%
       dplyr::rename(score_prior_propagation = score)
   }
   
@@ -1710,4 +1750,16 @@ Read_cplex_result = function(solution){
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
 }
-## ---------------------- ####
+## ---------------------- #### 
+## Deprecated ####
+## read_library ####
+# read_library = function(library_file){
+#   data(isotopes)
+#   hmdb_lib = read_csv(library_file)
+#   hmdb_lib$formula = check_chemform(isotopes, hmdb_lib$formula)$new_formula
+#   hmdb_lib$formula = sapply(hmdb_lib$formula, my_calculate_formula,"C1")
+#   hmdb_lib$formula = sapply(hmdb_lib$formula, my_calculate_formula,"C1",-1)
+#   hmdb_lib$mass = formula_mz(hmdb_lib$formula)
+#   hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$formula)
+#   return(hmdb_lib)
+# }
