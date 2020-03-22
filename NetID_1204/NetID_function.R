@@ -953,7 +953,7 @@ Score_formulaset = function(FormulaSet,
                             bio_decay = 1,
                             artifact_decay = -0.5){
   
-  
+
   # database_match = 0.5
   # rt_match = 1
   # known_rt_tol = 0.5
@@ -1068,7 +1068,7 @@ Score_formulaset = function(FormulaSet,
       
       summary_ls[[length(summary_ls)+1]] = temp
       
-      nonzero = temp %>%
+      nonzero = temp %>% 
         filter(score > 0) %>%
         dplyr::select(node_id, formula, score) %>%
         distinct(node_id, formula, .keep_all=T)
@@ -1130,47 +1130,85 @@ score_ilp_nodes = function(ilp_nodes, MassDistsigma = MassDistsigma,
 
 ## initiate_ilp_edges ####
 initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
-  ilp_nodes = CplexSet$ilp_nodes
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    arrange(ilp_node_id) 
   
   EdgeSet_df = EdgeSet_all_df %>%
     filter(category != "Heterodimer")
 
+  node_id_ilp_node_mapping = split(ilp_nodes$ilp_node_id, ilp_nodes$node_id)
   
-  node_id_ilp_node_mapping = ilp_nodes %>%
-    dplyr::select(node_id, ilp_node_id) %>%
-    pull(ilp_node_id) %>%
-    split(ilp_nodes$node_id)
+  ilp_nodes_met = ilp_nodes %>% filter(category == "Metabolite") 
+  node_id_ilp_node_mapping_met = split(ilp_nodes_met$ilp_node_id, ilp_nodes_met$node_id)
+  
+  ilp_nodes_nonmet = ilp_nodes %>% filter(category != "Metabolite") 
+  node_id_ilp_node_mapping_nonmet = split(ilp_nodes_nonmet$ilp_node_id, ilp_nodes_nonmet$node_id)
+  
   ilp_nodes_formula = ilp_nodes %>%
-    arrange(ilp_node_id) %>%
     pull(formula)
   
   match_matrix_index_ls = list()
   
   for(i in 1:nrow(EdgeSet_df)){
     edge_id = EdgeSet_df$edge_id[i]
-    
-    node1 = EdgeSet_df$node1[i]
-    ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
-    formula1 = ilp_nodes_formula[ilp_nodes1]
-    if(length(formula1) == 0){next}
-
-    node2 = EdgeSet_df$node2[i]
-    ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
-    formula2 = ilp_nodes_formula[ilp_nodes2]
-    if(length(formula2) == 0){next}
-    
     category = EdgeSet_df$category[i]
     
-    if(any(category == c("Biotransform", "Adduct", "Natural_abundance", "Fragment"))){
+    if(category == "Biotransform"){
+      # Only allow two metabolite ilp_node to form biotransform connection
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping_met[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping_met[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      
       transform = EdgeSet_df$linktype[i]
       formula_transform = my_calculate_formula(formula1, transform)
-    } else if(category == c("Ring_artifact")){
-      formula_transform = paste0("Ring_artifact_", formula1)
-    } else if(category == c("Oligomer")){
+    } else if(category == "Fragment") {
+      # node1 must be artifact, and node2 can be anything
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      formula_transform = my_calculate_formula(formula1, transform)
+    } else if(category == "Oligomer") {
+      # Both can be anything for simplicity
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
       fold = as.numeric(EdgeSet_df$linktype[i])
       formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
+    } else {
+      # if not above situation, then artifact
+      # node2 has to be artifact, node1 can be anything
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping_nonmet[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      if(any(category == c("Adduct", "Natural_abundance"))){
+        transform = EdgeSet_df$linktype[i]
+        # No direction is needed as it is always node1 + linktype = node2
+        formula_transform = my_calculate_formula(formula1, transform)
+      } else if(category == c("Ring_artifact")){
+        formula_transform = paste0("Ring_artifact_", formula1)
+      } 
     }
-    
     # Matrix can parallel calculate all formulas of node1
     # And compares with all formulas of node2
 
@@ -1180,9 +1218,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
     }
     
     formula_match_matrix_index = which(formula_match_matrix == T, arr.ind = TRUE) 
-    
     if(dim(formula_match_matrix_index)[1] == 0){next}
-    
     
 
     match_matrix_index_ls[[length(match_matrix_index_ls)+1]] = list(edge_id = rep(edge_id, dim(formula_match_matrix_index)[1]),
@@ -1209,31 +1245,36 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
     filter(node_inten[node1] > node_inten[linktype]) # node1 and linktype are interchangeable in heterodimer
 
   if(nrow(EdgeSet_df) == 0){
-    return(CplexSet$ilp_edges)
+    return(NULL)
   }
   
-  ilp_nodes = CplexSet$ilp_nodes
-  node_id_ilp_node_mapping = ilp_nodes %>%
-    dplyr::select(node_id, ilp_node_id) %>%
-    pull(ilp_node_id) %>%
-    split(ilp_nodes$node_id)
-  ilp_nodes_formula = ilp_nodes %>%
-    arrange(ilp_node_id) %>%
-    pull(formula)
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    arrange(ilp_node_id) 
+
+  node_id_ilp_node_mapping = split(ilp_nodes$ilp_node_id, ilp_nodes$node_id)
   
+  ilp_nodes_met = ilp_nodes %>% filter(category == "Metabolite") 
+  node_id_ilp_node_mapping_met = split(ilp_nodes_met$ilp_node_id, ilp_nodes_met$node_id)
+  
+  ilp_nodes_nonmet = ilp_nodes %>% filter(category != "Metabolite") 
+  node_id_ilp_node_mapping_nonmet = split(ilp_nodes_nonmet$ilp_node_id, ilp_nodes_nonmet$node_id)
+  
+  ilp_nodes_formula = ilp_nodes %>%
+    pull(formula)
 
   match_matrix_index_ls = list()
   
   for(i in 1:nrow(EdgeSet_df)){
     edge_id = EdgeSet_df$edge_id[i]
     
+    # node1 and node_link can be anything, node2 has to be artifact
     node1 = EdgeSet_df$node1[i]
     ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
     formula1 = ilp_nodes_formula[ilp_nodes1]
     if(length(formula1) == 0){next}
     
     node2 = EdgeSet_df$node2[i]
-    ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
+    ilp_nodes2 = node_id_ilp_node_mapping_nonmet[[as.character(node2)]]
     formula2 = ilp_nodes_formula[ilp_nodes2]
     if(length(formula2) == 0){next}
     
@@ -1250,7 +1291,8 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
       if(length(transform) == 1){
         formula_transform = formula_transform_all
       } else {
-        formula_transform = formula_transform_all[, k]      }
+        formula_transform = formula_transform_all[, k]      
+      }
       
       formula_match_matrix = matrix(TRUE, length(formula_transform), length(formula2))
       for(j in 1:length(formula_transform)){
@@ -1266,19 +1308,13 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
                                                                       ilp_nodes2 = ilp_nodes2[formula_match_matrix_index[, 2]],
                                                                       ilp_nodes_link = rep(ilp_nodes_link[k], dim(formula_match_matrix_index)[1]))
     }
-    
   }
-  
   heterodimer_ilp_edges = bind_rows(match_matrix_index_ls) %>%
     merge(EdgeSet_df, all.x = T) %>%
     mutate(formula1 = ilp_nodes_formula[ilp_nodes1],
            formula2 = ilp_nodes_formula[ilp_nodes2],
            formula_link = ilp_nodes_formula[ilp_nodes_link])
-  
-  
-  
   return(heterodimer_ilp_edges)
-  
 }
 
 
