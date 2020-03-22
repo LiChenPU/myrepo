@@ -624,25 +624,9 @@ Initilize_empty_formulaset = function(NodeSet){
   return(sf)
 }
 
-## Initialize formula pool ####
-Initilize_empty_structset = function(NodeSet){
-  sf_str = data.frame(
-    formula = as.character(),
-    mass = as.numeric(), 
-    rdbe = as.numeric(), 
-    category = as.character(), 
-    parent_id = as.numeric(), 
-    parent_formula = as.character(),
-    transform = as.character(),
-    direction = as.integer(),
-    stringsAsFactors = F
-  )
-  sf = lapply(1:length(NodeSet), function(x) sf_str)
-  return(sf)
-}
-
 ## Match_library_formulaset ####
 Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet, 
+                                    expand = F,
                                     ppm_tol = 5e-6){
   ## initialize
   seed_library = LibrarySet %>% 
@@ -666,27 +650,27 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
   lib_manual = seed_library %>%
     filter(category == "Manual")
   ## Expansion of starting formula/structures ####
-  {
+  if(expand){
     initial_rule = Mset$Empirical_rules %>%
       filter(category %in% c("Biotransform", "Adduct"))
 
     rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
     rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
 
-    initial_lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
-    initial_lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
-    initial_lib_met = bind_rows(initial_lib_met_1, initial_lib_met_2, lib_met)
+    lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
+    lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
+    lib_met = bind_rows(lib_met_1, lib_met_2, lib_met)
 
     rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
     rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
 
-    initial_lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Artifact")
-    initial_lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1, category = "Artifact")
+    lib_adduct_1 = expand_library(lib_adduct, rule_1, direction = 1, category = "Artifact")
+    lib_adduct_2 = expand_library(lib_adduct, rule_2, direction = -1, category = "Artifact")
 
-    initial_lib_adduct = bind_rows(lib_adduct, initial_lib_adduct_1, initial_lib_adduct_2)
+    lib_adduct = bind_rows(lib_adduct, lib_adduct_1, lib_adduct_2)
   }
 
-  initial_lib = bind_rows(initial_lib_met, initial_lib_adduct, lib_manual) %>%
+  initial_lib = bind_rows(lib_met, lib_adduct, lib_manual) %>%
     # mutate(RT = -1) %>%
     # filter(grepl("(?<!H)-.", formula, perl=T))
     filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured, it will get filtered
@@ -962,19 +946,19 @@ Propagate_formulaset = function(Mset,
 
 ## Score_formulaset ####
 Score_formulaset = function(FormulaSet,
-                            database_match = 0.2, 
+                            database_match = 0.5, 
                             rt_match = 1, 
-                            known_rt_tol = 0.2,
+                            known_rt_tol = 0.5,
                             manual_match = 1,
-                            bio_decay = -0.5,
-                            artifact_decay = -0.1){
+                            bio_decay = 1,
+                            artifact_decay = -0.5){
   
   
-  # database_match = 0.2
+  # database_match = 0.5
   # rt_match = 1
   # known_rt_tol = 0.5
   # manual_match = 1
-  # bio_decay = -0.5
+  # bio_decay = -0.2
   # artifact_decay = -0.1
   
   FormulaSet_df = bind_rows(FormulaSet)
@@ -1006,11 +990,13 @@ Score_formulaset = function(FormulaSet,
   # Penalize formula based on PO ratio
   {
     temp_formula = FormulaSet_df$formula
-    # Slow here - may need optimization
+    # Slow here - may need optimization 
+    # Consider use stringr to substring
     formula_P = sapply(temp_formula, elem_num_query, "P")
+    formula_Si = sapply(temp_formula, elem_num_query, "Si")
     formula_O = sapply(temp_formula, elem_num_query, "O")
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P, 0, -10))
+      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O > 2*formula_Si, 0, -10))
   }
   
   # Penalize formula based on RDBE rule
@@ -1039,6 +1025,8 @@ Score_formulaset = function(FormulaSet,
       mutate(score = prior_score)
     
     summary_ls[[length(summary_ls)+1]] = initial
+    
+    
     
     nonzero = initial %>%
       filter(score > 0) %>%
@@ -1088,8 +1076,8 @@ Score_formulaset = function(FormulaSet,
     }
     
     summary = bind_rows(summary_ls) %>%
-      mutate(score = replace_na(score, 0),
-             score = ifelse(score < 0 & score > -2, 0, score)) %>%
+      mutate(score = replace_na(score, 0)) %>%
+      mutate(score = ifelse(score < 0 & score > -5, 0, score)) %>%
       dplyr::rename(score_prior_propagation = score)
   }
   
@@ -1100,13 +1088,16 @@ Score_formulaset = function(FormulaSet,
 ## initiate_ilp_nodes ####
 initiate_ilp_nodes = function(FormulaSet_df){
   ilp_nodes = FormulaSet_df %>%
-    arrange(-score_prior_propagation) %>%
-    distinct(node_id, formula, .keep_all=T) %>%
+    arrange(-score_prior_propagation) %>% 
+    mutate(temp_cat = ifelse(category == "Metabolite", "Metabolite", "Artifact")) %>%
+    distinct(node_id, formula, temp_cat, .keep_all=T) %>%
+    dplyr::select(-temp_cat) %>%
     arrange(node_id) %>%
     mutate(ilp_node_id = 1:nrow(.)) %>%
     dplyr::select(ilp_node_id, everything()) %>%
     filter(T)
   return(ilp_nodes)
+  
 }
 
 ## score_ilp_nodes ####
