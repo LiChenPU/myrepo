@@ -237,10 +237,6 @@ print(Sys.time()-printtime)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
   
-  test = ilp_edges %>%
-    group_by(node1, node2, formula1, formula2) %>%
-    filter(n()>1)
-
   edge_id_selected = 2191
   EdgeSet_selected = EdgeSet %>%
     filter(edge_id == edge_id_selected)
