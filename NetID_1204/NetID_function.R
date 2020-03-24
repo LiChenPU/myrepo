@@ -1010,7 +1010,7 @@ Score_formulaset = function(FormulaSet,
   {
     prior_formula_score = FormulaSet_df %>% 
       dplyr::select(ends_with("_prior")) %>% 
-      rowSums()
+      rowSums(na.rm = T)
     
     FormulaSet_df = FormulaSet_df %>%
       mutate(prior_score = prior_formula_score)
@@ -1159,7 +1159,6 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       ilp_nodes1 = node_id_ilp_node_mapping_met[[as.character(node1)]]
       formula1 = ilp_nodes_formula[ilp_nodes1]
       if(length(formula1) == 0){next}
-
       node2 = EdgeSet_df$node2[i]
       ilp_nodes2 = node_id_ilp_node_mapping_met[[as.character(node2)]]
       formula2 = ilp_nodes_formula[ilp_nodes2]
@@ -1177,6 +1176,8 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
       formula2 = ilp_nodes_formula[ilp_nodes2]
       if(length(formula2) == 0){next}
+      
+      transform = EdgeSet_df$linktype[i]
       formula_transform = my_calculate_formula(formula1, transform)
     } else if(category == "Oligomer") {
       # Both can be anything for simplicity
@@ -1188,6 +1189,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
       formula2 = ilp_nodes_formula[ilp_nodes2]
       if(length(formula2) == 0){next}
+      
       fold = as.numeric(EdgeSet_df$linktype[i])
       formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
     } else {
@@ -1201,9 +1203,10 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       ilp_nodes2 = node_id_ilp_node_mapping_nonmet[[as.character(node2)]]
       formula2 = ilp_nodes_formula[ilp_nodes2]
       if(length(formula2) == 0){next}
+      
       if(any(category == c("Adduct", "Natural_abundance"))){
+        # Direction is not needed as it is always node1 + linktype = node2
         transform = EdgeSet_df$linktype[i]
-        # No direction is needed as it is always node1 + linktype = node2
         formula_transform = my_calculate_formula(formula1, transform)
       } else if(category == c("Ring_artifact")){
         formula_transform = paste0("Ring_artifact_", formula1)
@@ -1446,17 +1449,82 @@ Initiate_cplexset = function(CplexSet){
   # constrain an isotope formula must come with an isotope edge
   {
     ilp_edges_isotope = ilp_edges %>%
-      filter(category == "Natural_abundance")
-    triplet_isotope_edge = ilp_edges_isotope %>%
+      filter(category == "Natural_abundance") %>%
+      group_by(edge_id, ilp_nodes1) %>%
+      mutate(n1 = n()) %>%
+      ungroup() %>%
+      group_by(edge_id, ilp_nodes2) %>%
+      mutate(n2 = n()) %>%
+      ungroup()
+    
+    ilp_edges_isotope_1 = ilp_edges_isotope %>%
+      filter(n1 == 1, n2 == 1)
+    
+    triplet_isotope_edge_1 = ilp_edges_isotope_1 %>%
       transmute(i = 1:nrow(.) + max(triplet_edge$i), 
                 j = ilp_edge_id + max(triplet_node$j),
                 v = 1)
-    triplet_isotope_node = ilp_edges_isotope %>%
+    triplet_isotope_node_1 = ilp_edges_isotope_1 %>%
       transmute(i = 1:nrow(.) + max(triplet_edge$i), 
                 j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
                 v = -1)
-    triplet_isotope = bind_rows(triplet_isotope_edge, 
-                                triplet_isotope_node)
+    
+    ## When two ilp_node1 point to same isotope ilp_node2, two lines needs to be combined
+    
+    ## Try catching bug here
+    {
+      # Bug1: one edge contains two same ilp_nodes
+      ilp_edges_isotope_bug1 = ilp_edges_isotope %>%
+        filter(n1 != 1 & n2 != 1)
+      # Bug2: the direction of isotope edge causes problem
+      ilp_edges_isotope_bug2.1 = ilp_edges_isotope %>%
+        filter(n1 == 1 & n2 != 1 & direction != 1)
+      ilp_edges_isotope_bug2.2 = ilp_edges_isotope %>%
+        filter(n2 == 1 & n1 != 1 & direction != -1)
+      if(nrow(ilp_edges_isotope_bug1) != 0 |
+         nrow(ilp_edges_isotope_bug2.1) != 0 |
+         nrow(ilp_edges_isotope_bug2.2) != 0){
+        stop("Bugs in isotope triplex.")
+      }
+    }
+    
+    ilp_edges_isotope_2 = ilp_edges_isotope %>%
+      filter(n1 != 1 | n2 != 1) 
+    
+    ilp_edges_isotope_2.1 = ilp_edges_isotope %>%
+      filter(n1 != 1) %>%
+      group_by(edge_id, ilp_nodes1) %>%
+      group_split()
+    ilp_edges_isotope_2.2 = ilp_edges_isotope %>%
+      filter(n2 != 1) %>%
+      group_by(edge_id, ilp_nodes2) %>%
+      group_split()
+
+    # It is assumed that isotope_id is counting the number of list
+    ilp_edges_isotope_2 = bind_rows(ilp_edges_isotope_2.1, 
+                                    ilp_edges_isotope_2.2, 
+                                    .id = "isotope_id") %>%
+      mutate(isotope_id = as.numeric(isotope_id))
+    
+    # isotope_id specify which row the triplex should be in
+    
+    triplet_isotope_edge_2 = ilp_edges_isotope_2 %>%
+      transmute(i = isotope_id + max(triplet_isotope_edge_1$i), 
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    triplet_isotope_node_2 = ilp_edges_isotope_2 %>%
+      transmute(i = isotope_id + max(triplet_isotope_edge_1$i), 
+                j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                v = -1) %>%
+      distinct()
+    
+    nrow_triplet_isotope = nrow(ilp_edges_isotope_1) + max(ilp_edges_isotope_2$isotope_id)
+    
+
+    triplet_isotope = bind_rows(triplet_isotope_edge_1, 
+                                triplet_isotope_node_1,
+                                triplet_isotope_edge_2,
+                                triplet_isotope_node_2)
   }
   
   # triplet_heterodimer
@@ -1523,8 +1591,8 @@ Initiate_cplexset = function(CplexSet){
     ## 2. For each edge, an edge exists only both formula it connects exists
     ## 3. For isotopic peak, an isotopic formula is given only if the isotope edge is chosen.
     ## 4. For heterodimer edge, an edge exists only when both formula and the linktype connection exist
-    rhs = c(rep(1, max(ilp_rows)), rep(0, nrow(ilp_edges)), rep(0, nrow(ilp_edges_isotope)), rep(0, nrow(heterodimer_ilp_edges)))
-    sense <- c(rep("L", max(ilp_rows)), rep("L", nrow(ilp_edges)), rep("E", nrow(ilp_edges_isotope)), rep("L", nrow(heterodimer_ilp_edges)))
+    rhs = c(rep(1, max(ilp_rows)), rep(0, nrow(ilp_edges)), rep(0, nrow_triplet_isotope), rep(0, nrow(heterodimer_ilp_edges)))
+    sense <- c(rep("L", max(ilp_rows)), rep("L", nrow(ilp_edges)), rep("E", nrow_triplet_isotope), rep("L", nrow(heterodimer_ilp_edges)))
     
     triplet_df = triplet_df %>% arrange(j)
     cnt=as.vector(table(triplet_df$j))
@@ -1776,6 +1844,71 @@ Read_cplex_result = function(solution){
   }
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
+}
+
+## query_path ####
+query_path = function(query_node_id = 6,
+                      result_ls, 
+                      LibrarySet){
+  
+  query_node_id = 36
+  temp = result_ls[[query_node_id]]
+  if(is.null(temp)){
+    trace_ls = NULL
+    id_ls = NULL
+  } else {
+    trace_ls = list()
+    id_ls = numeric()
+    while(nrow(temp) != 0){
+      result_ilp_node = temp %>% 
+        arrange(-ilp_result, -cplex_score, -score_prior_propagation, steps, parent_id) %>%
+        slice(1)
+      
+      parent_id = result_ilp_node$parent_id
+      
+      if(result_ilp_node$steps == 0){
+        id_ls[[length(id_ls) + 1]] = parent_id
+        # trace_ls[[length(trace_ls) + 1]] = list(LibrarySet$name[LibrarySet$library_id == parent_id],
+        #                                         LibrarySet$formula[LibrarySet$library_id == parent_id])
+        trace_ls[[length(trace_ls) + 1]] = c(LibrarySet$name[LibrarySet$library_id == parent_id],
+                                             LibrarySet$formula[LibrarySet$library_id == parent_id])
+        break
+      }
+      
+      if(result_ilp_node$category %in% c("Metabolite", "Manual", "Artifact", "Ring_artifact")){
+        if(result_ilp_node$direction == 1){
+          temp_sign = "+"
+        } else {
+          temp_sign = "-"
+        }
+        transform = c(temp_sign, result_ilp_node$transform)
+      } else if(result_ilp_node$category %in% c("Heterodimer")){
+        transform = c("+ Peak", result_ilp_node$transform)
+      } else if(result_ilp_node$category %in% c("Multicharge")){
+        transform = c("/", result_ilp_node$transform)
+      } else if(result_ilp_node$category %in% c("Oligomer")){
+        transform = c("*", result_ilp_node$transform)
+      }
+      
+      trace_ls[[length(trace_ls) + 1]] = c(transform, "->", result_ilp_node$formula)
+      id_ls[[length(id_ls) + 1]] = parent_id
+      temp = result_ls[[parent_id]] %>%
+        filter(formula == result_ilp_node$parent_formula)
+      
+    }
+    
+  }
+  
+  
+  # Output formating
+  {
+    paste_combine = c()
+    for(i in length(trace_ls):1){
+      paste_combine = c(paste_combine, trace_ls[[i]])
+    }
+  }
+  
+  paste(paste_combine, collapse = " ")
 }
 ## ---------------------- #### 
 ## Deprecated ####

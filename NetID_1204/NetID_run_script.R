@@ -79,6 +79,7 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
   FormulaSet = Match_library_formulaset(FormulaSet, 
                                         Mset, NodeSet, 
                                         LibrarySet,
+                                        expand = F,
                                         ppm_tol = 5e-6)
   
   FormulaSet = Propagate_formulaset(Mset, 
@@ -102,25 +103,25 @@ save.image()
 {
   CplexSet = list()
   FormulaSet_df = Score_formulaset(FormulaSet,
-                                   database_match = 0.5, 
-                                   manual_match = 1,
+                                   database_match = 0.6, 
+                                   manual_match = 0.5,
                                    rt_match = 1, 
                                    known_rt_tol = 0.5,
-                                   bio_decay = -0.5,
-                                   artifact_decay = -0.1)
+                                   bio_decay = -1,
+                                   artifact_decay = -0.5)
   
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet_df) 
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet$ilp_nodes, MassDistsigma = MassDistsigma, 
-                                            formula_score = 1)
+                                            formula_score = 0)
   
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet)
   
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
-                                            rule_score_biotransform = 0, rule_score_artifact = 1, 
-                                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
-                                            inten_score_isotope = 2)
+                                            rule_score_biotransform = 0.05, rule_score_artifact = 0.5, 
+                                            rule_score_oligomer = 0.5, rule_score_ring_artifact = 2,
+                                            inten_score_isotope = 1)
   
   CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 2)
   
@@ -155,7 +156,40 @@ print(Sys.time()-printtime)
   
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
+  
+  test = ilp_nodes %>%
+    filter(ilp_result > 0.01 | is.na(ilp_result))
 }
+
+## View Results ####
+{
+  result = FormulaSet_df %>%
+    merge(ilp_nodes %>% 
+            dplyr::select(node_id, formula, category, ilp_node_id, ilp_result, cplex_score), 
+          all.x = T) %>%
+    # mutate(node_id = factor(node_id, levels = 1:length(NodeSet))) %>%
+    split(.$node_id)
+  
+  result_ls = vector("list", length(NodeSet))
+  for(i in 1:length(NodeSet)){
+    if(!is.null(result[[as.character(i)]])){
+      result_ls[[i]] = result[[as.character(i)]]
+    } 
+  }
+  
+
+  tictoc::tic()
+  for(i in unique(ilp_nodes$node_id)){
+    # test = sapply(, query_path, result_ls, LibrarySet)
+    test = query_path(i, result_ls, LibrarySet)
+    print(i)
+  }
+
+  tictoc::toc()
+  
+  
+}
+
 
 # ## PAVE evaluation ####
 {
@@ -178,29 +212,34 @@ print(Sys.time()-printtime)
     mutate(formula_match = formula == Formula...68)
 
   merge_result_filter = merge_result %>%
-    filter(ilp_result != 0 | is.na(ilp_result)) %>%
-    filter(!formula_match) %>%
-    # filter(formula_match) %>%
-    filter(!is.na(Formula_validated)) %>%
+    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
+    filter(formula_match) %>%
+    filter(!is.na(Formula_validated) | Formula_validated == "Y", Formula_validated != "?") %>%
+    # arrange(-ilp_result) %>%
+    # distinct(node_id, .keep_all=T) %>% 
+    # filter(ilp_result < 0.01) %>% 
+    # filter(!formula_match) %>%
     filter(T)
-
-
-  tabyl(merge_result, ilp_result, formula_match)
-
-  test = ilp_edges %>%
-    group_by(ilp_nodes1, ilp_nodes2) %>%
-    filter(n()>1)
-
+  
+  test = tabyl(merge_result_filter, category, Status_validated)
+  
+  merge_result_filter2 = merge_result_filter %>%
+    filter(category == "Metabolite" | Status_validated == "Metabolite", 
+           category != Status_validated) %>%
+    filter(T)
 }
-# 
-# 
+
 ## Query specific nodes or edges
 {
-  node_id_selected = 1736
+  node_id_selected = 6
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id == node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
+  
+  test = ilp_edges %>%
+    group_by(node1, node2, formula1, formula2) %>%
+    filter(n()>1)
 
   edge_id_selected = 2191
   EdgeSet_selected = EdgeSet %>%
@@ -208,9 +247,6 @@ print(Sys.time()-printtime)
   ilp_nodes_edge_related = ilp_nodes %>%
     filter(node_id %in% c(EdgeSet_selected$node1, EdgeSet_selected$node2))
 }
-
-
-
 
 ## deprecated ####
 # {
