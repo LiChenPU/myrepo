@@ -347,8 +347,12 @@ Initiate_libraryset = function(Mset){
     dplyr::select(-direction) %>%
     mutate(origin = "Empirical_rules")
   
-  Manual = Mset$Manual_library %>%
-    mutate(origin = "Manual_library")
+  Manual = NULL
+  if(!is.null(Mset$Manual_library)){
+    Manual = Mset$Manual_library %>%
+      mutate(origin = "Manual_library")
+  }
+
   
   # Remove entries in HMDB that are adducts 
   Metabolites_HMDB = Metabolites_HMDB %>%
@@ -984,6 +988,7 @@ Score_formulaset = function(FormulaSet,
              library_rt = library_RT[as.character(parent_id)]) %>%
       mutate(known_rt_prior = ifelse(abs(node_rt - library_rt) < known_rt_tol & 
                                        steps == 0 & transform == "", rt_match-abs(node_rt - library_rt), 0)) %>%
+      mutate(known_rt_prior = replace_na(known_rt_prior, 0)) %>%
       dplyr::select(-node_rt, -library_rt)
   }
   
@@ -996,7 +1001,7 @@ Score_formulaset = function(FormulaSet,
     formula_Si = sapply(temp_formula, elem_num_query, "Si")
     formula_O = sapply(temp_formula, elem_num_query, "O")
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O > 2*formula_Si, 0, -10))
+      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O >= 2*formula_Si, 0, -10))
   }
   
   # Penalize formula based on RDBE rule
@@ -1845,14 +1850,16 @@ Read_cplex_result = function(solution){
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
 }
-
 ## query_path ####
 query_path = function(query_node_id = 6,
                       result_ls, 
                       LibrarySet){
   
-  query_node_id = 36
+  # query_node_id = 211
+  test1 = result_ls[[521]]
+  test2 = result_ls[[211]]
   temp = result_ls[[query_node_id]]
+  current_step = max(temp$steps)
   if(is.null(temp)){
     trace_ls = NULL
     id_ls = NULL
@@ -1861,8 +1868,16 @@ query_path = function(query_node_id = 6,
     id_ls = numeric()
     while(nrow(temp) != 0){
       result_ilp_node = temp %>% 
+        filter(ilp_result > 0.01) %>%
         arrange(-ilp_result, -cplex_score, -score_prior_propagation, steps, parent_id) %>%
         slice(1)
+      
+      if(nrow(result_ilp_node)==0){
+        result_ilp_node = temp %>% 
+          filter(steps <= current_step) %>%
+          arrange(-cplex_score, -score_prior_propagation, steps, parent_id) %>%
+          slice(1)
+      }
       
       parent_id = result_ilp_node$parent_id
       
@@ -1892,8 +1907,11 @@ query_path = function(query_node_id = 6,
       
       trace_ls[[length(trace_ls) + 1]] = c(transform, "->", result_ilp_node$formula)
       id_ls[[length(id_ls) + 1]] = parent_id
+      
+      current_step = result_ilp_node$steps
+      
       temp = result_ls[[parent_id]] %>%
-        filter(formula == result_ilp_node$parent_formula)
+        filter(formula == result_ilp_node$parent_formula) 
       
     }
     
