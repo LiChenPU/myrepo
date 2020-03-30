@@ -1853,9 +1853,9 @@ query_path = function(query_node_id = 6,
                       result_ls, 
                       LibrarySet){
   
-  # query_node_id = 211
-  test1 = result_ls[[521]]
-  test2 = result_ls[[211]]
+  # query_node_id = 204
+  # test1 = result_ls[[503]]
+  # test2 = result_ls[[204]]
   temp = result_ls[[query_node_id]]
   current_step = max(temp$steps)
   if(is.null(temp)){
@@ -1878,6 +1878,9 @@ query_path = function(query_node_id = 6,
       }
       
       parent_id = result_ilp_node$parent_id
+      if(parent_id %in% id_ls){
+        break
+      }
       
       if(result_ilp_node$steps == 0){
         id_ls[[length(id_ls) + 1]] = parent_id
