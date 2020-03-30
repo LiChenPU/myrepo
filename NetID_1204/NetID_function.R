@@ -1031,8 +1031,6 @@ Score_formulaset = function(FormulaSet,
     
     summary_ls[[length(summary_ls)+1]] = initial
     
-    
-    
     nonzero = initial %>%
       filter(score > 0) %>%
       dplyr::select(node_id, formula, score) %>%
@@ -1051,7 +1049,7 @@ Score_formulaset = function(FormulaSet,
         
         temp = temp %>%
           left_join(sub_nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
-          mutate(score = score + artifact_decay)
+          mutate(score = score + artifact_decay + prior_score)
         
         sub_nonzero = temp %>%
           filter(score > 0) %>%
@@ -1069,7 +1067,7 @@ Score_formulaset = function(FormulaSet,
       
       temp = temp %>%
         left_join(nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
-        mutate(score = score + bio_decay)
+        mutate(score = score + bio_decay + prior_score)
       
       summary_ls[[length(summary_ls)+1]] = temp
       
@@ -1081,7 +1079,7 @@ Score_formulaset = function(FormulaSet,
     }
     
     summary = bind_rows(summary_ls) %>%
-      mutate(score = replace_na(score, 0)) %>%
+      mutate(score = ifelse(is.na(score), prior_score, score)) %>%
       mutate(score = ifelse(score < 0 & score > -5, 0, score)) %>%
       dplyr::rename(score_prior_propagation = score)
   }
