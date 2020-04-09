@@ -23,7 +23,7 @@ time = Sys.time()
 
   
   hmdb_database = hmdb_database %>%
-    filter(monisotopic_molecular_weight > 3)
+    filter(monisotopic_molecular_weight > 30)
 }
 
 # Count charges from smiles ####
@@ -84,7 +84,8 @@ time = Sys.time()
   #   mass[i] = formula_mz(hmdb_database_element$formula[i])
   # }
   hmdb_database_mass = hmdb_database_element %>%
-    mutate(mass = sapply(formula, formula_mz)) 
+    mutate(mass = sapply(formula, formula_mz)) %>%
+    mutate(rdbe = sapply(formula, formula_rdbe))
 
 }
 
