@@ -12,7 +12,7 @@ setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 # 
 # raw = read_csv(filename)
 # raw = read_csv("raw.csv")
-raw = read_xlsx("ID_Metabolites.xlsx")
+raw = read_xlsx("ID_Metabolites_xi.xlsx")
 
 data(isotopes)
 
@@ -65,7 +65,9 @@ f3 = f2 %>%
 
 write.csv(f3, "f3.csv")
 
-
+f4 = f3 %>%
+  group_by(HMDB) %>%
+  filter(n()>1)
 
 
 
