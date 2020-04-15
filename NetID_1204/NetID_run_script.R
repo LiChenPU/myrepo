@@ -7,6 +7,13 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 source("NetID_function.R")
 
 work_dir = "WL_liver_neg"
+MS2_filename = "0327-neg-cpd-with-std-201.xlsx"
+MS2_library_file = "./dependent/HMDB_pred_MS2_neg.rds"
+MS2_library = readRDS(MS2_library_file)
+# test2 = sapply(MS2_library, "[[", "external_id")
+# test3 = unique(test2) %in% LibrarySet$note
+# test4 = unique(test2)[!test3]
+
 # work_dir = "Lin_Yeast_Neg"
 ion_mode = -1
 MassDistsigma = 0.5
@@ -51,9 +58,7 @@ print(ion_mode)
            liver2 = 10^sig) %>%
     dplyr::select(colnames(Mset$Raw_data))
   Mset[["Raw_data"]] = test
-
 }
-
 
 ## Initialise ####
 {
@@ -67,7 +72,7 @@ print(ion_mode)
   Mset[["Data"]] = Peak_cleanup(Mset,
                                 mz_tol=1/10^6, 
                                 rt_tol=0.1,
-                                inten_cutoff=1e4,
+                                inten_cutoff=5e4,
                                 high_blank_cutoff = 2,
                                 first_sample_col_num = 15)
   
@@ -75,14 +80,17 @@ print(ion_mode)
   
   manual_library_file = "manual_library.csv"
   Mset[["Manual_library"]] = read_manual_library(manual_library_file)
-  
-  
 }
+
 
 
 ## Initiate nodeset and edgeset ####
 {
   NodeSet = Initiate_nodeset(Mset)
+  NodeSet = Add_MS2_nodeset(MS2_filename = MS2_filename, 
+                            NodeSet)
+  # node_MS2_logic = sapply(NodeSet, function(x){!is.null(x$MS2)})
+  # node_MS2 = (1:length(NodeSet))[node_MS2_logic]
   
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
                              mz_tol_abs = 0, mz_tol_ppm = 10, 
@@ -90,6 +98,7 @@ print(ion_mode)
   
   LibrarySet = Initiate_libraryset(Mset)
 }
+
 
 ## Extension of EdgeSet ####
 {
@@ -131,7 +140,8 @@ save.image()
 {
   CplexSet = list()
   FormulaSet_df = Score_formulaset(FormulaSet,
-                                   database_match = 0.6, 
+                                   database_match = 0.6,
+                                   MS2_match = 1,
                                    manual_match = 0.5,
                                    rt_match = 1, 
                                    known_rt_tol = 0.5,
@@ -181,37 +191,9 @@ save.image(paste0(timestamp,".RData"))
   
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
-  
-  test = ilp_nodes %>%
-    filter(ilp_result > 0.01 | is.na(ilp_result))
-  test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
-    dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
-  
-  write_csv(test2, "WL_neg_NetID.csv", na="")
-  
-  test3 = test2 %>%
-    filter(is.na(Background)) %>%
-    # dplyr::select(colnames(WL)[colnames(WL)!="Index"], formula, everything()) %>%
-    mutate(Formula = ifelse(is.na(Formula), "", Formula)) %>%
-    mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
-           
-  test3_filter = test3 %>%
-    filter(sig > 5) %>%
-    # filter(Feature == "BuffSS") %>%
-    # filter(Feature != "Metabolite") %>%
-    # filter(category == "Metabolite") %>%
-    # filter(!(Feature == "Isotope" & category == "Artifact")) %>%
-    # filter(Formula == formula & Formula != "") %>%
-    filter(!is.na(formula)) %>%
-    filter(T)
-  
-  library(janitor)
-  crosstable = tabyl(test3, Feature, category)
-  
-  
 }
 
-## View Results ####
+## Show path ####
 {
   result = FormulaSet_df %>%
     mutate(temp_cat = ifelse(category == "Metabolite", "Metabolite", "Artifact")) %>%
@@ -230,7 +212,6 @@ save.image(paste0(timestamp,".RData"))
     } 
   }
   
-  
   node_path = sapply(unique(ilp_nodes$node_id), query_path, result_ls, LibrarySet)
   path_annotation = data.frame(node_id = unique(ilp_nodes$node_id),
                                path = node_path)
@@ -243,7 +224,37 @@ save.image(paste0(timestamp,".RData"))
     filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
     filter(grepl("Thiamine", path))
   
-  save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
+  # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
+}
+
+## View Results ####
+{
+  test = ilp_nodes %>%
+    filter(ilp_result > 0.01 | is.na(ilp_result))
+  test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
+    dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
+  
+  # write_csv(test2, "WL_neg_NetID.csv", na="")
+  
+  test3 = test2 %>%
+    filter(is.na(Background)) %>%
+    # dplyr::select(colnames(WL)[colnames(WL)!="Index"], formula, everything()) %>%
+    mutate(Formula = ifelse(is.na(Formula), "", Formula)) %>%
+    mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
+  
+  test3_filter = test3 %>%
+    filter(sig > 5) %>%
+    # filter(Feature == "BuffSS") %>%
+    # filter(Feature != "Metabolite") %>%
+    # filter(category == "Metabolite") %>%
+    # filter(!(Feature == "Isotope" & category == "Artifact")) %>%
+    # filter(Formula == formula & Formula != "") %>%
+    filter(!is.na(formula)) %>%
+    filter(T)
+  
+  library(janitor)
+  crosstable = tabyl(test3, Feature, category)
+  
 }
 
 print("total run time")
