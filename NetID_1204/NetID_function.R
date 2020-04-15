@@ -16,6 +16,8 @@
   library(pracma)
   library(igraph)
   library(cplexAPI)
+  library(readxl)
+  library(stringr)
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
@@ -225,7 +227,7 @@ Peak_cleanup = function(Mset,
   s6 = s5 %>%
     distinct(MZRT_group, .keep_all=T) %>%
     arrange(id) %>%
-    rename(Input_id = id) %>%
+    dplyr::rename(Input_id = id) %>%
     mutate(id = 1:nrow(.)) %>%
     dplyr::select(-c("MZ_group", "MZRT_group")) %>%
     # mutate(mean_inten = rowMeans(.[,Mset$Cohort$sample_names], na.rm=T)) %>%
@@ -244,7 +246,8 @@ Initiate_nodeset = function(Mset){
       inten = as.numeric(x["log10_inten"]),
       sample_inten = x[Mset$Cohort$sample_names],
       blank_inten = x[Mset$Cohort$blank_names],
-      formula = list()
+      formula = list(),
+      MS2 = NULL
     )
   })
   names(NodeSet) = 1:nrow(Mset$Data)
@@ -951,6 +954,7 @@ Propagate_formulaset = function(Mset,
 ## Score_formulaset ####
 Score_formulaset = function(FormulaSet,
                             database_match = 0.5, 
+                            MS2_match = 1,
                             rt_match = 1, 
                             known_rt_tol = 0.5,
                             manual_match = 1,
@@ -959,13 +963,15 @@ Score_formulaset = function(FormulaSet,
   
 
   # database_match = 0.5
+  # MS2_match = 1
   # rt_match = 1
   # known_rt_tol = 0.5
   # manual_match = 1
-  # bio_decay = -0.2
-  # artifact_decay = -0.1
+  # bio_decay = 1
+  # artifact_decay = -0.5
   
-  FormulaSet_df = bind_rows(FormulaSet)
+  FormulaSet_df = bind_rows(FormulaSet) %>%
+    mutate(formula_set_id = 1:nrow(.))
   
   # Score HMDB and known adduct match
   {
@@ -975,6 +981,90 @@ Score_formulaset = function(FormulaSet,
         steps == 0 & transform == "" ~ database_match,
         TRUE ~ 0 # Everything else
       ))
+  }
+  
+  # Score MS2 
+  {
+    node_MS2_logic = sapply(NodeSet, function(x){
+      !is.null(x$MS2)
+    })
+    node_MS2 = (1:length(NodeSet))[node_MS2_logic]
+    
+    MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
+ 
+    FormulaSet_df_MS2 = FormulaSet_df %>%
+      filter(steps == 0, transform == "") %>%
+      merge(LibrarySet %>%
+              dplyr::select(library_id, note), 
+            by.x = "parent_id",
+            by.y = "library_id") %>%
+      mutate(contain_msr_MS2 = node_id %in% node_MS2) %>%
+      mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
+      filter(contain_msr_MS2, contain_lib_MS2)
+    
+    
+    fwd_dp = rep(0, nrow(FormulaSet_df_MS2))
+    
+    for(i in 1:nrow(FormulaSet_df_MS2)){
+      node_id = FormulaSet_df_MS2$node_id[i]
+      MS2_msr = NodeSet[[node_id]]$MS2
+      colnames(MS2_msr)=c("mz", "inten")
+      
+      HMDB_id = FormulaSet_df_MS2$note[i]
+      lib_MS2_id = which(MS2_library_external_id == HMDB_id)
+      MS2_lib = MS2_library[lib_MS2_id]
+      
+      
+      # Fwd dot product
+      spec_DP = 0
+      for(j in 1:length(MS2_lib)){
+        
+        spec1_df = as.data.frame(MS2_msr)
+        spec2_df = MS2_lib[[j]]$spectrum
+        
+        spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
+        if(inherits(spec_merge_df, "try-error")){
+          spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+        }
+        spec_DP[j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
+      }
+      # print(spec_DP)
+      fwd_dp[i] = max(spec_DP, na.rm = T)
+    }
+    
+    FormulaSet_df_MS2 = FormulaSet_df_MS2 %>%
+      mutate(MS2score_prior = ifelse(fwd_dp>0.8, fwd_dp*MS2_match, 0)) %>%
+      dplyr::select(formula_set_id, MS2score_prior)
+    
+    FormulaSet_df = FormulaSet_df %>%
+      merge(FormulaSet_df_MS2, all.x = T) %>%
+      mutate(MS2score_prior = ifelse(is.na(MS2score_prior), 0, MS2score_prior))
+    
+    
+    #   # Rev dot product
+    #   spec_DP = 0
+    #   for(j in 1:length(MS2_lib)){
+    #     
+    #     spec1_df = as.data.frame(MS2_msr)
+    #     spec2_df = MS2_lib[[j]]$spectrum
+    #     max_mz = max(spec1_df[,1], spec2_df[,1])
+    #     spec1_df[,1] = abs(spec1_df[,1] - max_mz)
+    #     spec2_df[,1] = abs(spec2_df[,1] - max_mz)
+    #     
+    #     spec1_df = spec1_df[nrow(spec1_df):1,]
+    #     spec2_df = spec2_df[nrow(spec2_df):1,]
+    #     
+    #     spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
+    #     if(inherits(spec_merge_df, "try-error")){
+    #       spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+    #     }
+    #     spec_DP[j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
+    #   }
+    #   rev_dp[i] = max(spec_DP)
+    # }
+    # 
+    # 
+    
   }
   
   # Score known RT match
@@ -995,11 +1085,14 @@ Score_formulaset = function(FormulaSet,
   # Penalize formula based on PO ratio
   {
     temp_formula = FormulaSet_df$formula
-    # Slow here - may need optimization 
-    # Consider use stringr to substring
-    formula_P = sapply(temp_formula, elem_num_query, "P")
-    formula_Si = sapply(temp_formula, elem_num_query, "Si")
-    formula_O = sapply(temp_formula, elem_num_query, "O")
+    
+    formula_O = str_extract_all(temp_formula, "(?<=O)([:digit:]|\\.)+")
+    formula_O = sapply(formula_O, function(x){sum(as.numeric(x))})
+    formula_P = str_extract_all(temp_formula, "(?<=P)([:digit:]|\\.)+")
+    formula_P = sapply(formula_P, function(x){sum(as.numeric(x))})
+    formula_Si = str_extract_all(temp_formula, "(?<=Si)([:digit:]|\\.)+")
+    formula_Si = sapply(formula_Si, function(x){sum(as.numeric(x))})
+    
     FormulaSet_df = FormulaSet_df %>%
       mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O >= 2*formula_Si, 0, -10))
   }
@@ -1929,6 +2022,139 @@ query_path = function(query_node_id = 6,
   
   paste(paste_combine, collapse = " ")
 }
+
+# MS2 functions
+## Read Xi MS2 format file
+Add_MS2_nodeset = function(MS2_filename, NodeSet){
+  WL_MS2 = read_xlsx(MS2_filename)
+  IDs = WL_MS2$Comment %>%
+    str_sub(start = 4) %>%
+    as.numeric()
+  
+  sheetnames = excel_sheets(MS2_filename)[-c(1,2,3)]
+  
+  MS2_ls = lapply(sheetnames, read_xlsx, path=MS2_filename, 
+                  col_names = F)
+  valid_MS2 = sapply(MS2_ls, ncol) == 2
+  
+  colnames(Mset$Data)
+  test = Mset$Data %>%
+    dplyr::select(Input_id, id) %>%
+    split(.$Input_id)
+  
+  id_map = Mset$Data$id
+  names(id_map) = as.character(Mset$Data$Input_id)
+  
+  for(i in 1:length(IDs)){
+    if(valid_MS2[i]){
+      node_id = id_map[as.character(IDs[i])]
+      NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+    }
+  }
+  return(NodeSet)
+}
+mergeMzIntensity = function(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3){
+  
+  
+  # spec1_df = as.data.frame(MS2_msr)
+  # spec2_df = MS2_lib[[1]]$spectrum
+  # ppmTol = 10E-6
+  # true_merge = merge(as.data.frame(spec1_df),spec2_df, by="mz", all=T)
+  # Assuming mz came in sorted
+  mz1 = spec1_df[,1]
+  mz2 = spec2_df[,1]
+  mzs = c(mz1, mz2)
+  mzs = sort(mzs)
+  inten1 = spec1_df[,2]
+  inten2 = spec2_df[,2]
+  keeps = c(1)
+  count = 1
+  MS_group = rep(1,(length(mzs)))
+  for(i in 2:length(mzs)){
+    # Determine when to treat two mz as same, and when they are different
+    # Currently, when two masses are at least ppmTol different, and absTol different, they are considered different.
+    if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol & mzs[i]-mzs[i-1]>absTol){
+
+      count = count+1
+      keeps=c(keeps,i)
+    }
+    MS_group[i]=count
+  }
+  
+  mz_result = mzs[keeps]
+  count_mzs = 2
+  count_keep = 1
+  i = j = 1
+  intens_mat = matrix(0, ncol=3, nrow = length(mz_result))
+  while(count_mzs <= length(mzs)){
+    if(MS_group[count_mzs] == MS_group[count_mzs-1]){
+      intens_mat[count_keep,2] = inten1[i]
+      intens_mat[count_keep,3] = inten2[j]
+      i = i+1
+      j = j+1
+      count_mzs = count_mzs+2
+    } else if(is.na(mz1[i])){
+      intens_mat[count_keep,3] = inten2[j]
+      count_mzs = count_mzs+1
+      j=j+1
+    } else if(mz1[i] == mzs[count_mzs-1]){
+      intens_mat[count_keep,2] = inten1[i]
+      i=i+1
+      count_mzs = count_mzs+1
+    } else {
+      intens_mat[count_keep,3] = inten2[j]
+      j=j+1
+      count_mzs = count_mzs+1
+    }
+    count_keep = count_keep+1
+  }
+  # Handle boundary
+  if(!is.na(mz1[i])){intens_mat[count_keep,2] = inten1[i]}
+  if(!is.na(mz2[j])){intens_mat[count_keep,3] = inten2[j]}
+  
+  intens_mat[,1] = mz_result
+  return(intens_mat)
+}
+mergeMzIntensity_backup = function(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3){
+  # if(identical(spec1_df, spec2_df))
+  colnames(spec1_df)[2] = "inten1"
+  colnames(spec2_df)[2] = "inten2"
+  spec_df = merge(spec1_df, spec2_df, all=T, by = "mz")
+  
+  MS_group = rep(1,(nrow(spec_df)))
+  mzs = spec_df$mz
+  keeps = c(1)
+  count = 1
+  for(i in 2:length(mzs)){
+    if(mzs[i]-mzs[i-1]>mzs[i-1]*ppmTol & mzs[i]-mzs[i-1]>absTol){
+      count = count+1
+      keeps=c(keeps,i)
+    }
+    MS_group[i]=count
+  }
+  spec_df[is.na(spec_df)]=0
+  
+  k_max=k_min=1
+  while (k_max <= length(MS_group)){
+    k_min = k_max
+    while (MS_group[k_min] == MS_group[k_max]){
+      k_max = k_max+1
+      if(k_max > length(MS_group)){break}
+    }
+    # spec_df$mz[k_min]=max(spec_df$mz[k_min:(k_max-1)], na.rm = T)
+    spec_df$inten1[k_min]=max(spec_df$inten1[k_min:(k_max-1)], na.rm = T)
+    spec_df$inten2[k_min]=max(spec_df$inten2[k_min:(k_max-1)], na.rm = T)
+  }
+  spec_df = spec_df[keeps,]
+  return(spec_df)
+}
+DotProduct = function(a, b){
+  DP = a%*%b / sqrt(a%*%a * b%*%b)
+  return(as.numeric(DP))
+}
+
+
+
 ## ---------------------- #### 
 ## Deprecated ####
 ## read_library ####
