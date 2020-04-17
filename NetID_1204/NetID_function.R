@@ -334,7 +334,7 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_t
 ## Initiate_libraryset ####
 Initiate_libraryset = function(Mset){
   Metabolites_HMDB = Mset$Library_HMDB %>%
-    mutate(category = "Metabolite") %>%
+    # mutate(category = "Metabolite") %>%
     dplyr::rename(note = accession) %>%
     mutate(origin = "Library_HMDB")
   
@@ -418,8 +418,8 @@ Ring_artifact_connection = function(peak_group,
   
   EdgeSet_ring_artifact = apply(ring_artifact, 1, function(x){
     list(
-      node1 = as.vector(x["node1"]),
-      node2 = as.vector(x["node2"]),
+      node1 = as.numeric(x["node1"]),
+      node2 = as.numeric(x["node2"]),
       category = "Ring_artifact",
       linktype = "Ring_artifact",
       direction = 1
@@ -506,8 +506,8 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
   
   EdgeSet_heterodimer = apply(hetero_dimer_df, 1, function(x){
     list(
-      node1 = as.vector(x["node1"]),
-      node2 = as.vector(x["node2"]),
+      node1 = as.numeric(x["node1"]),
+      node2 = as.numeric(x["node2"]),
       category = "Heterodimer",
       linktype = as.character(x["linktype"]),
       direction = 1
@@ -517,6 +517,65 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
   return(EdgeSet_heterodimer)
 }
  
+## Fragment_connection ####
+Fragment_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5){
+  
+  node_MS2_logic = sapply(NodeSet, function(x){!is.null(x$MS2)})
+  node_MS2 = (1:length(NodeSet))[node_MS2_logic]
+  
+  peak_group_MS2 = peak_group %>%
+    filter(node2 %in% node_MS2 & inten2 > log10(inten_threshold),
+           node1 != node2,
+           mass1 < mass2) %>%
+    split(.$node2)
+  
+  fragment_ls = list()
+  for(i in 1:length(peak_group_MS2)){
+    node2 = as.numeric(names(peak_group_MS2)[i])
+
+    mz_parent = NodeSet[[node2]]$mz
+    
+    MS2 = NodeSet[[node2]]$MS2
+    MS2_mz = unlist(MS2[,1])
+    
+    H_mass = 1.00782503224
+    e_mass = 0.00054857990943
+    ion_mode = Mset$Global_parameter$mode
+    
+    temp_e = peak_group_MS2[[i]]
+    node1_mz = temp_e$mass1 + (H_mass-e_mass)*ion_mode
+    
+    temp_matrix = outer(node1_mz, MS2_mz, FUN = "-") / mz_parent * 1e6
+    temp_index = which(abs(temp_matrix) < ppm_tol, arr.ind = T)
+    # print(i)
+    # print(temp_index)
+    
+    
+    if(dim(temp_index)[1]>0){
+      temp_ppm = temp_matrix[temp_index]
+      temp_node_1 = temp_e$node1[temp_index[,1]]
+      temp_node_2 = node2
+      # linktype = temp_e$node1[temp_index[,2]]
+      temp_df = data.frame(node1 = temp_node_1, linktype = "Fragment", node2 = temp_node_2, mass_dif = temp_ppm)
+      fragment_ls[[length(fragment_ls)+1]] = temp_df
+    }
+    
+  }
+  
+  fragment_df = bind_rows(fragment_ls)
+  
+  EdgeSet_fragment = apply(fragment_df, 1, function(x){
+    list(
+      node1 = as.numeric(x["node1"]),
+      node2 = as.numeric(x["node2"]),
+      category = "Fragment",
+      linktype = as.character(x["linktype"]),
+      direction = -1
+    )
+  })
+  
+  return(EdgeSet_fragment)
+}
 ## merge_edgeset ####
 merge_edgeset = function(EdgeSet, ...){
   
@@ -664,9 +723,16 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
     rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
     rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
 
-    lib_met_1 = expand_library(lib_met, rule_1, direction = 1, category = "Metabolite")
-    lib_met_2 = expand_library(lib_met, rule_2, direction = -1, category = "Metabolite")
-    lib_met = bind_rows(lib_met_1, lib_met_2, lib_met)
+    lib_known_id = LibrarySet %>%
+      filter(origin == "Library_known") %>%
+      pull(library_id)
+    lib_known = seed_library %>%
+      filter(node_id %in% lib_known_id) %>%
+      filter(category == "Metabolite")
+      
+    lib_known_1 = expand_library(lib_known, rule_1, direction = 1, category = "Metabolite")
+    lib_known_2 = expand_library(lib_known, rule_2, direction = -1, category = "Metabolite")
+    lib_met = bind_rows(lib_known_1, lib_known_2, lib_met)
 
     rule_1 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,1))
     rule_2 = initial_rule %>% filter(category == "Adduct") %>% filter(direction %in% c(0,-1))
@@ -955,15 +1021,20 @@ Propagate_formulaset = function(Mset,
 Score_formulaset = function(FormulaSet,
                             database_match = 0.5, 
                             MS2_match = 1,
+                            MS2_match_cutoff = 0.8,
+                            MS2_similarity = 0.5,
+                            MS2_similarity_cutoff = 0.5,
                             rt_match = 1, 
                             known_rt_tol = 0.5,
                             manual_match = 1,
                             bio_decay = 1,
                             artifact_decay = -0.5){
   
-
   # database_match = 0.5
   # MS2_match = 1
+  # MS2_match_cutoff = 0.8
+  # MS2_similarity = 0.5
+  # MS2_similarity_cutoff = 0.5
   # rt_match = 1
   # known_rt_tol = 0.5
   # manual_match = 1
@@ -983,7 +1054,7 @@ Score_formulaset = function(FormulaSet,
       ))
   }
   
-  # Score MS2 
+  # Score MS2 match and similarity
   {
     node_MS2_logic = sapply(NodeSet, function(x){
       !is.null(x$MS2)
@@ -993,30 +1064,31 @@ Score_formulaset = function(FormulaSet,
     MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
  
     FormulaSet_df_MS2 = FormulaSet_df %>%
-      filter(steps == 0, transform == "") %>%
+      filter(steps == 0) %>%
+      # filter(steps == 0, transform == "") %>%
       merge(LibrarySet %>%
-              dplyr::select(library_id, note), 
+              dplyr::select(library_id, note, mass), 
             by.x = "parent_id",
             by.y = "library_id") %>%
       mutate(contain_msr_MS2 = node_id %in% node_MS2) %>%
       mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
       filter(contain_msr_MS2, contain_lib_MS2)
     
-    
-    fwd_dp = rep(0, nrow(FormulaSet_df_MS2))
+    fwd_dp = rev_dp = 0
     
     for(i in 1:nrow(FormulaSet_df_MS2)){
       node_id = FormulaSet_df_MS2$node_id[i]
+      mz1 = FormulaSet_df_MS2$mass.x[i]
       MS2_msr = NodeSet[[node_id]]$MS2
       colnames(MS2_msr)=c("mz", "inten")
       
       HMDB_id = FormulaSet_df_MS2$note[i]
+      mz2 = FormulaSet_df_MS2$mass.y[i]
       lib_MS2_id = which(MS2_library_external_id == HMDB_id)
       MS2_lib = MS2_library[lib_MS2_id]
       
-      
       # Fwd dot product
-      spec_DP = 0
+      spec_score = 0
       for(j in 1:length(MS2_lib)){
         
         spec1_df = as.data.frame(MS2_msr)
@@ -1026,45 +1098,60 @@ Score_formulaset = function(FormulaSet,
         if(inherits(spec_merge_df, "try-error")){
           spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
         }
-        spec_DP[j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
+        spec_score[j] = Score_merge_MS2(spec_merge_df)
+        ## warning or even error occur here if one spectrum have same mz or close mz
+        if(is.na(spec_score[j])){
+          spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+          spec_score[j] = Score_merge_MS2(spec_merge_df)
+        }
       }
-      # print(spec_DP)
-      fwd_dp[i] = max(spec_DP, na.rm = T)
+      # print(spec_score)
+      fwd_dp[i] = max(spec_score, na.rm = T)
+      
+      # Rev dot product
+      spec_score = 0
+      for(j in 1:length(MS2_lib)){
+        spec1_df = as.data.frame(MS2_msr)
+        spec2_df = MS2_lib[[j]]$spectrum
+        
+        spec1_df[,1] = mz1 - spec1_df[,1]
+        spec2_df[,1] = mz2 - spec2_df[,1]
+        
+        spec1_df = spec1_df[nrow(spec1_df):1,]
+        spec2_df = spec2_df[nrow(spec2_df):1,]
+        
+        spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
+        if(inherits(spec_merge_df, "try-error")){
+          spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+        }
+        spec_score[j] = Score_merge_MS2(spec_merge_df)
+        
+        ## warning or even error occur here if one spectrum have same mz or close mz
+        if(is.na(spec_score[j])){
+          spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+          spec_score[j] = Score_merge_MS2(spec_merge_df)
+        }
+      }
+      rev_dp[i] = max(spec_score)
     }
     
-    FormulaSet_df_MS2 = FormulaSet_df_MS2 %>%
-      mutate(MS2score_prior = ifelse(fwd_dp>0.8, fwd_dp*MS2_match, 0)) %>%
+    # How to combine fwd score and rev score into a MS2 score
+    # For exact matched MS2, it takes only fwd spectrum score
+    # For transformed MS2, it takes the higher one of the fwd and rev spectrum score
+    FormulaSet_df_MS2_ = FormulaSet_df_MS2 %>%
+      mutate(fwd_score = fwd_dp,
+             rev_score = rev_dp,
+             higher_fwd_rev = ifelse(fwd_score>=rev_score, fwd_score, rev_score)) %>%
+      mutate(MS2score_prior = case_when(
+        transform=="" & fwd_score>MS2_match_cutoff ~ fwd_score*MS2_match,
+        transform!="" & higher_fwd_rev>MS2_similarity_cutoff ~ higher_fwd_rev*MS2_similarity,
+        TRUE ~ 0 # The rest
+        ))%>%
       dplyr::select(formula_set_id, MS2score_prior)
     
     FormulaSet_df = FormulaSet_df %>%
-      merge(FormulaSet_df_MS2, all.x = T) %>%
+      merge(FormulaSet_df_MS2_, all.x = T) %>%
       mutate(MS2score_prior = ifelse(is.na(MS2score_prior), 0, MS2score_prior))
-    
-    
-    #   # Rev dot product
-    #   spec_DP = 0
-    #   for(j in 1:length(MS2_lib)){
-    #     
-    #     spec1_df = as.data.frame(MS2_msr)
-    #     spec2_df = MS2_lib[[j]]$spectrum
-    #     max_mz = max(spec1_df[,1], spec2_df[,1])
-    #     spec1_df[,1] = abs(spec1_df[,1] - max_mz)
-    #     spec2_df[,1] = abs(spec2_df[,1] - max_mz)
-    #     
-    #     spec1_df = spec1_df[nrow(spec1_df):1,]
-    #     spec2_df = spec2_df[nrow(spec2_df):1,]
-    #     
-    #     spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
-    #     if(inherits(spec_merge_df, "try-error")){
-    #       spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
-    #     }
-    #     spec_DP[j] = DotProduct(spec_merge_df[,2], spec_merge_df[,3])
-    #   }
-    #   rev_dp[i] = max(spec_DP)
-    # }
-    # 
-    # 
-    
   }
   
   # Score known RT match
@@ -1422,24 +1509,30 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
 score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
-                           inten_score_isotope = 1){
-
-  # rule_score_biotransform = 0
+                           inten_score_isotope = 1, 
+                           MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3){
+  
+  # rule_score_biotransform = 0.05
   # rule_score_artifact = 1
   # rule_score_oligomer = 1
   # rule_score_ring_artifact = 5
   # inten_score_isotope = 1
+  # MS2_score_similarity = 1
+  # MS2_similarity_cutoff = 0.3
     
   # Score rule category 
-  ilp_edges = CplexSet$ilp_edges %>%
-    mutate(score_category = case_when(
-      category == "Biotransform" ~ rule_score_biotransform,
-      category == "Ring_artifact" ~ rule_score_ring_artifact,
-      category == "Oligomer" ~ rule_score_oligomer,
-      category != "Biotransform" ~ rule_score_artifact, 
-    )) %>%
-    filter(T)
+  {
+    ilp_edges = CplexSet$ilp_edges %>%
+      mutate(score_category = case_when(
+        category == "Biotransform" ~ rule_score_biotransform,
+        category == "Ring_artifact" ~ rule_score_ring_artifact,
+        category == "Oligomer" ~ rule_score_oligomer,
+        category != "Biotransform" ~ rule_score_artifact, 
+      )) %>%
+      filter(T)
+  }
   
+  # Score isotope intensity 
   if(inten_score_isotope != 0){
     node_inten = sapply(NodeSet, "[[", "inten")
     ilp_edges_isotope = ilp_edges %>%
@@ -1453,9 +1546,75 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
              p_theory = dnorm(1, 1, 0.2+10^(3-pmin(inten1, inten2)))) %>%
       mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10) + inten_score_isotope)
     
-    ilp_edges = ilp_edges %>%
-      merge(ilp_edges_isotope %>% dplyr::select(ilp_edge_id, score_inten_isotope), all.x = T)
+    ilp_edges_ = ilp_edges %>%
+      merge(ilp_edges_isotope %>% dplyr::select(ilp_edge_id, score_inten_isotope), all.x = T) %>%
+      mutate(score_inten_isotope = ifelse(is.na(score_inten_isotope), 0, score_inten_isotope))
     # hist(ilp_edges_isotope %>% filter(score_inten_isotope<1 & score_inten_isotope>-8 ) %>% pull(score_inten_isotope))
+  }
+  
+  
+  # Score MS2 similarity
+
+  if(MS2_score_similarity != 0){
+    
+    node_MS2_logic = sapply(NodeSet, function(x){
+      !is.null(x$MS2)
+    })
+    node_MS2 = (1:length(NodeSet))[node_MS2_logic]
+    
+    ilp_edges_MS2_similarity = ilp_edges %>%
+      filter(node1 %in% node_MS2, node2 %in% node_MS2)
+    
+    fwd_dp = rev_dp = 0
+    for(i in 1:nrow(ilp_edges_MS2_similarity)){
+    
+      node1 = ilp_edges_MS2_similarity$node1[i]
+      node2 = ilp_edges_MS2_similarity$node2[i]
+      mz1 = NodeSet[[node1]]$mz
+      mz2 = NodeSet[[node2]]$mz
+      
+      spec1_df = as.data.frame(NodeSet[[node1]]$MS2)
+      spec2_df = as.data.frame(NodeSet[[node2]]$MS2)
+      
+      colnames(spec1_df)=colnames(spec2_df)=c("mz", "inten")
+      
+      # Fwd dot product
+      spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
+      if(inherits(spec_merge_df, "try-error")){
+        spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+      }
+      fwd_dp[i] = Score_merge_MS2(spec_merge_df)
+      
+      # Rev dot product
+      spec1_df[,1] = mz1 - spec1_df[,1]
+      spec2_df[,1] = mz2 - spec2_df[,1]
+      spec1_df = spec1_df[nrow(spec1_df):1,]
+      spec2_df = spec2_df[nrow(spec2_df):1,]
+      spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
+      if(inherits(spec_merge_df, "try-error")){
+        spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+      }
+      rev_dp[i] = Score_merge_MS2(spec_merge_df)
+      
+      
+    }
+      
+    
+    ilp_edges_MS2_similarity_ = ilp_edges_MS2_similarity %>%
+      mutate(fwd_score = fwd_dp,
+             rev_score = rev_dp,
+             higher_fwd_rev = ifelse(fwd_score>=rev_score, fwd_score, rev_score)) %>%
+      mutate(score_MS2_similarity = case_when(
+        higher_fwd_rev>MS2_similarity_cutoff ~ higher_fwd_rev*MS2_score_similarity,
+        TRUE ~ 0 # The rest
+      ))%>%
+      dplyr::select(ilp_edge_id, score_MS2_similarity)
+    
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_MS2_similarity_, all.x = T) %>%
+      mutate(score_MS2_similarity = ifelse(is.na(score_MS2_similarity), 
+                                           0, 
+                                           score_MS2_similarity))
   }
   
   cplex_score_edge = ilp_edges %>% 
@@ -2022,42 +2181,64 @@ query_path = function(query_node_id = 6,
   
   paste(paste_combine, collapse = " ")
 }
+# MS2 functions ---------- #####
+## Read Xi MS2 format file ####
+Add_MS2_nodeset = function(MS2_filepath, NodeSet){
+  
+  old_path = getwd()
+  setwd(MS2_filepath)
+  MS2_filenames = list.files(pattern = ".xlsx")
+  for(i_filename in 1:length(MS2_filenames)){
+    MS2_filename = MS2_filenames[i_filename]
+    
+    ## Sensitive to format changes in MS2 input files
+    WL_MS2 = read_xlsx(MS2_filename)
+    IDs = WL_MS2$Comment %>%
+      str_sub(start = 4) %>%
+      as.numeric()
+    
+    sheetnames = excel_sheets(MS2_filename)[-c(1,2,3)]
+    
+    if(length(sheetnames)!=length(IDs)){
+      warning(paste("Inconsistent number of peaks and spectra.", MS2_filename))
+      next
+    }
 
-# MS2 functions
-## Read Xi MS2 format file
-Add_MS2_nodeset = function(MS2_filename, NodeSet){
-  WL_MS2 = read_xlsx(MS2_filename)
-  IDs = WL_MS2$Comment %>%
-    str_sub(start = 4) %>%
-    as.numeric()
-  
-  sheetnames = excel_sheets(MS2_filename)[-c(1,2,3)]
-  
-  MS2_ls = lapply(sheetnames, read_xlsx, path=MS2_filename, 
-                  col_names = F)
-  valid_MS2 = sapply(MS2_ls, ncol) == 2
-  
-  colnames(Mset$Data)
-  test = Mset$Data %>%
-    dplyr::select(Input_id, id) %>%
-    split(.$Input_id)
-  
-  id_map = Mset$Data$id
-  names(id_map) = as.character(Mset$Data$Input_id)
-  
-  for(i in 1:length(IDs)){
-    if(valid_MS2[i]){
-      node_id = id_map[as.character(IDs[i])]
-      NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+    MS2_ls = lapply(sheetnames, function(sheetname){
+      df = read_xlsx(path=MS2_filename, sheet = sheetname, col_names = F, .name_repair = "minimal")
+      if(ncol(df) == 1){
+        return(NULL)
+      }
+      colnames(df) = c("mz", "inten")
+      df = as.data.frame(df)
+    })
+    
+    valid_MS2 = !sapply(MS2_ls, is.null)
+    
+    
+    #########################
+    
+    id_map = Mset$Data$id
+    names(id_map) = as.character(Mset$Data$Input_id)
+    
+    for(i in 1:length(IDs)){
+      if(valid_MS2[i]){
+        node_id = id_map[as.character(IDs[i])]
+        if(is.na(node_id)){next}
+        NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+      }
     }
   }
+  
+  
+  setwd(old_path)
   return(NodeSet)
 }
+## mergeMzIntensity ####
 mergeMzIntensity = function(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3){
   
   
-  # spec1_df = as.data.frame(MS2_msr)
-  # spec2_df = MS2_lib[[1]]$spectrum
+  # absTol = 1e-3
   # ppmTol = 10E-6
   # true_merge = merge(as.data.frame(spec1_df),spec2_df, by="mz", all=T)
   # Assuming mz came in sorted
@@ -2148,9 +2329,30 @@ mergeMzIntensity_backup = function(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 
   spec_df = spec_df[keeps,]
   return(spec_df)
 }
-DotProduct = function(a, b){
-  DP = a%*%b / sqrt(a%*%a * b%*%b)
-  return(as.numeric(DP))
+## Score_merge_MS2 ####
+Score_merge_MS2 = function(spec_merge_df){
+  
+  # A more realistic evaluation of two MS2 spectra simialrity is needed.
+  # idea1 discount the weight of parent peak matched
+  # idea2 add weights to the number of shared fragment
+  # idea3 make sqrt of the intensity - 
+  # which adds more weight to low-signal shared peaks
+  
+  # Implementing idea 3
+  # Needs to use experimental data to validate the score cutoff for match and similarity
+  
+  a = spec_merge_df[,2]
+  b = spec_merge_df[,3]
+  
+  a = a/max(a)
+  b = b/max(b)
+  
+  a = sqrt(a)
+  b = sqrt(b)
+  
+  spec_score = a%*%b / sqrt(a%*%a * b%*%b)
+  
+  return(as.numeric(spec_score))
 }
 
 
