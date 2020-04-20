@@ -7,12 +7,9 @@ timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtim
 source("NetID_function.R")
 
 work_dir = "WL_liver_neg"
-MS2_filename = "0327-neg-cpd-with-std-201.xlsx"
-MS2_library_file = "./dependent/HMDB_pred_MS2_neg.rds"
+MS2_filepath = "./MS2"
+MS2_library_file = "./dependent/HMDB_pred_MS2_neg2.rds"
 MS2_library = readRDS(MS2_library_file)
-# test2 = sapply(MS2_library, "[[", "external_id")
-# test3 = unique(test2) %in% LibrarySet$note
-# test4 = unique(test2)[!test3]
 
 # work_dir = "Lin_Yeast_Neg"
 ion_mode = -1
@@ -28,7 +25,7 @@ print(ion_mode)
 {
   Mset = list()
   # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_database.csv", stringsAsFactors = F)
+  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_category.csv", stringsAsFactors = F)
   Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
     filter(!is.na(.[,eval(LC_method)]))
   
@@ -37,7 +34,6 @@ print(ion_mode)
   Mset[["Global_parameter"]]=  list(mode = ion_mode,
                                     LC_method = LC_method)
 }
-
 
 ## WL data format ####
 {
@@ -87,7 +83,7 @@ print(ion_mode)
 ## Initiate nodeset and edgeset ####
 {
   NodeSet = Initiate_nodeset(Mset)
-  NodeSet = Add_MS2_nodeset(MS2_filename = MS2_filename, 
+  NodeSet = Add_MS2_nodeset(MS2_filepath = MS2_filepath, 
                             NodeSet)
   # node_MS2_logic = sapply(NodeSet, function(x){!is.null(x$MS2)})
   # node_MS2 = (1:length(NodeSet))[node_MS2_logic]
@@ -106,7 +102,7 @@ print(ion_mode)
   EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
   EdgeSet_oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
   EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
-  EdgeSet_all_df = merge_edgeset(EdgeSet, EdgeSet_ring_artifact, EdgeSet_oligomer, EdgeSet_heterodimer)
+  EdgeSet_experiment_MS2_fragment = Experiment_MS2_fragment_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5)
 }
 
 ## Candidate formula pool
@@ -119,11 +115,22 @@ print(ion_mode)
                                         expand = F,
                                         ppm_tol = 5e-6)
   
+  # FormulaSet needs to exist before running this line
+  EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, FormulaSet, MS2_library,
+                                                                inten_threshold = 1e5,
+                                                                ppm_tol = 10, abs_tol = 1e-4)
+  EdgeSet_all_df = merge_edgeset(EdgeSet, 
+                                 EdgeSet_ring_artifact, 
+                                 EdgeSet_oligomer, 
+                                 EdgeSet_heterodimer,
+                                 EdgeSet_experiment_MS2_fragment,
+                                 EdgeSet_library_MS2_fragment_df)
+  
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
-                                    biotransform_step = 3,
-                                    artifact_step = 4,
+                                    biotransform_step = 2,
+                                    artifact_step = 3,
                                     propagation_ppm_threshold = 1e-6,
                                     record_RT_tol = 0.1,
                                     record_ppm_tol = 5e-6)
@@ -134,14 +141,16 @@ print(ion_mode)
   
 }
 print(Sys.time()-printtime)
-save.image()
 
 ## CplexSet & Scoring ####
 {
   CplexSet = list()
   FormulaSet_df = Score_formulaset(FormulaSet,
-                                   database_match = 0.6,
+                                   database_match = 0.5,
                                    MS2_match = 1,
+                                   MS2_match_cutoff = 0.8,
+                                   MS2_similarity = 0.5,
+                                   MS2_similarity_cutoff = 0.5,
                                    manual_match = 0.5,
                                    rt_match = 1, 
                                    known_rt_tol = 0.5,
@@ -159,9 +168,11 @@ save.image()
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
                                             rule_score_biotransform = 0.05, rule_score_artifact = 0.5, 
                                             rule_score_oligomer = 0.5, rule_score_ring_artifact = 2,
-                                            inten_score_isotope = 1)
+                                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
+                                            inten_score_isotope = 1, 
+                                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 2)
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
 }
@@ -173,7 +184,8 @@ save.image(paste0(timestamp,".RData"))
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj))
 }
 
-## Results ####
+print(Sys.time()-printtime)
+## Read out CPLEX results ####
 {
   CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
   # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
@@ -191,6 +203,16 @@ save.image(paste0(timestamp,".RData"))
   
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
+  
+  ilp_nodes_ilp = ilp_nodes %>%
+    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
+    # filter(grepl("Thiamine", path))
+    filter(T)
+  
+  ilp_edges_ilp = ilp_edges %>%
+    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
+    # filter(grepl("Thiamine", path))
+    filter(T)
 }
 
 ## Show path ####
@@ -222,14 +244,15 @@ save.image(paste0(timestamp,".RData"))
   
   ilp_nodes2 = ilp_nodes %>%
     filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
-    filter(grepl("Thiamine", path))
+    # filter(grepl("Thiamine", path))
+    filter(T)
   
   # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
 }
 
 ## View Results ####
 {
-  test = ilp_nodes %>%
+  test = ilp_nodes %>% 
     filter(ilp_result > 0.01 | is.na(ilp_result))
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
     dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
@@ -360,3 +383,4 @@ print(Sys.time()-printtime)
 #   
 #   # save.image()
 # }
+
