@@ -517,11 +517,18 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
   return(EdgeSet_heterodimer)
 }
  
-## Fragment_connection ####
-Fragment_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5){
+## Experiment_MS2_fragment_connection ####
+Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5){
+  
+  # It requires the parent node has msr MS2, and build connection between nodes
+  # See comparison to Library_MS2_fragment_connection
   
   node_MS2_logic = sapply(NodeSet, function(x){!is.null(x$MS2)})
   node_MS2 = (1:length(NodeSet))[node_MS2_logic]
+  
+  H_mass = 1.00782503224
+  e_mass = 0.00054857990943
+  ion_mode = Mset$Global_parameter$mode
   
   peak_group_MS2 = peak_group %>%
     filter(node2 %in% node_MS2 & inten2 > log10(inten_threshold),
@@ -529,53 +536,132 @@ Fragment_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_threshol
            mass1 < mass2) %>%
     split(.$node2)
   
-  fragment_ls = list()
+  experiment_MS2_fragment_ls = list()
   for(i in 1:length(peak_group_MS2)){
+    
     node2 = as.numeric(names(peak_group_MS2)[i])
 
-    mz_parent = NodeSet[[node2]]$mz
+    mz_parent = NodeSet[[node2]]$mz + (H_mass-e_mass)*ion_mode
     
     MS2 = NodeSet[[node2]]$MS2
     MS2_mz = unlist(MS2[,1])
     
-    H_mass = 1.00782503224
-    e_mass = 0.00054857990943
-    ion_mode = Mset$Global_parameter$mode
-    
     temp_e = peak_group_MS2[[i]]
     node1_mz = temp_e$mass1 + (H_mass-e_mass)*ion_mode
     
-    temp_matrix = outer(node1_mz, MS2_mz, FUN = "-") / mz_parent * 1e6
-    temp_index = which(abs(temp_matrix) < ppm_tol, arr.ind = T)
+    temp_matrix = outer(node1_mz, MS2_mz, FUN = "-") 
+    temp_index = which(abs(temp_matrix) < ppm_tol * mz_parent / 1e6, arr.ind = T)
+    
     # print(i)
     # print(temp_index)
     
-    
     if(dim(temp_index)[1]>0){
-      temp_ppm = temp_matrix[temp_index]
+      temp_ppm = temp_matrix[temp_index] / mz_parent * 1e6
       temp_node_1 = temp_e$node1[temp_index[,1]]
       temp_node_2 = node2
-      # linktype = temp_e$node1[temp_index[,2]]
-      temp_df = data.frame(node1 = temp_node_1, linktype = "Fragment", node2 = temp_node_2, mass_dif = temp_ppm)
-      fragment_ls[[length(fragment_ls)+1]] = temp_df
+      
+      temp_linktype = mz_parent - MS2_mz[temp_index[,2]]
+      
+      temp_df = data.frame(node1 = temp_node_1, linktype = "Experiment_MS2_fragment", node2 = temp_node_2, mass_dif = temp_ppm)
+      experiment_MS2_fragment_ls[[length(experiment_MS2_fragment_ls)+1]] = temp_df
     }
     
   }
   
-  fragment_df = bind_rows(fragment_ls)
+  experiment_MS2_fragment_df = bind_rows(experiment_MS2_fragment_ls)
   
-  EdgeSet_fragment = apply(fragment_df, 1, function(x){
+  EdgeSet_experiment_MS2_fragment = apply(experiment_MS2_fragment_df, 1, function(x){
     list(
       node1 = as.numeric(x["node1"]),
       node2 = as.numeric(x["node2"]),
-      category = "Fragment",
+      category = "Experiment_MS2_fragment",
       linktype = as.character(x["linktype"]),
       direction = -1
     )
   })
   
-  return(EdgeSet_fragment)
+  return(EdgeSet_experiment_MS2_fragment)
 }
+## Library_MS2_fragment_connection ####
+Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
+                                           inten_threshold = 1e5,
+                                           ppm_tol = 10, abs_tol = 1e-4){
+  # It only requires the parent node has potential database MS2
+  
+  FormulaSet_df = bind_rows(FormulaSet)
+  MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
+  
+  H_mass = 1.00782503224
+  e_mass = 0.00054857990943
+  ion_mode = Mset$Global_parameter$mode
+  
+  FormulaSet_df_MS2 = FormulaSet_df %>%
+    filter(steps == 0) %>%
+    # filter(steps == 0, transform == "") %>%
+    merge(LibrarySet %>%
+            dplyr::select(library_id, note, mass), 
+          by.x = "parent_id",
+          by.y = "library_id") %>%
+    mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
+    filter(contain_lib_MS2)
+  
+  peak_group_MS2 = peak_group %>%
+    filter(node2 %in% FormulaSet_df_MS2$node_id & inten2 > log10(inten_threshold),
+           node1 != node2,
+           mass1 < mass2) %>%
+    split(.$node2)
+  
+  
+  Library_MS2_fragment = list()
+  for(i in 1:length(peak_group_MS2)){
+    id_node1 = peak_group_MS2[[i]]$node1
+    mz_node1 = sapply(id_node1, function(x){NodeSet[[x]]$mz + (H_mass-e_mass)*ion_mode})
+    
+    id_node2 = peak_group_MS2[[i]]$node2[1]
+    FormulaSet_df_MS2_filter = FormulaSet_df_MS2 %>%
+      filter(node_id == id_node2)
+    
+    node2 = as.numeric(names(peak_group_MS2)[i])
+    mz_parent = NodeSet[[node2]]$mz + (H_mass-e_mass)*ion_mode
+    
+      for(j in 1:nrow(FormulaSet_df_MS2_filter)){
+        match_MS2_IDs = which(FormulaSet_df_MS2_filter$note[j] == MS2_library_external_id)
+        if(length(match_MS2_IDs) == 0){next}
+        match_MS2 = bind_rows(lapply(MS2_library[match_MS2_IDs], "[[","spectrum"))
+        
+        temp_matrix = outer(mz_node1, match_MS2$mz, FUN = "-") 
+        mz_tol = max(mz_node1 * ppm_tol * 1e-6, abs_tol)
+        temp_index = which(abs(temp_matrix) < mz_tol, arr.ind = T)
+        
+        formula_node1 = match_MS2$formula[temp_index[,2]]
+        
+        length_formula_node1 = length(formula_node1)
+        
+        formula_node2 = FormulaSet_df_MS2_filter$formula[j]
+        
+        temp_node1 = id_node1[temp_index[,1]]
+        
+        Library_MS2_fragment[[length(Library_MS2_fragment)+1]] = list(node1 = temp_node1,
+                                                              node2 = rep(id_node2,length_formula_node1),
+                                                              formula1 = formula_node1,
+                                                              formula2 = rep(formula_node2,length_formula_node1))
+        
+      }
+    
+  }
+    
+  
+  fragment_df = bind_rows(Library_MS2_fragment) %>%
+    # group_by(node1, node2) %>%
+    # filter(n()>1) %>%
+    distinct() %>% 
+    # filter(!is.na(formula1)) %>%
+    # mutate(rdbe = formula_rdbe(formula1)) %>%
+    mutate(linktype = "Library_MS2_fragment",
+           category = "Library_MS2_fragment",
+           direction = -1)
+}
+
 ## merge_edgeset ####
 merge_edgeset = function(EdgeSet, ...){
   
@@ -761,7 +847,7 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
 }
 
 
-## propagate_ring_artifact ####
+### propagate_ring_artifact ####
 propagate_ring_artifact = function(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step){
   node_mass = sapply(NodeSet, "[[", "mz")
   
@@ -790,7 +876,7 @@ propagate_ring_artifact = function(new_nodes_df, sf, EdgeSet_ring_artifact, Node
   
   return(new_nodes_df_ring_artifact)
 }
-## propagate_oligomer ####
+### propagate_oligomer ####
 propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, current_step){
   
   node_mass = sapply(NodeSet, "[[", "mz")
@@ -839,7 +925,7 @@ propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, curre
   
   return(new_nodes_df_oligomer)
 }
-## propagate_heterodimer ####
+### propagate_heterodimer ####
 propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold){
   node_mass = sapply(NodeSet, "[[", "mz")
   node1_node2_mapping = bind_rows(EdgeSet_heterodimer) %>%
@@ -868,7 +954,7 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
     transform = sf[[as.numeric(temp$transform)]] %>%
       distinct(formula, .keep_all = T) %>%
       filter(node_mass[node_id] - mass < mass * propagation_ppm_threshold,
-             !grepl("\\.|Ring_artifact", formula)) %>%
+             !grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%
       # Need to avoid exponential growth because heterodimer entries grows at n^2 rate
       filter(category != "Heterodimer") %>%
       filter(steps < 0.02 | (steps >= 1  & steps <1.02))
@@ -894,6 +980,66 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
   
   return(heterodimer)
 }
+### propagate_experimental_MS2_fragment ####
+propagate_experimental_MS2_fragment = function(new_nodes_df, sf, EdgeSet_experiment_MS2_fragment, NodeSet, current_step){
+  node_mass = sapply(NodeSet, "[[", "mz")
+  
+  node1 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node1")
+  node2 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node2")
+  node1_node2_mapping = bind_rows(EdgeSet_experiment_MS2_fragment) %>%
+    dplyr::select(-c("category", "linktype", "direction"))
+  
+  new_nodes_df_MS2_fragment = new_nodes_df %>% 
+    filter(node_id %in% node2) %>% 
+    merge(node1_node2_mapping, by.x="node_id", by.y="node2") %>%
+    mutate(parent_id = node_id,
+           parent_formula = formula,
+           category = "Experirmental_MS2_fragment",
+           transform = "Experimental_MS2_fragment", 
+           direction = -1,
+           steps = current_step,
+           formula = paste0("MS2_fragment_", formula)) %>%
+    mutate(node_id = node1, 
+           mass = node_mass[node_id]) %>%
+    dplyr::select(-node1)
+  
+  return(new_nodes_df_MS2_fragment)
+}
+
+### propagate_library_MS2_fragment ####
+propagate_library_MS2_fragment = function(new_nodes_df, sf, EdgeSet_library_MS2_fragment_df, NodeSet, current_step){
+  node_mass = sapply(NodeSet, "[[", "mz")
+  
+  node1 = EdgeSet_library_MS2_fragment_df$node1
+  node2 = EdgeSet_library_MS2_fragment_df$node2
+  node1_node2_mapping = EdgeSet_library_MS2_fragment_df %>%
+    dplyr::select(-c("category", "linktype", "direction")) %>%
+    dplyr::rename(formula = formula2,
+                  node_id = node2)
+  
+  new_nodes_df_library_MS2_fragment = new_nodes_df %>% 
+    filter(node_id %in% node2) %>%
+    merge(node1_node2_mapping)
+  if(nrow(new_nodes_df_library_MS2_fragment) == 0){
+    return(NULL)
+  }
+  # if(current_step == 0.03){browser()}
+  
+  new_nodes_df_library_MS2_fragment = new_nodes_df_library_MS2_fragment%>% 
+    # merge(node1_node2_mapping) %>%
+    mutate(parent_id = node_id,
+           parent_formula = formula,
+           category = "Library_MS2_fragment",
+           transform = "Library_MS2_fragment", 
+           direction = -1,
+           steps = current_step,
+           formula = formula1) %>%
+    mutate(node_id = node1, 
+           mass = formula_mz(formula)) %>%
+    dplyr::select(-node1, -formula1,)
+  
+  return(new_nodes_df_library_MS2_fragment)
+}
 ## Propagate_formulaset ####
 Propagate_formulaset = function(Mset, 
                                 NodeSet,
@@ -905,8 +1051,8 @@ Propagate_formulaset = function(Mset,
                                 record_ppm_tol = 5e-6)
 {
 
-  # biotransform_step = 3
-  # artifact_step = 4
+  # biotransform_step = 2
+  # artifact_step = 3
   # propagation_ppm_threshold = 1e-6
   # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
@@ -931,7 +1077,7 @@ Propagate_formulaset = function(Mset,
         distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
         filter(steps==(step_count + sub_step)) %>% # This garantee only formulas generated from the step go to next propagation
         filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
-        filter(!grepl("\\.|Ring_artifact", formula)) %>%  # filter formula with decimal point and ring artifacts
+        filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
         filter(node_mass[as.character(node_id)] - mass < propagation_ppm_threshold * mass) # propagate from accurate formulas
       
       
@@ -962,7 +1108,11 @@ Propagate_formulaset = function(Mset,
       ## sf[[460]]
       heterodimer = propagate_heterodimer(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold)
       ## sf[[436]]
-      sf_add = bind_rows(ring_artifact, oligomer, heterodimer)
+      experimental_MS2_fragment = propagate_experimental_MS2_fragment(new_nodes_df, sf, EdgeSet_experiment_MS2_fragment, NodeSet, current_step)
+      
+      library_MS2_fragment = propagate_library_MS2_fragment(new_nodes_df, sf, EdgeSet_library_MS2_fragment_df, NodeSet, current_step)
+      
+      sf_add = bind_rows(ring_artifact, oligomer, heterodimer, experimental_MS2_fragment, library_MS2_fragment)
       
       sf = match_library(lib_adduct,
                          sf,
@@ -982,7 +1132,7 @@ Propagate_formulaset = function(Mset,
       distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
       filter(steps == step_count) %>% # only formulas generated from the step go to next propagation
       filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
-      filter(!grepl("\\.|Ring_artifact", formula)) %>%  # filter formula with decimal point and ring artifacts
+      filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
       filter(node_mass[as.character(node_id)] - mass < propagation_ppm_threshold * mass) # propagate from accurate formulas
     
     step_count = step_count+1
@@ -1050,6 +1200,7 @@ Score_formulaset = function(FormulaSet,
       mutate(database_prior = case_when(
         category == "Manual" ~ manual_match,
         steps == 0 & transform == "" ~ database_match,
+        
         TRUE ~ 0 # Everything else
       ))
   }
@@ -1318,7 +1469,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
   
   EdgeSet_df = EdgeSet_all_df %>%
     filter(category != "Heterodimer")
-
+  
   node_id_ilp_node_mapping = split(ilp_nodes$ilp_node_id, ilp_nodes$node_id)
   
   ilp_nodes_met = ilp_nodes %>% filter(category == "Metabolite") 
@@ -1333,6 +1484,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
   match_matrix_index_ls = list()
   
   for(i in 1:nrow(EdgeSet_df)){
+    # print(i)
     edge_id = EdgeSet_df$edge_id[i]
     category = EdgeSet_df$category[i]
     
@@ -1350,7 +1502,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       transform = EdgeSet_df$linktype[i]
       formula_transform = my_calculate_formula(formula1, transform)
     } else if(category == "Fragment") {
-      # node1 must be artifact, and node2 can be anything
+      # node1 cannot be metabolite, and node2 can be anything
       node1 = EdgeSet_df$node1[i]
       ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
       formula1 = ilp_nodes_formula[ilp_nodes1]
@@ -1375,6 +1527,33 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       
       fold = as.numeric(EdgeSet_df$linktype[i])
       formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
+    } else if(category == "Experiment_MS2_fragment"){
+      # node1 cannot be metabolite, and node2 to be anything
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      
+      formula_transform = sub("MS2_fragment_", "", formula1)
+    } else if(category == "Library_MS2_fragment"){
+      # node2 has to be metabolite because of HMDB library matching
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping_met[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      
+      formula1_position = which(formula1 == EdgeSet_df$formula1[i])
+      formula_transform = rep("", length(formula1))
+      formula_transform[formula1_position] = EdgeSet_df$formula2[i]
+      
     } else {
       # if not above situation, then artifact
       # node2 has to be artifact, node1 can be anything
@@ -1509,6 +1688,7 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
 score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
+                           rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            inten_score_isotope = 1, 
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3){
   
@@ -1526,6 +1706,8 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       mutate(score_category = case_when(
         category == "Biotransform" ~ rule_score_biotransform,
         category == "Ring_artifact" ~ rule_score_ring_artifact,
+        category == "Experiment_MS2_fragment" ~ rule_score_experiment_MS2_fragment,
+        category == "Library_MS2_fragment" ~ rule_score_library_MS2_fragment,
         category == "Oligomer" ~ rule_score_oligomer,
         category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
@@ -2369,4 +2551,79 @@ Score_merge_MS2 = function(spec_merge_df){
 #   hmdb_lib$mass = formula_mz(hmdb_lib$formula)
 #   hmdb_lib["rdbe"]=formula_rdbe(hmdb_lib$formula)
 #   return(hmdb_lib)
+# }
+## Special_fragment_connection ####
+# Special_fragment_connection = function(NodeSet, FormulaSet, EdgeSet_MS2_fragment, MS2_library,
+#                                        ppm_tol = 10, abs_tol = 1e-4){
+#   # It requires the parent node has both msr MS2 and database MS2
+#   # See comparison to General_fragment_connection
+#   
+#   parent_nodes = sapply(EdgeSet_MS2_fragment, "[[", "node2")
+#   
+#   FormulaSet_df = bind_rows(FormulaSet)
+#   
+#   MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
+#   
+#   FormulaSet_df_MS2 = FormulaSet_df %>%
+#     filter(steps == 0) %>%
+#     # filter(steps == 0, transform == "") %>%
+#     merge(LibrarySet %>%
+#             dplyr::select(library_id, note, mass), 
+#           by.x = "parent_id",
+#           by.y = "library_id") %>%
+#     mutate(contain_msr_MS2 = node_id %in% parent_nodes) %>%
+#     mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
+#     filter(contain_msr_MS2, contain_lib_MS2)
+#   
+#   EdgeSet_MS2_fragment_df = bind_rows(EdgeSet_MS2_fragment) %>%
+#     mutate(category = "Special_fragment")
+#   
+#   
+#   H_mass = 1.00782503224
+#   e_mass = 0.00054857990943
+#   ion_mode = Mset$Global_parameter$mode
+#   
+#   Special_fragment = list()
+#   for(i in 1:nrow(EdgeSet_MS2_fragment_df)){
+#     id_node1 = EdgeSet_MS2_fragment_df$node1[i]
+#     mz_node1 = NodeSet[[id_node1]]$mz + (H_mass-e_mass)*ion_mode
+#     
+#     id_node2 = EdgeSet_MS2_fragment_df$node2[i]
+#     
+#     FormulaSet_df_MS2_filter = FormulaSet_df_MS2 %>%
+#       filter(node_id == id_node2)
+#     if(nrow(FormulaSet_df_MS2_filter) == 0){next}
+#     
+#     for(j in 1:nrow(FormulaSet_df_MS2_filter)){
+#       match_MS2_IDs = which(FormulaSet_df_MS2_filter$note[j] == MS2_library_external_id)
+#       if(length(match_MS2_IDs) == 0){next}
+#       match_MS2 = bind_rows(lapply(MS2_library[match_MS2_IDs], "[[","spectrum"))
+#       
+#       mz_dif = mz_node1 - match_MS2$mz
+#       mz_tol = max(mz_node1 * ppm_tol * 1e-6, abs_tol)
+#       mz_dif_position = which(abs(mz_dif) < mz_tol)
+#       formula_node1 = unique(match_MS2$formula[mz_dif_position])
+#       formula_node1 = formula_node1[!is.na(formula_node1)]
+#       
+#       length_formula_node1 = length(formula_node1)
+#       if(length_formula_node1==0){next}
+#       
+#       formula_node2 = FormulaSet_df_MS2_filter$formula[j]
+#       
+#       Special_fragment[[length(Special_fragment)+1]] = list(node1 = rep(id_node1,length_formula_node1),
+#                                                             node2 = rep(id_node2,length_formula_node1),
+#                                                             formula1 = formula_node1,
+#                                                             formula2 = rep(formula_node2,length_formula_node1))
+#       
+#     }
+#   }
+#   
+#   special_fragment = bind_rows(Special_fragment) %>%
+#     merge(EdgeSet_MS2_fragment_df) %>%
+#     # group_by(node1, node2) %>%
+#     # filter(n()>1) %>%
+#     distinct()
+#   
+#   
+#   
 # }
