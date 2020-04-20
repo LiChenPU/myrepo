@@ -556,13 +556,14 @@ Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10,
     # print(temp_index)
     
     if(dim(temp_index)[1]>0){
-      temp_ppm = temp_matrix[temp_index] / mz_parent * 1e6
+      temp_dif = temp_matrix[temp_index]
       temp_node_1 = temp_e$node1[temp_index[,1]]
       temp_node_2 = node2
       
       temp_linktype = mz_parent - MS2_mz[temp_index[,2]]
       
-      temp_df = data.frame(node1 = temp_node_1, linktype = "Experiment_MS2_fragment", node2 = temp_node_2, mass_dif = temp_ppm)
+      temp_df = data.frame(node1 = temp_node_1, linktype = "Experiment_MS2_fragment", 
+                           node2 = temp_node_2, mass_dif = temp_dif)
       experiment_MS2_fragment_ls[[length(experiment_MS2_fragment_ls)+1]] = temp_df
     }
     
@@ -576,6 +577,7 @@ Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10,
       node2 = as.numeric(x["node2"]),
       category = "Experiment_MS2_fragment",
       linktype = as.character(x["linktype"]),
+      mass_dif = as.numeric(x["mass_dif"]),
       direction = -1
     )
   })
@@ -981,7 +983,9 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
   return(heterodimer)
 }
 ### propagate_experimental_MS2_fragment ####
-propagate_experimental_MS2_fragment = function(new_nodes_df, sf, EdgeSet_experiment_MS2_fragment, NodeSet, current_step){
+propagate_experimental_MS2_fragment = function(new_nodes_df, sf, 
+                                               EdgeSet_experiment_MS2_fragment, 
+                                               NodeSet, current_step){
   node_mass = sapply(NodeSet, "[[", "mz")
   
   node1 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node1")
@@ -1000,8 +1004,8 @@ propagate_experimental_MS2_fragment = function(new_nodes_df, sf, EdgeSet_experim
            steps = current_step,
            formula = paste0("MS2_fragment_", formula)) %>%
     mutate(node_id = node1, 
-           mass = node_mass[node_id]) %>%
-    dplyr::select(-node1)
+           mass = node_mass[node_id] - mass_dif) %>%
+    dplyr::select(-node1, -mass_dif)
   
   return(new_nodes_df_MS2_fragment)
 }
@@ -1542,7 +1546,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
     } else if(category == "Library_MS2_fragment"){
       # node2 has to be metabolite because of HMDB library matching
       node1 = EdgeSet_df$node1[i]
-      ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+      ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
       formula1 = ilp_nodes_formula[ilp_nodes1]
       if(length(formula1) == 0){next}
       node2 = EdgeSet_df$node2[i]
@@ -1713,6 +1717,8 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       )) %>%
       filter(T)
   }
+  
+  
   
   # Score isotope intensity 
   if(inten_score_isotope != 0){
@@ -2060,64 +2066,86 @@ Initiate_cplexset = function(CplexSet){
 ## Run_cplex ####
 Run_cplex = function(CplexSet, obj_cplex){
   # obj_cplex = CplexSet$para$obj
-  env <- openEnvCPLEX()
-  prob <- initProbCPLEX(env)
-  
-  nc = CplexSet$para$nc
-  nr = CplexSet$para$nr
-  CPX_MAX = CplexSet$para$CPX_MAX
-  rhs = CplexSet$para$rhs
-  sense = CplexSet$para$sense
-  beg = CplexSet$para$beg
-  cnt = CplexSet$para$cnt
-  ind = CplexSet$para$ind
-  val = CplexSet$para$val
-  lb = CplexSet$para$lb
-  ub = CplexSet$para$ub
-  ctype = CplexSet$para$ctype
-  
-  copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
-                    beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
-  
-  copyColTypeCPLEX(env, prob, ctype)
-  
-  # Conserve memory true
-  setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
-  setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
-  # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
-  # setDefaultParmCPLEX(env)
-  # getChgParmCPLEX(env)
-  
-  # Assess parameters
-  # getParmNameCPLEX(env, 1082)
-  
-  
-  # Access Relative Objective Gap for a MIP Optimization Description
-  # getMIPrelGapCPLEX(env, prob)
-  
-  tictoc::tic()
-  # test = basicPresolveCPLEX(env, prob)
-  return_code = mipoptCPLEX(env, prob)
-  result_solution=solutionCPLEX(env, prob)
-  # result_solution_info = solnInfoCPLEX(env, prob)
-  
-  print(paste(return_codeCPLEX(return_code),"-",
-              status_codeCPLEX(env, getStatCPLEX(env, prob)),
-              " - OBJ_value =", result_solution$objval))
-  tictoc::toc()
-  
-  # writeProbCPLEX(env, prob, "prob.lp")
-  delProbCPLEX(env, prob)
-  closeEnvCPLEX(env)
+    env <- openEnvCPLEX()
+    prob <- initProbCPLEX(env)
+    
+    nc = CplexSet$para$nc
+    nr = CplexSet$para$nr
+    CPX_MAX = CplexSet$para$CPX_MAX
+    rhs = CplexSet$para$rhs
+    sense = CplexSet$para$sense
+    beg = CplexSet$para$beg
+    cnt = CplexSet$para$cnt
+    ind = CplexSet$para$ind
+    val = CplexSet$para$val
+    lb = CplexSet$para$lb
+    ub = CplexSet$para$ub
+    ctype = CplexSet$para$ctype
+    
+    copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
+                      beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
+    
+    copyColTypeCPLEX(env, prob, ctype)
+    
+    setDblParmCPLEX(env, CPX_PARAM_TILIM, 100) # total run time
+    
+    # Conserve memory true
+    setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
+    setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
+    
+    # Sets which continuous optimizer will be used to solve the initial relaxation of a MIP.
+    setIntParmCPLEX(env, 2025, 3) # 0 is default. one test shows 3 may works better and 4 is ok.
+    
+    # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
+    # setDblParmCPLEX(env, 2009, 0.1) # Setting relative seems better
+    # Setting at 0.1 may save 20% of run time based on one test
+    
+    # Set a bigger gap tolerance so things end faster
+    # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
+    # setDblParmCPLEX(env, 2008, 1000) 
+    
+    
+    
+    # setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
+    # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
+    # setDefaultParmCPLEX(env)
+    # getChgParmCPLEX(env)
+    
+    
+    # Assess parameters
+    # getParmNameCPLEX(env, 2025)
+    
+    
+    # Access Relative Objective Gap for a MIP Optimization Description
+    # getMIPrelGapCPLEX(env, prob)
+    
+    
+    tictoc::tic()
+    # test = basicPresolveCPLEX(env, prob)
+    return_code = mipoptCPLEX(env, prob)
+    result_solution=solutionCPLEX(env, prob)
+    # result_solution_info = solnInfoCPLEX(env, prob)
+    
+    print(paste(return_codeCPLEX(return_code),"-",
+                status_codeCPLEX(env, getStatCPLEX(env, prob)),
+                " - OBJ_value =", result_solution$objval))
+    tictoc::toc()
+    
+    # writeProbCPLEX(env, prob, "prob.lp")
+    delProbCPLEX(env, prob)
+    closeEnvCPLEX(env)
   
   return(list(obj = obj_cplex, result_solution = result_solution))
 }
 ## Test_para_CPLEX ####
-Test_para_CPLEX = function(CplexSet, obj_cplex,  test_para = -1:4){
+Test_para_CPLEX = function(CplexSet, obj_cplex,  para = 0, para2 = 0){
   
   # for(test_para_CPX_PARAM_PROBE in test_para1){
-  for(temp_para in test_para){
-    
+  for(rep_2 in 1:length(para2)){
+    temp_para2 = para2[rep_2]
+    # print(temp_para2)
+  for(rep_1 in 1:length(para)){
+    temp_para = para[rep_1]
     # print(test_para_CPX_PARAM_PROBE)
     print(temp_para)
     
@@ -2151,14 +2179,30 @@ Test_para_CPLEX = function(CplexSet, obj_cplex,  test_para = -1:4){
     setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
     
     # Set time is Dbl not Int
-    # setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
+    setDblParmCPLEX(env, CPX_PARAM_TILIM, 100) # total run time
     # setIntParmCPLEX(env, CPX_PARAM_TUNINGTILIM, 200) # run time for each tuning (each optimizatoin run will test serveral tuning)
+    
+    # MIP starting algorithm
+    # Sets which continuous optimizer will be used to solve the initial relaxation of a MIP.
+    setIntParmCPLEX(env, 2025, 3) # 3 and 4 seem better
+    
+    # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
+    # setDblParmCPLEX(env, 2009, temp_para) # Setting relative seems better
+    
+    
+    
+    # MIP subproblem algorithm
+    # Decides which continuous optimizer will be used to solve the subproblems in a MIP, after the initial relaxation.
+    # setIntParmCPLEX(env, 2026, temp_para) # Seems not much difference, one test shows default best
+    
+    # MIP variable selection strategy
+    # setIntParmCPLEX(env, 2028, temp_para) #  Seems not much difference, one test shows 3 is best, but only 5%
     
     
     
     # setIntParmCPLEX(env, CPX_PARAM_BBINTERVAL, temp_para)
     # setIntParmCPLEX(env, CPX_PARAM_NODESEL, temp_para) # 0:3 No effect
-    setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para) # 0:3 No effect
+    # setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para) # 0:3 No effect
     # 
     
     # setIntParmCPLEX(env, CPX_PARAM_CLIQUES, temp_para)
@@ -2191,7 +2235,7 @@ Test_para_CPLEX = function(CplexSet, obj_cplex,  test_para = -1:4){
     closeEnvCPLEX(env)
     # }
   }
-  
+  }
   return(0)
 }
 ## CPLEX_permutation ####
