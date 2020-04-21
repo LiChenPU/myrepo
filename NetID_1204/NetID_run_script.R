@@ -25,7 +25,7 @@ print(ion_mode)
 {
   Mset = list()
   # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_category.csv", stringsAsFactors = F)
+  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_formula_order.csv", stringsAsFactors = F)
   Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
     filter(!is.na(.[,eval(LC_method)]))
   
@@ -181,7 +181,7 @@ save.image(paste0(timestamp,".RData"))
 ## Run_cplex ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
-                                               relative_gap = 1e-1, total_run_time = 3000))
+                                               relative_gap = 1e-2, total_run_time = 2000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
@@ -249,6 +249,17 @@ print(Sys.time()-printtime)
     # filter(grepl("Thiamine", path))
     filter(T)
   
+  # Show all duplicate edges are due to Library_MS2_fragment
+  # test = ilp_edges %>%
+  #   filter(ilp_result>0.1) %>%
+  #   filter(category != "Library_MS2_fragment") %>%
+  #   group_by(node1, node2) %>%
+  #   filter(n()>1) %>%
+  #   ungroup() %>%
+  #   group_by(node1, node2, category) %>%
+  #   filter(n()==1)
+ 
+  
   # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
 }
 
@@ -258,7 +269,7 @@ print(Sys.time()-printtime)
     filter(ilp_result > 0.01 | is.na(ilp_result))
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
     # dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
-    dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id)
+    dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id, steps)
   
   # write_csv(test2, "WL_neg_NetID.csv", na="")
   
@@ -270,9 +281,12 @@ print(Sys.time()-printtime)
   
   test3_filter = test3 %>%
     filter(sig > 5) %>%
+    filter(steps >= 1) %>%
     # filter(Feature == "BuffSS") %>%
-    # filter(Feature != "Metabolite") %>%
-    # filter(category == "Metabolite") %>%
+    # filter(Feature == "Metabolite") %>%
+    # filter(category == "Library_MS2_fragment") %>%
+    # filter(category == "Experirmental_MS2_fragment") %>%
+    filter(category == "Metabolite") %>%
     # filter(!(Feature == "Isotope" & category == "Artifact")) %>%
     # filter(Formula == formula & Formula != "") %>%
     # filter(!is.na(formula)) %>%
@@ -281,13 +295,7 @@ print(Sys.time()-printtime)
   library(janitor)
   crosstable = tabyl(test3, Feature, category)
   crosstable_filter = tabyl(test3_filter, Feature, category)
-  
-  test = ilp_edges %>%
-    group_by(node1, node2) %>%
-    filter(n()>1) %>%
-    ungroup() %>%
-    group_by(node1, node2, category) %>%
-    filter(n()==1)
+
 }
 
 print("total run time")
@@ -334,11 +342,14 @@ print(Sys.time()-printtime)
 
 ## Query specific nodes or edges
 {
-  node_id_selected = 6
+  node_id_selected = 1869
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id == node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
+  
+  test = EdgeSet_all_df %>%
+    filter(node2 == 1869)
   
   edge_id_selected = 2191
   EdgeSet_selected = EdgeSet %>%
