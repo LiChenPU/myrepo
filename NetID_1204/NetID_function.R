@@ -2064,7 +2064,7 @@ Initiate_cplexset = function(CplexSet){
   return(CPLEX_para)
 }
 ## Run_cplex ####
-Run_cplex = function(CplexSet, obj_cplex){
+Run_cplex = function(CplexSet, obj_cplex, relative_gap = 1e-4, total_run_time = 3000){
   # obj_cplex = CplexSet$para$obj
     env <- openEnvCPLEX()
     prob <- initProbCPLEX(env)
@@ -2087,26 +2087,22 @@ Run_cplex = function(CplexSet, obj_cplex){
     
     copyColTypeCPLEX(env, prob, ctype)
     
-    setDblParmCPLEX(env, CPX_PARAM_TILIM, 100) # total run time
+    setDblParmCPLEX(env, CPX_PARAM_TILIM, total_run_time) # total run time
     
     # Conserve memory true
     setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
     setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
-    
     # Sets which continuous optimizer will be used to solve the initial relaxation of a MIP.
     setIntParmCPLEX(env, 2025, 3) # 0 is default. one test shows 3 may works better and 4 is ok.
     
-    # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
-    # setDblParmCPLEX(env, 2009, 0.1) # Setting relative seems better
-    # Setting at 0.1 may save 20% of run time based on one test
     
-    # Set a bigger gap tolerance so things end faster
+    # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
+    setDblParmCPLEX(env, 2009, relative_gap) # Setting relative seems better
+    
+    
     # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
     # setDblParmCPLEX(env, 2008, 1000) 
     
-    
-    
-    # setDblParmCPLEX(env, CPX_PARAM_TILIM, 1000) # total run time
     # setIntParmCPLEX(env, CPX_PARAM_INTSOLLIM, 2)
     # setDefaultParmCPLEX(env)
     # getChgParmCPLEX(env)
@@ -2138,7 +2134,8 @@ Run_cplex = function(CplexSet, obj_cplex){
   return(list(obj = obj_cplex, result_solution = result_solution))
 }
 ## Test_para_CPLEX ####
-Test_para_CPLEX = function(CplexSet, obj_cplex,  para = 0, para2 = 0){
+Test_para_CPLEX = function(CplexSet, obj_cplex,  para = 0, para2 = 0, 
+                           relative_gap=1e-4, total_run_time = 3000){
   
   # for(test_para_CPX_PARAM_PROBE in test_para1){
   for(rep_2 in 1:length(para2)){
@@ -2177,17 +2174,18 @@ Test_para_CPLEX = function(CplexSet, obj_cplex,  para = 0, para2 = 0){
     # Conserve memory true
     setIntParmCPLEX(env, CPX_PARAM_MEMORYEMPHASIS, CPX_ON)
     setIntParmCPLEX(env, CPX_PARAM_PROBE, 3)
-    
-    # Set time is Dbl not Int
-    setDblParmCPLEX(env, CPX_PARAM_TILIM, 100) # total run time
-    # setIntParmCPLEX(env, CPX_PARAM_TUNINGTILIM, 200) # run time for each tuning (each optimizatoin run will test serveral tuning)
-    
     # MIP starting algorithm
     # Sets which continuous optimizer will be used to solve the initial relaxation of a MIP.
-    setIntParmCPLEX(env, 2025, 3) # 3 and 4 seem better
+    setIntParmCPLEX(env, 2025, temp_para) # 3 and 4 seem better
+    
+    # Set time is Dbl not Int
+    setDblParmCPLEX(env, CPX_PARAM_TILIM, total_run_time) # total run time
+    # setIntParmCPLEX(env, CPX_PARAM_TUNINGTILIM, 200) # run time for each tuning (each optimizatoin run will test serveral tuning)
+    
+ 
     
     # Sets an absolute tolerance on the gap between the best integer objective and the objective of the best node remaining
-    # setDblParmCPLEX(env, 2009, temp_para) # Setting relative seems better
+    setDblParmCPLEX(env, 2009, relative_gap) # Setting relative seems better
     
     
     

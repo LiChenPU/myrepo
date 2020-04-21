@@ -68,7 +68,7 @@ print(ion_mode)
   Mset[["Data"]] = Peak_cleanup(Mset,
                                 mz_tol=1/10^6, 
                                 rt_tol=0.1,
-                                inten_cutoff=5e4,
+                                inten_cutoff=0e4,
                                 high_blank_cutoff = 2,
                                 first_sample_col_num = 15)
   
@@ -112,7 +112,7 @@ print(ion_mode)
   FormulaSet = Match_library_formulaset(FormulaSet, 
                                         Mset, NodeSet, 
                                         LibrarySet,
-                                        expand = F,
+                                        expand = T,
                                         ppm_tol = 5e-6)
   
   # FormulaSet needs to exist before running this line
@@ -137,7 +137,7 @@ print(ion_mode)
 
   all_bind = bind_rows(FormulaSet) %>%
     # filter(steps != 0) %>%
-    distinct(formula, node_id, .keep_all = T) 
+    distinct(formula, node_id, .keep_all = T)
   
 }
 print(Sys.time()-printtime)
@@ -166,7 +166,7 @@ print(Sys.time()-printtime)
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
-                                            rule_score_biotransform = 0.05, rule_score_artifact = 0.5, 
+                                            rule_score_biotransform = 0, rule_score_artifact = 0.5, 
                                             rule_score_oligomer = 0.5, rule_score_ring_artifact = 2,
                                             rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                                             inten_score_isotope = 1, 
@@ -178,12 +178,14 @@ print(Sys.time()-printtime)
 }
   
 save.image(paste0(timestamp,".RData"))
-
 ## Run_cplex ####
 {
-  CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj))
+  CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
+                                               relative_gap = 1e-1, total_run_time = 3000))
+  # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
+  #                 para = c(0), para2 = NA, 
+  #                 relative_gap = 1e-1, total_run_time = 3000)
 }
-
 print(Sys.time()-printtime)
 ## Read out CPLEX results ####
 {
@@ -255,7 +257,8 @@ print(Sys.time()-printtime)
   test = ilp_nodes %>% 
     filter(ilp_result > 0.01 | is.na(ilp_result))
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
-    dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
+    # dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
+    dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id)
   
   # write_csv(test2, "WL_neg_NetID.csv", na="")
   
@@ -272,12 +275,19 @@ print(Sys.time()-printtime)
     # filter(category == "Metabolite") %>%
     # filter(!(Feature == "Isotope" & category == "Artifact")) %>%
     # filter(Formula == formula & Formula != "") %>%
-    filter(!is.na(formula)) %>%
+    # filter(!is.na(formula)) %>%
     filter(T)
   
   library(janitor)
   crosstable = tabyl(test3, Feature, category)
+  crosstable_filter = tabyl(test3_filter, Feature, category)
   
+  test = ilp_edges %>%
+    group_by(node1, node2) %>%
+    filter(n()>1) %>%
+    ungroup() %>%
+    group_by(node1, node2, category) %>%
+    filter(n()==1)
 }
 
 print("total run time")
