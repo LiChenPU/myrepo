@@ -998,8 +998,8 @@ propagate_experimental_MS2_fragment = function(new_nodes_df, sf,
     merge(node1_node2_mapping, by.x="node_id", by.y="node2") %>%
     mutate(parent_id = node_id,
            parent_formula = formula,
-           category = "Experirmental_MS2_fragment",
-           transform = "Experimental_MS2_fragment", 
+           category = "Experiment_MS2_fragment",
+           transform = "Experiment_MS2_fragment", 
            direction = -1,
            steps = current_step,
            formula = paste0("MS2_fragment_", formula)) %>%
@@ -1595,10 +1595,16 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
                                       ilp_nodes2 = ilp_nodes2[formula_match_matrix_index[, 2]])
   }
   
+  
+  
   ilp_edges = bind_rows(match_matrix_index_ls) %>%
     merge(EdgeSet_df, all.x = T) %>%
     mutate(formula1 = ilp_nodes_formula[ilp_nodes1],
            formula2 = ilp_nodes_formula[ilp_nodes2]) %>%
+    # Remove those oligomer edge linking both metabolites
+    filter(!(ilp_nodes1 %in% ilp_nodes_met$ilp_node_id &
+               ilp_nodes2 %in% ilp_nodes_met$ilp_node_id &
+               category %in% "Oligomer")) %>%
     mutate(ilp_edge_id = 1:nrow(.))
   
   return(ilp_edges)
@@ -1694,7 +1700,8 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            inten_score_isotope = 1, 
-                           MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3){
+                           MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3, 
+                           MS2_score_experiment_fragment = 0.5){
   
   # rule_score_biotransform = 0.05
   # rule_score_artifact = 1
@@ -1718,8 +1725,6 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       filter(T)
   }
   
-  
-  
   # Score isotope intensity 
   if(inten_score_isotope != 0){
     node_inten = sapply(NodeSet, "[[", "inten")
@@ -1742,7 +1747,6 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   
   
   # Score MS2 similarity
-
   if(MS2_score_similarity != 0){
     
     node_MS2_logic = sapply(NodeSet, function(x){
@@ -1805,6 +1809,28 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
                                            score_MS2_similarity))
   }
   
+  # Score MS2 fragment confidence to adducts/heterodimer/oligomer/fragment etc.
+  if(MS2_score_experiment_fragment != 0){
+    ilp_edges_experiment_MS2_fragment = ilp_edges %>%
+      filter(category == "Experiment_MS2_fragment") %>%
+      distinct(node1, node2) %>%
+      merge(ilp_edges) %>%
+      filter(category != "Experiment_MS2_fragment") %>%
+      # Because biotransform is unlikely to have same RT and show fragment in a MS2 spectrum
+      filter(category != "Biotransform") %>% 
+      mutate(score_experiment_MS2_fragment = MS2_score_experiment_fragment) %>%
+      dplyr::select(ilp_edge_id, score_experiment_MS2_fragment) %>%
+      filter(T)
+    
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_experiment_MS2_fragment, all.x = T) %>%
+      mutate(score_experiment_MS2_fragment = ifelse(is.na(score_experiment_MS2_fragment), 
+                                           0, 
+                                           score_experiment_MS2_fragment))
+      
+  }
+  
+  
   cplex_score_edge = ilp_edges %>% 
     dplyr::select(starts_with("score_")) %>% 
     rowSums(na.rm=T)
@@ -1816,14 +1842,33 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
 }
 
 ## score_heterodimer_ilp_edges ####
-score_heterodimer_ilp_edges = function(CplexSet, rule_score_heterodimer = 1){
+score_heterodimer_ilp_edges = function(CplexSet, rule_score_heterodimer = 1,
+                                       MS2_score_experiment_fragment = 0.5){
   
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    mutate(ilp_edge_id = 1:nrow(.) + nrow(CplexSet$ilp_edges)) %>%
     mutate(score_category = case_when(
       category == "Heterodimer" ~ rule_score_heterodimer,
       category != "Heterodimer" ~ 0
     )) %>%
     filter(T)
+  
+  if(MS2_score_experiment_fragment != 0){
+    heterodimer_ilp_edges_experiment_MS2_fragment = CplexSet$ilp_edges %>%
+      filter(category == "Experiment_MS2_fragment") %>%
+      distinct(node1, node2) %>%
+      merge(heterodimer_ilp_edges) %>%
+      mutate(score_experiment_MS2_fragment = MS2_score_experiment_fragment) %>%
+      dplyr::select(ilp_edge_id, score_experiment_MS2_fragment) %>%
+      filter(T)
+    
+    heterodimer_ilp_edges = heterodimer_ilp_edges %>%
+      merge(heterodimer_ilp_edges_experiment_MS2_fragment, all.x = T) %>%
+      mutate(score_experiment_MS2_fragment = ifelse(is.na(score_experiment_MS2_fragment), 
+                                                    0, 
+                                                    score_experiment_MS2_fragment))
+    
+  }
   
   cplex_score_edge = heterodimer_ilp_edges %>% 
     dplyr::select(starts_with("score_")) %>% 
