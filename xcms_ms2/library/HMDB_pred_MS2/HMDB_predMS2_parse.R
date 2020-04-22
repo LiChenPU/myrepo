@@ -122,12 +122,15 @@ elem_df = bind_rows(elem_ls) %>%
 all_formula_valid = !grepl("\\(", all_formula) & (elem_df$unsupport_elem == 0)
 MS2_library3 = list()
 for(i in 1:length(MS2_library2)){
-# MS2_library3 = lapply(MS2_library2, function(test){
   if(!all_formula_valid[i]){
-    MS2_library3[[i]] = MS2_library2[[i]]
+    # MS2_library3[[i]] = MS2_library2[[i]]
     next
   }
   test = MS2_library2[[i]]
+  
+  result_formula = my_calculate_formula(test$formula, "C1")
+  result_formula = my_calculate_formula(result_formula, "C-1")
+  test$formula = result_formula
   test_spec = test$spectrum
   test_spec = test_spec %>%
     # Note here: my_pred_formula will make mistake when having too many heavy elements
@@ -145,11 +148,28 @@ for(i in 1:length(MS2_library2)){
   # temp[i] = max(abs(test_spec$mz.dif))
   test$spectrum = test_spec
   
-  MS2_library3[[i]] = test
+  MS2_library3[[length(MS2_library3)+1]] = test
   print(i)
   # return(test)
 }
-saveRDS(MS2_library3, "HMDB_pred_MS2_neg2.rds")
+# saveRDS(MS2_library3, "HMDB_pred_MS2_neg2.rds")
+
+test = readRDS("HMDB_pred_MS2_neg2.rds")
+
+all_formula = sapply(test, "[[", "formula") 
+empty_MS2 = sapply(test, function(x){nrow(x$spectrum)}) == 0
+all_formula_invalid = grepl("\\(", all_formula) | empty_MS2
+
+result_formula = ""
+for(i in 1:length(all_formula)){
+  if(all_formula_invalid[i]) next
+  result_formula = my_calculate_formula(test[[i]]$formula, "C1")
+  test[[i]]$formula = my_calculate_formula(result_formula, "C-1")
+  print(i)
+}
+
+HMDB_pred_MS2_neg3 = test[!all_formula_invalid]
+saveRDS(HMDB_pred_MS2_neg3,"HMDB_pred_MS2_neg3.rds")
 
 
 ## predict formula ####
