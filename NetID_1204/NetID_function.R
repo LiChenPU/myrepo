@@ -1011,7 +1011,8 @@ propagate_experimental_MS2_fragment = function(new_nodes_df, sf,
 }
 
 ### propagate_library_MS2_fragment ####
-propagate_library_MS2_fragment = function(new_nodes_df, sf, EdgeSet_library_MS2_fragment_df, NodeSet, current_step){
+propagate_library_MS2_fragment = function(new_nodes_df, sf, EdgeSet_library_MS2_fragment_df, 
+                                          NodeSet, current_step){
   node_mass = sapply(NodeSet, "[[", "mz")
   
   node1 = EdgeSet_library_MS2_fragment_df$node1
@@ -1698,7 +1699,7 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
 score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
                            rule_score_biotransform = 0.1, rule_score_artifact = 1, 
                            rule_score_oligomer = 1, rule_score_ring_artifact = 5,
-                           rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
+                           rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.5,
                            inten_score_isotope = 1, 
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3, 
                            MS2_score_experiment_fragment = 0.5){
@@ -1707,9 +1708,12 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   # rule_score_artifact = 1
   # rule_score_oligomer = 1
   # rule_score_ring_artifact = 5
+  # rule_score_experiment_MS2_fragment = 1
+  # rule_score_library_MS2_fragment = 0.3
   # inten_score_isotope = 1
   # MS2_score_similarity = 1
   # MS2_similarity_cutoff = 0.3
+  # MS2_score_experiment_fragment = 0.5
     
   # Score rule category 
   {
@@ -1718,13 +1722,28 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
         category == "Biotransform" ~ rule_score_biotransform,
         category == "Ring_artifact" ~ rule_score_ring_artifact,
         category == "Experiment_MS2_fragment" ~ rule_score_experiment_MS2_fragment,
-        category == "Library_MS2_fragment" ~ rule_score_library_MS2_fragment,
+        # category == "Library_MS2_fragment" ~ rule_score_library_MS2_fragment,
         category == "Oligomer" ~ rule_score_oligomer,
         category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
       filter(T)
   }
   
+  # Score library_MS2_fragment
+  if(rule_score_library_MS2_fragment != 0){
+    ilp_edges_library_MS2_fragment = ilp_edges %>%
+      filter(category == "Library_MS2_fragment") %>%
+      group_by(node2) %>%
+      mutate(n = n()) %>%
+      mutate(score_library_MS2_fragment = rule_score_library_MS2_fragment/n) %>%
+      merge(ilp_edges) %>%
+      dplyr::select(ilp_edge_id, score_library_MS2_fragment) %>%
+      filter(T)
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_library_MS2_fragment, all.x = T) %>%
+      mutate(score_library_MS2_fragment = ifelse(is.na(score_library_MS2_fragment), 0, score_library_MS2_fragment))
+    
+  }
   # Score isotope intensity 
   if(inten_score_isotope != 0){
     node_inten = sapply(NodeSet, "[[", "inten")
@@ -1737,10 +1756,11 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
              measured_calculated_ratio = 10^(inten_ratio_measured-inten_ratio_calculated)) %>%
       mutate(p_obs = dnorm(measured_calculated_ratio, 1, 0.2+10^(3-pmin(inten1, inten2))),
              p_theory = dnorm(1, 1, 0.2+10^(3-pmin(inten1, inten2)))) %>%
-      mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10) + inten_score_isotope)
+      mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10) + inten_score_isotope) %>%
+      dplyr::select(ilp_edge_id, score_inten_isotope)
     
-    ilp_edges_ = ilp_edges %>%
-      merge(ilp_edges_isotope %>% dplyr::select(ilp_edge_id, score_inten_isotope), all.x = T) %>%
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_isotope, all.x = T) %>%
       mutate(score_inten_isotope = ifelse(is.na(score_inten_isotope), 0, score_inten_isotope))
     # hist(ilp_edges_isotope %>% filter(score_inten_isotope<1 & score_inten_isotope>-8 ) %>% pull(score_inten_isotope))
   }

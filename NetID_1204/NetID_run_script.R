@@ -170,9 +170,11 @@ print(Sys.time()-printtime)
                                             rule_score_oligomer = 0.5, rule_score_ring_artifact = 2,
                                             rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                                             inten_score_isotope = 1, 
-                                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3)
+                                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
+                                            MS2_score_experiment_fragment = 0.5)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1)
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1,
+                                                                    MS2_score_experiment_fragment = 0.5)
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
 }
@@ -268,8 +270,8 @@ print(Sys.time()-printtime)
   test = ilp_nodes %>% 
     filter(ilp_result > 0.01 | is.na(ilp_result))
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
-    # dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id)
-    dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id, steps)
+    dplyr::select(colnames(WL), path, formula, category, parent_formula, node_id, parent_id, steps)
+    # dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id, steps)
   
   # write_csv(test2, "WL_neg_NetID.csv", na="")
   
@@ -281,7 +283,7 @@ print(Sys.time()-printtime)
   
   test3_filter = test3 %>%
     filter(sig > 5) %>%
-    filter(steps >= 1) %>%
+    # filter(steps >= 1) %>%
     # filter(Feature == "BuffSS") %>%
     # filter(Feature == "Metabolite") %>%
     # filter(category == "Library_MS2_fragment") %>%
