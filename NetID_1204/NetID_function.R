@@ -608,9 +608,9 @@ Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
     filter(contain_lib_MS2)
   
   peak_group_MS2 = peak_group %>%
-    filter(node2 %in% FormulaSet_df_MS2$node_id & inten2 > log10(inten_threshold),
-           node1 != node2,
-           mass1 < mass2) %>%
+    filter(node2 %in% FormulaSet_df_MS2$node_id & inten2 > log10(inten_threshold), #Only look at high-inten peaks
+           inten2 > inten1, # Fragment should have lower inten comparaed to parent
+           mass2 > mass1) %>%
     split(.$node2)
   
   
@@ -1264,35 +1264,56 @@ Score_formulaset = function(FormulaSet,
       mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
       filter(contain_msr_MS2, contain_lib_MS2)
     
-    fwd_dp = rev_dp = 0
+    fwd_dp = rev_dp = rep(0, nrow(FormulaSet_df_MS2))
     
     for(i in 1:nrow(FormulaSet_df_MS2)){
+      
+      H_mass = 1.007825032
+      e_mass = 0.000548579
+      ion_mode = Mset$Global_parameter$mode
+      
       node_id = FormulaSet_df_MS2$node_id[i]
-      mz1 = FormulaSet_df_MS2$mass.x[i]
+      mz1 = FormulaSet_df_MS2$mass.x[i] + (H_mass-e_mass) * ion_mode
       MS2_msr = NodeSet[[node_id]]$MS2
       colnames(MS2_msr)=c("mz", "inten")
+      if(nrow(MS2_msr)==1){
+        next
+      }
       
       HMDB_id = FormulaSet_df_MS2$note[i]
-      mz2 = FormulaSet_df_MS2$mass.y[i]
+      mz2 = FormulaSet_df_MS2$mass.y[i] + (H_mass-e_mass) * ion_mode
       lib_MS2_id = which(MS2_library_external_id == HMDB_id)
       MS2_lib = MS2_library[lib_MS2_id]
+   
+      # skip if all MS2_lib spectra are one-row
+      if(all(sapply(MS2_lib, function(x){nrow(x$spectrum)}) == 1)){
+        next
+      }
       
+      if(abs(mz1 - mz2) < max(1e-3, mz2*10e-6)){
+        temp_mz_parent = (mz1 + mz2)/2
+      } else {
+        temp_mz_parent = -Inf
+      }
       # Fwd dot product
       spec_score = 0
       for(j in 1:length(MS2_lib)){
         
         spec1_df = as.data.frame(MS2_msr)
         spec2_df = MS2_lib[[j]]$spectrum
+        if(nrow(spec2_df)<=1){
+          next
+        }
         
         spec_merge_df = try(mergeMzIntensity(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3), silent = T)
         if(inherits(spec_merge_df, "try-error")){
           spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
         }
-        spec_score[j] = Score_merge_MS2(spec_merge_df)
+        spec_score[j] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
         ## warning or even error occur here if one spectrum have same mz or close mz
         if(is.na(spec_score[j])){
           spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
-          spec_score[j] = Score_merge_MS2(spec_merge_df)
+          spec_score[j] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
         }
       }
       # print(spec_score)
@@ -1314,12 +1335,12 @@ Score_formulaset = function(FormulaSet,
         if(inherits(spec_merge_df, "try-error")){
           spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
         }
-        spec_score[j] = Score_merge_MS2(spec_merge_df)
+        spec_score[j] = Score_merge_MS2(spec_merge_df, mz_parent = 0)
         
         ## warning or even error occur here if one spectrum have same mz or close mz
         if(is.na(spec_score[j])){
           spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
-          spec_score[j] = Score_merge_MS2(spec_merge_df)
+          spec_score[j] = Score_merge_MS2(spec_merge_df, mz_parent = 0)
         }
       }
       rev_dp[i] = max(spec_score)
@@ -1847,16 +1868,30 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       distinct(node1, node2, .keep_all = T) %>%
       filter(node1 %in% node_MS2, node2 %in% node_MS2)
     
-    fwd_dp = rev_dp = 0
+    fwd_dp = rev_dp = rep(0, nrow(ilp_edges_MS2_similarity))
     for(i in 1:nrow(ilp_edges_MS2_similarity)){
-    
+      
+      H_mass = 1.007825032
+      e_mass = 0.000548579
+      ion_mode = Mset$Global_parameter$mode
+
       node1 = ilp_edges_MS2_similarity$node1[i]
       node2 = ilp_edges_MS2_similarity$node2[i]
-      mz1 = NodeSet[[node1]]$mz
-      mz2 = NodeSet[[node2]]$mz
+      mz1 = NodeSet[[node1]]$mz + (H_mass - e_mass) * ion_mode
+      mz2 = NodeSet[[node2]]$mz + (H_mass - e_mass) * ion_mode
       
       spec1_df = as.data.frame(NodeSet[[node1]]$MS2)
       spec2_df = as.data.frame(NodeSet[[node2]]$MS2)
+      
+      if(nrow(spec1_df)==1 | nrow(spec2_df)==1){
+        next
+      }
+      
+      if(abs(mz1 - mz2) < max(1e-3, mz2*10e-6)){
+        temp_mz_parent = (mz1 + mz2)/2
+      } else {
+        temp_mz_parent = -Inf
+      }
       
       colnames(spec1_df)=colnames(spec2_df)=c("mz", "inten")
       
@@ -1865,7 +1900,12 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       if(inherits(spec_merge_df, "try-error")){
         spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
       }
-      fwd_dp[i] = Score_merge_MS2(spec_merge_df)
+      fwd_dp[i] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
+      ## warning or even error occur here if one spectrum have same mz or close mz
+      if(is.na(fwd_dp[i])){
+        spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+        fwd_dp[i] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
+      }
       
       # Rev dot product
       spec1_df[,1] = mz1 - spec1_df[,1]
@@ -1876,8 +1916,11 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       if(inherits(spec_merge_df, "try-error")){
         spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
       }
-      rev_dp[i] = Score_merge_MS2(spec_merge_df)
-      
+      rev_dp[i] = Score_merge_MS2(spec_merge_df, mz_parent = 0)
+      if(is.na(rev_dp[i])){
+        spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
+        rev_dp[i] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
+      }
       
     }
       
@@ -2704,7 +2747,7 @@ mergeMzIntensity_backup = function(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 
   return(spec_df)
 }
 ## Score_merge_MS2 ####
-Score_merge_MS2 = function(spec_merge_df){
+Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
   
   # A more realistic evaluation of two MS2 spectra simialrity is needed.
   # idea1 discount the weight of parent peak matched
@@ -2713,17 +2756,23 @@ Score_merge_MS2 = function(spec_merge_df){
   # which adds more weight to low-signal shared peaks
   
   # Implementing idea 3
+  # a = a/max(a)
+  # b = b/max(b)
+  # a = sqrt(a)
+  # b = sqrt(b)
   # Needs to use experimental data to validate the score cutoff for match and similarity
+  # Implementing idea 1
   
   a = spec_merge_df[,2]
   b = spec_merge_df[,3]
   
-  a = a/max(a)
-  b = b/max(b)
-  
-  a = sqrt(a)
-  b = sqrt(b)
-  
+  # 5e-4 and divide by 5 is arbitrary, needs experimental data to validate.
+  mz_parent_position = which(abs(spec_merge_df[,1] - mz_parent) < 5e-4)
+  if(length(mz_parent_position) != 0){
+    a[mz_parent_position] = a[mz_parent_position]/5
+    b[mz_parent_position] = b[mz_parent_position]/5
+  }
+
   spec_score = a%*%b / sqrt(a%*%a * b%*%b)
   
   return(as.numeric(spec_score))
