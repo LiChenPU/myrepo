@@ -489,8 +489,10 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
   
   
   hetero_dimer_df1 = bind_rows(hetero_dimer_ls) %>% 
-    mutate(inten1 = node_inten[node1]) %>%
+    mutate(inten1 = node_inten[node1], 
+           inten2 = node_inten[node2]) %>%
     filter(inten1 > log10(inten_threshold)) %>% # retain only high intensity as node1
+    filter(inten1 > inten2) %>% # Heterodimer parent has higher intensity
     filter(node1 != linktype) %>% # remove homo-dimer
     arrange(node1)
   
@@ -502,7 +504,6 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
   
   hetero_dimer_df = bind_rows(hetero_dimer_df1, hetero_dimer_df2) %>%
     distinct(node1, linktype, .keep_all =T)
-  
   
   EdgeSet_heterodimer = apply(hetero_dimer_df, 1, function(x){
     list(
@@ -1075,13 +1076,14 @@ Propagate_formulaset = function(Mset,
                                 biotransform_step = 5,
                                 artifact_step = 5,
                                 propagation_ppm_threshold = 2e-6,
+                                propagation_abs_threshold = 5e-4,
                                 record_RT_tol = 0.1,
                                 record_ppm_tol = 5e-6)
 {
-
   # biotransform_step = 2
   # artifact_step = 3
   # propagation_ppm_threshold = 2e-6
+  # propagation_abs_threshold = 5e-4
   # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
 
@@ -1102,12 +1104,13 @@ Propagate_formulaset = function(Mset,
     while(sub_step < 0.01 * artifact_step){
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df %>%
-        distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
+        distinct(node_id, formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
         filter(steps==(step_count + sub_step)) %>% # This garantee only formulas generated from the step go to next propagation
         filter(rdbe > -1 & rdbe %% 1 == 0) %>% # filter out formula has ring and double bind less than -1; and it is non radical
-        filter(!category == "Unknown") %>% # filter out unkwown formulas from propagation
+        filter(category != "Unknown") %>% # filter out unkwown formulas from propagation
         filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
-        filter(abs(node_mass[as.character(node_id)] - mass) < propagation_ppm_threshold * mass) # propagate from accurate formulas
+        filter(abs(node_mass[as.character(node_id)] - mass) < pmax(propagation_ppm_threshold * mass, 
+                                                                   propagation_abs_threshold)) # propagate from accurate formulas
       
       
       if(nrow(new_nodes_df)==0){break}
@@ -1171,7 +1174,8 @@ Propagate_formulaset = function(Mset,
       filter(steps == step_count) %>% # only formulas generated from the step go to next propagation
       filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
       filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
-      filter(abs(node_mass[as.character(node_id)] - mass) < propagation_ppm_threshold * mass) # propagate from accurate formulas
+      filter(abs(node_mass[as.character(node_id)] - mass) < pmax(propagation_ppm_threshold * mass, 
+                                                                 propagation_abs_threshold)) # propagate from accurate formulas
     
     step_count = step_count+1
     current_step = step_count
@@ -1495,8 +1499,12 @@ initiate_ilp_nodes = function(FormulaSet_df){
 }
 
 ## score_ilp_nodes ####
-score_ilp_nodes = function(ilp_nodes, mass_dist_gamma_rate = mass_dist_gamma_rate, 
-                           formula_score = 0, unassigned_penalty = -0.5){
+score_ilp_nodes = function(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate, 
+                           formula_score = 0, unassigned_penalty = -0.5, 
+                           isotope_Cl_penalty = -2){
+  
+  ilp_nodes = CplexSet$ilp_nodes
+  ilp_edges = CplexSet$ilp_edges
   
   node_mass = sapply(NodeSet, "[[", "mz")
   
@@ -1518,6 +1526,22 @@ score_ilp_nodes = function(ilp_nodes, mass_dist_gamma_rate = mass_dist_gamma_rat
       filter(T)
   }
 
+  # Score penalties for isotopes
+  if(isotope_Cl_penalty != 0){
+    ilp_edges_isotopes = ilp_edges %>%
+      filter(linktype == "[37]Cl1Cl-1")
+    ilp_nodes_isotopes = ilp_nodes %>%
+      filter(str_detect(formula, "(?<!\\])Cl")) %>% # Find Cl but not [37]Cl formulas
+      mutate(score_Cl_isotope = ifelse(ilp_node_id %in% ilp_edges_isotopes$ilp_nodes1, 0, isotope_Cl_penalty)) %>%
+      dplyr::select(ilp_node_id, score_Cl_isotope)
+    ilp_nodes = ilp_nodes %>%
+      merge(ilp_nodes_isotopes, all.x = T) %>%
+      mutate(score_Cl_isotope = ifelse(is.na(score_Cl_isotope), 0, score_Cl_isotope))
+    
+    
+    
+  }
+  
   # Score penalties for unassigned peaks
   if(unassigned_penalty != 0){
     nodes_inten = sapply(NodeSet, "[[", "inten")
@@ -1530,6 +1554,8 @@ score_ilp_nodes = function(ilp_nodes, mass_dist_gamma_rate = mass_dist_gamma_rat
       merge(ilp_nodes_unassigned, all.x = T) %>%
       mutate(score_unassigned = ifelse(is.na(score_unassigned), 0, score_unassigned))
   }
+  
+  
   
   cplex_score_node = ilp_nodes %>% 
     dplyr::select(starts_with("score_")) %>% 
@@ -1558,6 +1584,9 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
   
   ilp_nodes_nonmet = ilp_nodes %>% filter(!category %in% c("Metabolite","Unknown"))
   node_id_ilp_node_mapping_nonmet = split(ilp_nodes_nonmet$ilp_node_id, ilp_nodes_nonmet$node_id)
+  
+  ilp_nodes_radical = ilp_nodes %>% filter(category == "Radical")
+  node_id_ilp_node_mapping_radical = split(ilp_nodes_radical$ilp_node_id, ilp_nodes_radical$node_id)
   
   ilp_nodes_formula = ilp_nodes %>%
     pull(formula)
@@ -1636,7 +1665,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
       formula_transform[formula1_position] = EdgeSet_df$formula2[i]
     } else if(category == "Radical"){
       node1 = EdgeSet_df$node1[i]
-      ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
+      ilp_nodes1 = node_id_ilp_node_mapping_radical[[as.character(node1)]]
       formula1 = ilp_nodes_formula[ilp_nodes1]
       if(length(formula1) == 0){next}
       node2 = EdgeSet_df$node2[i]
@@ -1790,7 +1819,7 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
                            inten_score_isotope = 1, 
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3, 
                            MS2_score_experiment_fragment = 0.5){
-  
+
   # rule_score_biotransform = 0.05
   # rule_score_artifact = 1
   # rule_score_oligomer = 1
@@ -1802,7 +1831,7 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   # MS2_score_similarity = 1
   # MS2_similarity_cutoff = 0.3
   # MS2_score_experiment_fragment = 0.5
-  
+
     
   # Score rule category 
   {
@@ -1811,6 +1840,7 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
         category == "Biotransform" ~ rule_score_biotransform,
         category == "Ring_artifact" ~ rule_score_ring_artifact,
         category == "Experiment_MS2_fragment" ~ rule_score_experiment_MS2_fragment,
+        category == "Library_MS2_fragment" ~ 0,
         category == "Natural_abundance" ~ rule_score_natural_abundance,
         category == "Oligomer" ~ rule_score_oligomer,
         category %in% c("Fragment", "Adduct", "Radical") ~ rule_score_artifact
@@ -1820,6 +1850,9 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   }
   
   # Score library_MS2_fragment
+  # Describe if given any peak related to a HMDB metabolite, 
+  # look for the metabolite's MS2, to see if any fragment is presented in MS1
+  # If so, strengthen the formula pair of the fragment and parent
   if(rule_score_library_MS2_fragment != 0){
     ilp_edges_library_MS2_fragment = ilp_edges %>%
       filter(category == "Library_MS2_fragment") %>%
@@ -1832,7 +1865,6 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
     ilp_edges = ilp_edges %>%
       merge(ilp_edges_library_MS2_fragment, all.x = T) %>%
       mutate(score_library_MS2_fragment = ifelse(is.na(score_library_MS2_fragment), 0, score_library_MS2_fragment))
-    
   }
   # Score isotope intensity 
   if(inten_score_isotope != 0){
@@ -1856,9 +1888,10 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   }
   
   
-  # Score MS2 similarity
+  # Score Experiment MS2 similarity
+  # It compares any connection in edge list where both experiment MS2 exist
+  # If their MS2 are similar, then strengthen such connection
   if(MS2_score_similarity != 0){
-    
     node_MS2_logic = sapply(NodeSet, function(x){
       !is.null(x$MS2)
     })
@@ -1921,10 +1954,8 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
         spec_merge_df = mergeMzIntensity_backup(spec1_df, spec2_df, ppmTol = 10E-6, absTol = 1e-3)
         rev_dp[i] = Score_merge_MS2(spec_merge_df, mz_parent = temp_mz_parent)
       }
-      
     }
-      
-    
+
     ilp_edges_MS2_similarity_ = ilp_edges_MS2_similarity %>%
       mutate(fwd_score = fwd_dp,
              rev_score = rev_dp,
@@ -1942,6 +1973,7 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   }
   
   # Score MS2 fragment confidence to adducts/heterodimer/oligomer/fragment etc.
+  # It 
   if(MS2_score_experiment_fragment != 0){
     ilp_edges_experiment_MS2_fragment = ilp_edges %>%
       filter(category == "Experiment_MS2_fragment") %>%
@@ -1959,7 +1991,6 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
       mutate(score_experiment_MS2_fragment = ifelse(is.na(score_experiment_MS2_fragment), 
                                            0, 
                                            score_experiment_MS2_fragment))
-      
   }
   
   
