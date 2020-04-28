@@ -527,6 +527,10 @@ Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10,
   node_MS2_logic = sapply(NodeSet, function(x){!is.null(x$MS2)})
   node_MS2 = (1:length(NodeSet))[node_MS2_logic]
   
+  if(length(node_MS2)==0){
+    return(NULL)
+  }
+  
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
   ion_mode = Mset$Global_parameter$mode
@@ -1010,6 +1014,10 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
 propagate_experimental_MS2_fragment = function(new_nodes_df, sf, 
                                                EdgeSet_experiment_MS2_fragment, 
                                                NodeSet, current_step){
+  
+  if(is.null(EdgeSet_experiment_MS2_fragment)){
+    return(NULL)
+  }
   node_mass = sapply(NodeSet, "[[", "mz")
   
   node1 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node1")
@@ -1249,10 +1257,11 @@ Score_formulaset = function(FormulaSet,
   }
   
   # Score MS2 match and similarity
-  {
-    node_MS2_logic = sapply(NodeSet, function(x){
-      !is.null(x$MS2)
-    })
+  node_MS2_logic = sapply(NodeSet, function(x){
+    !is.null(x$MS2)
+  })
+  if(MS2_match != 0 & any(node_MS2_logic)){
+    
     node_MS2 = (1:length(NodeSet))[node_MS2_logic]
     
     MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
@@ -1811,13 +1820,13 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
 
 
 ## score_ilp_edges ####
-score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma, 
-                           rule_score_biotransform = 0.1, rule_score_artifact = 1, 
-                           rule_score_oligomer = 1, rule_score_ring_artifact = 5,
-                           rule_score_natural_abundance = 1,
-                           rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.5,
+score_ilp_edges = function(CplexSet, NodeSet,
+                           rule_score_biotransform = 0, rule_score_artifact = 0.5, 
+                           rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
+                           rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
+                           rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            inten_score_isotope = 1, 
-                           MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3, 
+                           MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                            MS2_score_experiment_fragment = 0.5){
 
   # rule_score_biotransform = 0.05
@@ -1831,11 +1840,11 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   # MS2_score_similarity = 1
   # MS2_similarity_cutoff = 0.3
   # MS2_score_experiment_fragment = 0.5
-
+  ilp_edges = CplexSet$ilp_edges
     
   # Score rule category 
   {
-    ilp_edges = CplexSet$ilp_edges %>%
+    ilp_edges = ilp_edges %>%
       mutate(score_category = case_when(
         category == "Biotransform" ~ rule_score_biotransform,
         category == "Ring_artifact" ~ rule_score_ring_artifact,
@@ -1843,7 +1852,8 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
         category == "Library_MS2_fragment" ~ 0,
         category == "Natural_abundance" ~ rule_score_natural_abundance,
         category == "Oligomer" ~ rule_score_oligomer,
-        category %in% c("Fragment", "Adduct", "Radical") ~ rule_score_artifact
+        category == "Fragment" ~ rule_score_fragment,
+        category %in% c("Adduct", "Radical") ~ rule_score_artifact
         # category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
       filter(T)
@@ -1891,10 +1901,11 @@ score_ilp_edges = function(ilp_edges, NodeSet, MassDistsigma = MassDistsigma,
   # Score Experiment MS2 similarity
   # It compares any connection in edge list where both experiment MS2 exist
   # If their MS2 are similar, then strengthen such connection
-  if(MS2_score_similarity != 0){
-    node_MS2_logic = sapply(NodeSet, function(x){
-      !is.null(x$MS2)
-    })
+  node_MS2_logic = sapply(NodeSet, function(x){
+    !is.null(x$MS2)
+  })
+  if(MS2_score_similarity != 0 & any(node_MS2_logic)){
+
     node_MS2 = (1:length(NodeSet))[node_MS2_logic]
     
     ilp_edges_MS2_similarity = ilp_edges %>%
@@ -2631,10 +2642,15 @@ query_path = function(query_node_id = 6,
 }
 # MS2 functions ---------- #####
 ## Read Xi MS2 format file ####
-Add_MS2_nodeset = function(MS2_filepath, NodeSet){
+Add_MS2_nodeset = function(MS2_folder, NodeSet){
+  
+  if(!any(list.files()==MS2_folder)){
+    return(NodeSet)
+  }
   
   old_path = getwd()
-  setwd(MS2_filepath)
+  setwd(MS2_folder)
+  
   MS2_filenames = list.files(pattern = ".xlsx")
   for(i_filename in 1:length(MS2_filenames)){
     MS2_filename = MS2_filenames[i_filename]
