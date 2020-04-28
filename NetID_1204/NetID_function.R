@@ -1509,19 +1509,23 @@ initiate_ilp_nodes = function(FormulaSet_df){
 
 ## score_ilp_nodes ####
 score_ilp_nodes = function(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate, 
-                           formula_score = 0, unassigned_penalty = -0.5, 
-                           isotope_Cl_penalty = -2){
+                           formula_score = 0, metabolite_score = 0.1, 
+                           isotope_Cl_penalty = -1, unassigned_penalty = -0.5){
   
   ilp_nodes = CplexSet$ilp_nodes
   ilp_edges = CplexSet$ilp_edges
   
   node_mass = sapply(NodeSet, "[[", "mz")
+  # Formula and metabolite score
+  {
+    ilp_nodes = ilp_nodes %>%
+      mutate(msr_mass = node_mass[node_id],
+             ppm_error = (mass - msr_mass) / mass * 1e6) %>%
+      mutate(score_formula = formula_score) %>%
+      mutate(score_formula = ifelse(category == "Metabolite", score_formula + metabolite_score, score_formula))
+  }
   
-  ilp_nodes = ilp_nodes %>%
-    mutate(msr_mass = node_mass[node_id],
-           ppm_error = (mass - msr_mass) / mass * 1e6) %>%
-    mutate(score_formula = formula_score)
-  
+
   # Score mass accuracy
   {
     ilp_nodes = ilp_nodes %>%
@@ -1825,6 +1829,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
+                           rt_penalty_artifact_cutoff = 0.1, rt_penalty_artifact_ratio = 5,
                            inten_score_isotope = 1, 
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                            MS2_score_experiment_fragment = 0.5){
@@ -1857,6 +1862,26 @@ score_ilp_edges = function(CplexSet, NodeSet,
         # category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
       filter(T)
+  }
+  
+  # Penalty for large RT dif
+  # This should be replaced by chormatogram correlation   
+  if(rt_penalty_artifact != 0){
+    node_rt = sapply(NodeSet, "[[", "RT")
+    
+    ilp_edges_rt = ilp_edges %>%
+      mutate(rt_node1 = node_rt[node1],
+             rt_node2 = node_rt[node2]) %>%
+      mutate(rt_dif = rt_node2 - rt_node1) %>%
+      mutate(score_rt_artifact = case_when(
+        category %in% c("Biotransform") ~ 0,
+        abs(rt_dif) < rt_penalty_artifact_cutoff ~ 0,
+        T ~ (rt_penalty_artifact_cutoff - abs(rt_dif)) * rt_penalty_artifact_ratio)) %>%
+      dplyr::select(ilp_edge_id, score_rt_artifact) %>%
+      filter(T)
+    ilp_edges = ilp_edges %>%
+      merge(ilp_edges_rt, all.x = T) %>%
+      mutate(score_rt_artifact = ifelse(is.na(score_rt_artifact), 0, score_rt_artifact))
   }
   
   # Score library_MS2_fragment
