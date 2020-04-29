@@ -49,8 +49,11 @@ read_manual_library = function(manual_library_file){
   }
   manual_library = manual_library %>%
     mutate(formula = check_formula$new_formula) %>%
+    mutate(formula = my_calculate_formula(formula, "C1"),
+           formula = my_calculate_formula(formula, "C-1")) %>%
     mutate(mass = formula_mz(formula),
-           rdbe = formula_rdbe(formula))
+           rdbe = formula_rdbe(formula)) %>%
+    mutate(note = as.character(note))
   return(manual_library)
 }
 ## Read_rule_table - for Connect_rules ####
@@ -876,6 +879,62 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
 }
 
 
+## Check_sys_error ####
+Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
+                           RT_match = T){
+  Library_known = LibrarySet %>%
+    filter(origin == "Library_known")
+  
+  node_RT = sapply(NodeSet, "[[", "RT")
+  library_RT = LibrarySet$rt
+  names(library_RT) = LibrarySet$library_id
+  
+  node_mass = sapply(NodeSet, "[[", "mz")
+  Library_known_msr = bind_rows(FormulaSet) %>% 
+    filter(parent_id %in% Library_known$library_id & transform == "") %>%
+    mutate(msr_mass = node_mass[node_id], 
+           mass_dif = mass - msr_mass,
+           ppm_mass_dif = mass_dif/mass * 1e6) %>%
+    filter(quantile(ppm_mass_dif, 0.1)<ppm_mass_dif,
+           quantile(ppm_mass_dif, 0.9)>ppm_mass_dif) %>%
+    mutate(msr_rt = node_RT[as.character(node_id)],
+           lib_rt = library_RT[as.character(parent_id)]) %>%
+    mutate(rt_match = abs(msr_rt - lib_rt) < 1) %>%
+    arrange(-rt_match) %>%
+    distinct(node_id, .keep_all = T)
+  
+  lsq_result = lm(Library_known_msr$mass_dif~Library_known_msr$msr_mass)
+    
+  if(RT_match){
+    Library_known_msr = Library_known_msr %>%
+      filter(rt_match)
+    lsq_result = lm(Library_known_msr$mass_dif~Library_known_msr$msr_mass)
+  }
+  
+  
+  ppm_adjust = as.numeric(lsq_result$coefficients[2] * 10^6)
+  abs_adjust = as.numeric(lsq_result$coefficients[1])
+  
+  
+  #
+  plot(Library_known_msr$msr_mass, Library_known_msr$mass_dif)
+  ## Normal test 
+  # shapiro.test(Library_known_msr$mass_dif)
+  # shapiro.test(Library_known_msr$ppm_mass_dif)
+  fitdistData = fitdistrplus::fitdist(Library_known_msr$ppm_mass_dif, "norm")
+  # if(fitdistData$estimate["mean"] > 10*fitdistData$sd["mean"]){
+    plot(fitdistData)
+    print(fitdistData)
+  # }
+  
+  return(list(ppm_adjust = ppm_adjust, 
+              abs_adjust = abs_adjust, 
+              fitdistData = fitdistData))
+  # if((ppm_adjust + abs_adjust / 250 * 1e6) > 0.5)
+  # return(NULL)
+}
+
+
 ### propagate_ring_artifact ####
 propagate_ring_artifact = function(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step){
   node_mass = sapply(NodeSet, "[[", "mz")
@@ -1537,22 +1596,36 @@ score_ilp_nodes = function(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate
       mutate(score_mass = dgamma(abs(ppm_error), 1, scale = mass_dist_gamma_rate) * mass_dist_gamma_rate) %>%
       mutate(score_mass = log10(score_mass)) %>%
       filter(T)
+    # 
+    # temp = integer(0)
+    # for(i in seq(0,5,0.01)){
+    #   temp[length(temp)+1]=dgamma(i, shape=1, scale = mass_dist_gamma_rate)*mass_dist_gamma_rate
+    # }
+    # plot(seq(0,5,0.01), log(temp))
   }
 
   # Score penalties for isotopes
   if(isotope_Cl_penalty != 0){
-    ilp_edges_isotopes = ilp_edges %>%
-      filter(linktype == "[37]Cl1Cl-1")
-    ilp_nodes_isotopes = ilp_nodes %>%
-      filter(str_detect(formula, "(?<!\\])Cl")) %>% # Find Cl but not [37]Cl formulas
-      mutate(score_Cl_isotope = ifelse(ilp_node_id %in% ilp_edges_isotopes$ilp_nodes1, 0, isotope_Cl_penalty)) %>%
+    node_inten = sapply(NodeSet,"[[","inten")
+    ilp_edges_Cl = ilp_edges %>% filter(grepl("Cl-1", linktype))
+    ilp_nodes_Cl = ilp_nodes %>%
+      filter(str_detect(formula, "(?<!\\])Cl")) %>% # Find Cl but not Cl isotope formulas
+      mutate(score_Cl_isotope = ifelse(ilp_node_id %in% ilp_edges_Cl$ilp_nodes1 &
+                                         node_inten[node_id] > 4.5, 
+                                       0, isotope_Cl_penalty)) %>%
       dplyr::select(ilp_node_id, score_Cl_isotope)
+    
+    # isotope_Cr_penalty = isotope_Cl_penalty
+    # ilp_edges_Cr = ilp_edges %>% filter(grepl("Cr-1", linktype))
+    # ilp_nodes_Cr = ilp_nodes %>%
+    #   filter(str_detect(formula, "(?<!\\])Cr")) %>%
+    #   mutate(score_Cr_isotope = ifelse(ilp_node_id %in% ilp_edges_Cr$ilp_nodes1 &
+    #                                      node_inten[node_id] > 5, 
+    #                                    0, isotope_Cr_penalty)) %>%
+    #   dplyr::select(ilp_node_id, score_Cr_isotope)
     ilp_nodes = ilp_nodes %>%
-      merge(ilp_nodes_isotopes, all.x = T) %>%
+      merge(ilp_nodes_Cl, all.x = T) %>%
       mutate(score_Cl_isotope = ifelse(is.na(score_Cl_isotope), 0, score_Cl_isotope))
-    
-    
-    
   }
   
   # Score penalties for unassigned peaks
@@ -1866,7 +1939,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
   
   # Penalty for large RT dif
   # This should be replaced by chormatogram correlation   
-  if(rt_penalty_artifact != 0){
+  if(rt_penalty_artifact_ratio != 0){
     node_rt = sapply(NodeSet, "[[", "RT")
     
     ilp_edges_rt = ilp_edges %>%
@@ -2247,16 +2320,51 @@ Initiate_cplexset = function(CplexSet){
                                          triplet_edge_node1,
                                          triplet_edge_node2,
                                          triplet_edge_node_link)
-    
   }
     
+  # triplet that force only one edge exist between two ilp_nodes
+  # E.g. adduct vs fragment of NH3, HPO3 adduct and heterodimer, etc
+  {
+    double_edges = bind_rows(ilp_edges, heterodimer_ilp_edges %>% mutate(linktype = as.character(linktype))) %>%
+      filter(category != "Library_MS2_fragment") %>% # allow Library_MS2_fragment to form double edge
+      group_by(ilp_nodes1, ilp_nodes2) %>%
+      mutate(n_twonodes = n()) %>%
+      group_by(ilp_nodes1, ilp_nodes2, category) %>%
+      mutate(n_category = n()) %>%
+      filter(n_twonodes != n_category) %>% # Mainly to remove heterodimer when ilp_nodes1/2 are the same, but link different
+      arrange(ilp_nodes1, ilp_nodes2) %>%
+      group_by(ilp_nodes1, ilp_nodes2) %>%
+      group_split() %>%
+      bind_rows(.id = "double_edges_id") %>%
+      mutate(double_edges_id = as.numeric(double_edges_id))
+    
+    triplet_double_edges_regular = double_edges %>%
+      filter(category != "Heterodimer") %>%
+      transmute(i = double_edges_id + max(triplet_edge_heterodimer$i), 
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    
+    triplet_double_edges_heterodimer = double_edges %>%
+      filter(category == "Heterodimer") %>%
+      transmute(i = double_edges_id + max(triplet_edge_heterodimer$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_edge_double_edges = bind_rows(triplet_double_edges_regular, 
+                                          triplet_double_edges_heterodimer)
+    
+    nrow_triplet_double_edges = max(double_edges$double_edges_id)
+  }
+  
   # Generate sparse matrix on left hand side
   triplet_df = rbind(
     triplet_node,
     triplet_edge,
     triplet_isotope,
-    triplet_edge_heterodimer
+    triplet_edge_heterodimer,
+    triplet_edge_double_edges
   )
+
 
   # converts the triplet into matrix
   mat = slam::simple_triplet_matrix(i=triplet_df$i,
@@ -2276,12 +2384,21 @@ Initiate_cplexset = function(CplexSet){
     
     nr <- max(mat$i)
     ## Three parts of constraints:
-    ## 1. For each peak, binary sum of formula <= 1. Each peak chooses 0 or 1 formula from potential formulas for the peak
+    ## 1. For each peak, binary sum of formula = 1. Each peak chooses unknown formula or 1 formula from potential formulas for the peak
     ## 2. For each edge, an edge exists only both formula it connects exists
     ## 3. For isotopic peak, an isotopic formula is given only if the isotope edge is chosen.
     ## 4. For heterodimer edge, an edge exists only when both formula and the linktype connection exist
-    rhs = c(rep(1, max(ilp_rows)), rep(0, nrow(ilp_edges)), rep(0, nrow_triplet_isotope), rep(0, nrow(heterodimer_ilp_edges)))
-    sense <- c(rep("E", max(ilp_rows)), rep("L", nrow(ilp_edges)), rep("E", nrow_triplet_isotope), rep("L", nrow(heterodimer_ilp_edges)))
+    ## 5. For double edges, where two ilp_nodes are connected by more than 1 edge, force to choose at most 1 edge
+    rhs = c(rep(1, max(ilp_rows)), 
+            rep(0, nrow(ilp_edges)), 
+            rep(0, nrow_triplet_isotope), 
+            rep(0, nrow(heterodimer_ilp_edges)),
+            rep(1, nrow_triplet_double_edges))
+    sense <- c(rep("E", max(ilp_rows)), 
+               rep("L", nrow(ilp_edges)),
+               rep("E", nrow_triplet_isotope), 
+               rep("L", nrow(heterodimer_ilp_edges)),
+               rep("L", nrow_triplet_double_edges))
     
     triplet_df = triplet_df %>% arrange(j)
     cnt=as.vector(table(triplet_df$j))
@@ -2852,7 +2969,7 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 
 
 
-## ---------------------- #### 
+## ---------------------- ####  
 ## Deprecated ####
 ## read_library ####
 # read_library = function(library_file){
