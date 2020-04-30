@@ -810,7 +810,7 @@ Initilize_empty_formulaset = function(NodeSet){
 
 ## Match_library_formulaset ####
 Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet, 
-                                    expand = F,
+                                    expand = T,
                                     ppm_tol = 5e-6){
   ## initialize
   seed_library = LibrarySet %>% 
@@ -1149,9 +1149,9 @@ Propagate_formulaset = function(Mset,
 {
   # biotransform_step = 2
   # artifact_step = 3
-  # propagation_ppm_threshold = 2e-6
+  # propagation_ppm_threshold = 5e-6
   # propagation_abs_threshold = 5e-4
-  # record_RT_tol = 0.1
+  # record_RT_tol = 0.15
   # record_ppm_tol = 5e-6
 
   sf = FormulaSet
@@ -1169,11 +1169,12 @@ Propagate_formulaset = function(Mset,
     # Handle artifacts
     sub_step = 0
     while(sub_step < 0.01 * artifact_step){
+      
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df %>%
         distinct(node_id, formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
         filter(steps==(step_count + sub_step)) %>% # This garantee only formulas generated from the step go to next propagation
-        filter(rdbe > -1 & rdbe %% 1 == 0) %>% # filter out formula has ring and double bind less than -1; and it is non radical
+        filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
         filter(category != "Unknown") %>% # filter out unkwown formulas from propagation
         filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
         filter(abs(node_mass[as.character(node_id)] - mass) < pmax(propagation_ppm_threshold * mass, 
@@ -1204,10 +1205,13 @@ Propagate_formulaset = function(Mset,
         }
       }
       
-      # Expansion wihtout isotope formulas
+      
+      
+      # Expansion wihtout isotope formulas and radical
       {
         new_nodes_df_filter = new_nodes_df %>%
-          filter(!grepl("\\[", formula))
+          filter(!grepl("\\[", formula)) %>%
+          filter(rdbe %% 1 == 0)
         
         for(category_select in c("Adduct", "Fragment", "Radical")){
           rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
