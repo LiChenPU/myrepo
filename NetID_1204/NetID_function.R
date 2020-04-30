@@ -1484,85 +1484,112 @@ Score_formulaset = function(FormulaSet,
       mutate(prior_score = prior_formula_score)
   }
   
-  # Score propagation
-  {
-    summary_ls = list()
-    
-    initial = FormulaSet_df %>%
-      filter(steps == 0) %>%
-      mutate(score = prior_score)
-    
-    summary_ls[[length(summary_ls)+1]] = initial
-    
-    nonzero = initial %>%
-      filter(score > 0) %>%
-      dplyr::select(node_id, formula, score) %>%
-      distinct(node_id, formula, .keep_all=T)
-    
-    unique_steps = unique(FormulaSet_df)$steps
-    step = 0
-    floating_error = 1e-8
-    while(any(abs(step - unique_steps) < floating_error)){
-      # artifact step
-      sub_step = step + 0.01
-      sub_nonzero = nonzero 
-      while(any(abs(sub_step - unique_steps) < floating_error)){
-        temp = FormulaSet_df %>%
-          filter(abs(steps - sub_step) < floating_error)
-        
-        temp = temp %>%
-          left_join(sub_nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
-          mutate(score = score + artifact_decay + prior_score)
-        
-        sub_nonzero = temp %>%
-          filter(score > 0) %>%
-          dplyr::select(node_id, formula, score) %>%
-          distinct(node_id, formula, .keep_all=T)
-        
-        summary_ls[[length(summary_ls)+1]] = temp
-        
-        sub_step = sub_step + 0.01
-      }
-      
-      step = step + 1
-      temp = FormulaSet_df %>%
-        filter(abs(steps - step) < floating_error)
-      
-      temp = temp %>%
-        left_join(nonzero, by = c("parent_id"="node_id", "parent_formula" = "formula")) %>%
-        mutate(score = score + bio_decay + prior_score)
-      
-      summary_ls[[length(summary_ls)+1]] = temp
-      
-      nonzero = temp %>% 
-        filter(score > 0) %>%
-        dplyr::select(node_id, formula, score) %>%
-        distinct(node_id, formula, .keep_all=T)
-      
-    }
-    
-    summary = bind_rows(summary_ls) %>%
-      mutate(score = ifelse(is.na(score), prior_score, score)) %>%
-      mutate(score = ifelse(score < 0 & score > -5, 0, score)) %>%
-      dplyr::rename(score_prior_propagation = score)
-  }
-  
-  return(summary)
+  return(FormulaSet_df)
 }
 
 
 ## initiate_ilp_nodes ####
-initiate_ilp_nodes = function(FormulaSet_df){
+initiate_ilp_nodes = function(FormulaSet_df, 
+                              artifact_decay = 1){
+
+  # artifact_decay = 1
+  
   ilp_nodes = FormulaSet_df %>%
-    arrange(-score_prior_propagation) %>%
     mutate(temp_cat = ifelse(category %in% c("Metabolite", "Unknown"), category, "Artifact")) %>%
     distinct(node_id, formula, temp_cat, .keep_all=T) %>%
-    dplyr::select(-temp_cat) %>%
     arrange(node_id) %>%
     mutate(ilp_node_id = 1:nrow(.)) %>%
-    dplyr::select(ilp_node_id, everything()) %>%
+    dplyr::select(ilp_node_id, node_id, temp_cat, formula) %>%
     filter(T)
-  return(ilp_nodes)
+  
+  # Unknowns 
+  {
+    FormulaSet_unknowns = FormulaSet_df %>% 
+      filter(category == "Unknown")
+    ilp_nodes_unknowns = ilp_nodes %>%
+      filter(temp_cat == "Unknown") %>%
+      merge(FormulaSet_unknowns) %>%
+      mutate(score_prior_propagation = prior_score)
+  }
+  
+  # Metabolites
+  {
+    FormulaSet_metabolites = FormulaSet_df %>% 
+      filter(category == "Metabolite")
+    ilp_nodes_metabolites = ilp_nodes %>%
+      filter(temp_cat == "Metabolite") %>%
+      merge(FormulaSet_metabolites) %>%
+      mutate(score_prior_propagation = prior_score) %>%
+      arrange(-score_prior_propagation, steps) %>%
+      distinct(node_id, formula, .keep_all = T)
+  }
+  
+  # Artifact steps 0
+  {
+    FormulaSet_artifacts0 = FormulaSet_df %>% 
+      filter(!category %in% c("Metabolite", "Unknown", "Heterodimer")) %>%
+      filter(steps == 0)
+    ilp_nodes_artifacts0 = ilp_nodes %>%
+      filter(temp_cat == "Artifact") %>%
+      merge(FormulaSet_artifacts0, all.y = T) %>%
+      mutate(score_prior_propagation = prior_score) %>%
+      arrange(-score_prior_propagation, steps) %>%
+      distinct(node_id, formula, .keep_all = T)
+  }
+  
+  ilp_nodes2 = bind_rows(ilp_nodes_unknowns, ilp_nodes_metabolites, ilp_nodes_artifacts0)
+  
+  # Artifacts
+  {
+    
+    FormulaSet_artifacts = FormulaSet_df %>% 
+      # filter(!category %in% c("Metabolite", "Unknown", "Heterodimer"))
+      filter(!category %in% c("Metabolite", "Unknown")) %>%
+      filter(steps != 0)
+    
+    floating_error = 1e-6
+    ilp_nodes_artifacts = ilp_nodes2
+    unique_step = unique(FormulaSet_artifacts$steps)[1]
+    for(unique_step in sort(unique(FormulaSet_artifacts$steps))){
+      temp_ilp_nodes = ilp_nodes_artifacts %>%
+        filter(abs(steps - (unique_step - 0.01)) < floating_error) %>%
+        arrange(-score_prior_propagation, category) %>%
+        dplyr::select(node_id, formula, score_prior_propagation) %>%
+        dplyr::rename(parent_id = node_id, 
+                      parent_formula = formula) %>%
+        distinct(parent_id, parent_formula, .keep_all = T)
+      
+      temp = FormulaSet_artifacts %>%
+        filter(steps == unique_step) %>%
+        merge(temp_ilp_nodes) %>%
+        mutate(score_prior_propagation = case_when(
+          category %in% c("Library_MS2_fragment", "Ring_artifact", "Natural_abundance") ~ 0,
+          score_prior_propagation <= 0 ~ score_prior_propagation + prior_score,  
+          score_prior_propagation < artifact_decay ~ prior_score,
+          score_prior_propagation >= artifact_decay ~ score_prior_propagation + prior_score - artifact_decay
+        )) %>%
+        mutate(temp_cat = "Artifact")
+      
+      ilp_nodes_artifacts = bind_rows(ilp_nodes_artifacts, temp)
+    }
+
+    ilp_nodes_artifacts2 = ilp_nodes_artifacts %>%
+      filter(is.na(ilp_node_id)) %>%
+      dplyr::select(-ilp_node_id) %>%
+      merge(ilp_nodes)
+
+
+  }
+  
+  ilp_nodes_result = bind_rows(ilp_nodes2, ilp_nodes_artifacts2) %>%
+    arrange(node_id, -score_prior_propagation, steps, category) %>%
+    distinct(ilp_node_id, formula, temp_cat, .keep_all = T) %>%
+    # group_by(ilp_node_id) %>%
+    # filter(n()>1)
+    arrange(ilp_node_id)
+
+  
+  return(ilp_nodes_result)
   
 }
 
@@ -2692,7 +2719,7 @@ query_path = function(query_node_id = 6,
                       result_ls, 
                       LibrarySet){
   
-  # query_node_id = 204
+  # query_node_id = 2
   # test1 = result_ls[[503]]
   # test2 = result_ls[[204]]
   temp = result_ls[[query_node_id]]
