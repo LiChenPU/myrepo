@@ -1188,39 +1188,61 @@ Propagate_formulaset = function(Mset,
       print((Sys.time()-timer))
       
       lib_artifact_ls = list()
-      for(category_select in c("Adduct", "Natural_abundance", "Fragment", "Radical")){
-        rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
-        rule_2 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,-1))
+      
+      # Expansion including isotope formulas
+      {
+        ring_artifact = propagate_ring_artifact(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step)
         
-        lib_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = category_select)
-        lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = category_select)
-        
-        lib_artifact_ls[[length(lib_artifact_ls)+1]] = bind_rows(lib_1, lib_2)
+        for(category_select in c("Natural_abundance")){
+          rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
+          rule_2 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,-1))
+          
+          lib_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = category_select)
+          lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = category_select)
+          
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = bind_rows(lib_1, lib_2)
+        }
       }
- 
+      
+      # Expansion wihtout isotope formulas
+      {
+        new_nodes_df_filter = new_nodes_df %>%
+          filter(!grepl("\\[", formula))
+        
+        for(category_select in c("Adduct", "Fragment", "Radical")){
+          rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
+          rule_2 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,-1))
+          
+          lib_1 = expand_library(new_nodes_df_filter, rule_1, direction = 1, category = category_select)
+          lib_2 = expand_library(new_nodes_df_filter, rule_2, direction = -1, category = category_select)
+          
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = bind_rows(lib_1, lib_2)
+          
+        }
+        
+        oligomer = propagate_oligomer(new_nodes_df_filter, sf, 
+                                      EdgeSet_oligomer, NodeSet, current_step)
+        heterodimer = propagate_heterodimer(new_nodes_df_filter, sf, 
+                                            EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold)
+        experimental_MS2_fragment = propagate_experimental_MS2_fragment(new_nodes_df_filter, sf, 
+                                                                        EdgeSet_experiment_MS2_fragment, NodeSet, current_step)
+        library_MS2_fragment = propagate_library_MS2_fragment(new_nodes_df_filter, sf, 
+                                                              EdgeSet_library_MS2_fragment_df, NodeSet, current_step)
+      }
+      
       lib_artifact = bind_rows(lib_artifact_ls) %>%
         filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
-      # lib_adduct = bind_rows(lib_1, lib_2) %>%
-      #   filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
-      #   # mutate(RT = node_RT[as.character(parent_id)]) %>%
-      #   arrange(mass)
+      # 
+      sf_add_mass_filter = bind_rows(oligomer, heterodimer, library_MS2_fragment) %>%
+        mutate(msr_mass = node_mass[as.character(node_id)],
+               mass_dif = abs(msr_mass-mass)) %>%
+        mutate(mass_retain = mass_dif / mass <= record_ppm_tol) %>%
+        filter(mass_retain)
       
-
-      ## sf[[11]] to test if [13]C1C15H30O2 is added
-      ring_artifact = propagate_ring_artifact(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step)
-      ## sf[[302]]
-      oligomer = propagate_oligomer(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, current_step)
-      ## sf[[460]]
-      heterodimer = propagate_heterodimer(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold)
-      ## sf[[436]]
-      experimental_MS2_fragment = propagate_experimental_MS2_fragment(new_nodes_df, sf, EdgeSet_experiment_MS2_fragment, NodeSet, current_step)
-      
-      library_MS2_fragment = propagate_library_MS2_fragment(new_nodes_df, sf, EdgeSet_library_MS2_fragment_df, NodeSet, current_step)
-      
-      sf_add = bind_rows(ring_artifact, oligomer, heterodimer, experimental_MS2_fragment, library_MS2_fragment)
+      sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experimental_MS2_fragment)
       
       sf = match_library(lib_artifact,
                          sf,
@@ -1232,8 +1254,8 @@ Propagate_formulaset = function(Mset,
       for(i in unique(sf_add$node_id)){
         sf[[i]] = bind_rows(sf[[i]], sf_add[sf_add$node_id == i, ])
       }
-
     }
+    
     all_nodes_df = bind_rows(sf)
     new_nodes_df = all_nodes_df %>%
       filter(category == "Metabolite") %>% # only metabolites go to biotransformation, also garantee it is not filtered.
@@ -1270,7 +1292,6 @@ Propagate_formulaset = function(Mset,
                        record_RT_tol=Inf,
                        current_step,
                        NodeSet)
-
   }
   
   return(sf)
@@ -1555,9 +1576,10 @@ initiate_ilp_nodes = function(FormulaSet_df,
         filter(abs(steps - (unique_step - 0.01)) < floating_error) %>%
         arrange(-score_prior_propagation, category) %>%
         dplyr::select(node_id, formula, score_prior_propagation) %>%
+        distinct(node_id, formula, .keep_all = T) %>%
         dplyr::rename(parent_id = node_id, 
-                      parent_formula = formula) %>%
-        distinct(parent_id, parent_formula, .keep_all = T)
+                      parent_formula = formula)
+        
       
       temp = FormulaSet_artifacts %>%
         filter(steps == unique_step) %>%
@@ -1929,7 +1951,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
-                           rt_penalty_artifact_cutoff = 0.1, rt_penalty_artifact_ratio = 5,
+                           rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                            inten_score_isotope = 1, 
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                            MS2_score_experiment_fragment = 0.5){
@@ -2769,14 +2791,10 @@ query_path = function(query_node_id = 6,
         break
       }
       
-      if(result_ilp_node$category %in% c("Metabolite", "Manual", "Adduct", "Fragment", 
+      if(result_ilp_node$category %in% c("Metabolite", "Adduct", "Fragment", 
                                          "Ring_artifact", "Natural_abundance", "Radical",
                                          "Library_MS2_fragment", "Experiment_MS2_fragment")){
-        if(result_ilp_node$direction == 1){
-          temp_sign = "+"
-        } else {
-          temp_sign = "-"
-        }
+        temp_sign = ifelse(result_ilp_node$direction == 1, "+", "-")
         transform = c(temp_sign, result_ilp_node$transform)
       } else if(result_ilp_node$category %in% c("Heterodimer")){
         transform = c("+ Peak", result_ilp_node$transform)
@@ -2793,9 +2811,7 @@ query_path = function(query_node_id = 6,
       
       temp = result_ls[[parent_id]] %>%
         filter(formula == result_ilp_node$parent_formula) 
-      
     }
-    
   }
   
   
