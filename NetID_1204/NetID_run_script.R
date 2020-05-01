@@ -11,7 +11,6 @@ MS2_folder = "MS2"
 MS2_library_file = "./dependent/HMDB_pred_MS2_neg3.rds"
 MS2_library = readRDS(MS2_library_file)
 
-# work_dir = "Lin_Yeast_Neg"
 ion_mode = -1
 mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
 LC_method = "Hilic_25min_QE"
@@ -50,14 +49,14 @@ print(ion_mode)
                   Feature = Feature...35,
                   Background = Background...27) 
   
-  test = Mset$Raw_data %>%
+  raw_data_WL = Mset$Raw_data %>%
     merge(WL, all = T) %>%
     mutate(id = 1:nrow(.),
            yeast = 10^sig,
            yeast2 = 10^sig) %>%
     filter(is.na(Background)) %>%
     dplyr::select(colnames(Mset$Raw_data))
-  Mset[["Raw_data"]] = test
+  Mset[["Raw_data"]] = raw_data_WL
 }
 
 ## Initialise ####
@@ -99,6 +98,7 @@ print(ion_mode)
                                         LibrarySet,
                                         expand = T,
                                         ppm_tol = 5e-6)
+  
   Sys_msr_error = Check_sys_error(NodeSet, FormulaSet, LibrarySet, 
                                   RT_match = T)
   
@@ -117,6 +117,8 @@ print(ion_mode)
                                           expand = T,
                                           ppm_tol = 5e-6)
   }
+  
+  
 }
 
 ## EdgeSet ####
@@ -151,13 +153,10 @@ print(ion_mode)
                                     biotransform_step = 2,
                                     artifact_step = 3,
                                     propagation_ppm_threshold = 5e-6,
-                                    propagation_abs_threshold = 5e-4,
+                                    propagation_abs_threshold = 2e-4,
                                     record_RT_tol = 0.1,
                                     record_ppm_tol = 5e-6)
-
-  all_bind = bind_rows(FormulaSet) %>%
-    # filter(steps != 0) %>%
-    distinct(formula, node_id, .keep_all = T)
+  
 }
 print(Sys.time()-printtime)
 
@@ -177,7 +176,8 @@ print(Sys.time()-printtime)
                                    artifact_decay = -0.5)
   # Initialize
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet_df, artifact_decay = 1) 
-  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet)
+  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet, 
+                                               Exclude = "Biotransform")
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   # Score
@@ -187,7 +187,7 @@ print(Sys.time()-printtime)
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
                                             rule_score_biotransform = 0, rule_score_artifact = 0.5, 
                                             rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
-                                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
+                                            rule_score_fragment = 0.3, rule_score_ring_artifact = 1.5,
                                             rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                                             rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 10, # This is a proxy for LC correlation
                                             inten_score_isotope = 1, 
@@ -204,7 +204,7 @@ save.image(paste0(timestamp,".RData"))
 ## Run_cplex ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
-                                               relative_gap = 1e-2, total_run_time = 6000))
+                                               relative_gap = 1e-3, total_run_time = 1000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
@@ -269,15 +269,6 @@ print(Sys.time()-printtime)
     merge(path_annotation) %>%
     dplyr::select(path, everything()) 
   
-  # Show all duplicate edges are due to Library_MS2_fragment
-  test = ilp_edges %>%
-    filter(ilp_result>0.1) %>%
-    # filter(category != "Library_MS2_fragment") %>%
-    group_by(node1, node2) %>%
-    filter(n()>1) %>%
-    ungroup() %>%
-    group_by(node1, node2, category) %>%
-    filter(n()==1)
   # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
 }
 
@@ -286,9 +277,8 @@ print(Sys.time()-printtime)
   test = ilp_nodes %>% 
     filter(ilp_result > 0.01 | is.na(ilp_result))
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
-    dplyr::select(colnames(WL), path, formula, category, ppm_error, parent_formula, transform, node_id, parent_id, steps)
-    # dplyr::select(colnames(WL), formula, category, parent_formula, node_id, parent_id, steps)
-  
+    dplyr::select(colnames(WL), path, formula, category, ppm_error, parent_formula, transform, node_id, parent_id, steps, temp_cat)
+    
   # write_csv(test2, "WL_neg_NetID.csv", na="")
   
   test3 = test2 %>%
@@ -298,50 +288,30 @@ print(Sys.time()-printtime)
     mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
   
   test3_filter = test3 %>%
-    filter(sig > 5) %>%
+    # filter(sig > 5) %>%
     # filter(category == "Natural_abundance", is.na(Isotope)) %>%
-    filter(category == "Ring_artifact") %>%
+    filter(category != "Metabolite") %>%
     filter(Feature == "Metabolite") %>%
-    filter(!Feature %in% c("Buffer Sensitive", "Fragment_CID")) %>%
+    # filter(!Feature %in% c("Buffer Sensitive", "Fragment_CID")) %>%
     filter(Feature...23 == "Metabolite") %>%
+    filter(category != "Unknown") %>%
     mutate(N_count = sapply(formula, elem_num_query, "N"),
            C_count = sapply(formula, elem_num_query, "C")) %>%
     mutate(CN_match = (N_count == N) & (C_count == C)) %>%
     # filter(!is.na(C)) %>%
     # filter(CN_match) %>%
-    # filter(is.na(CN_match) | !CN_match) %>%
     filter(T)
   
-
   library(janitor)
   test4 = tabyl(test3, Feature)
   crosstable = tabyl(test3, Feature, category, Feature...23)
   crosstable = tabyl(test3, Feature...23, category)
-  crosstable = tabyl(test3, Feature, category)
+  crosstable = tabyl(test3, Feature, temp_cat)
+  crosstable = tabyl(test3 
+                     %>% mutate(Feature2 = ifelse(is.na(Feature)|Feature == "Metabolite", Feature, "Artifact")), 
+                     Feature2, temp_cat)
+  # write_csv(crosstable, "crosstable_nonbio2_1e-4.csv")
   
-  test4 = test3 %>%
-    mutate(category2 = case_when(
-      category == "Unknown" ~ "Unknown", category == "Metabolite" ~ "Metabolite", T ~ "Artifact"
-    )) %>%
-    mutate(Feature2 = case_when(
-      is.na(Feature) ~ "Unannotated", Feature != "Metabolite" ~ "Artifact", T ~ "Metabolite"
-    ))
-  
-  tabyl(test4, category2, Feature2)
-  
-  
-  test5 = test3 %>%
-    filter(Feature == "Metabolite") %>%
-    filter(category == "Metabolite") %>%
-    filter(Formula == formula) %>%
-    mutate(N_count = sapply(formula, elem_num_query, "N"),
-           C_count = sapply(formula, elem_num_query, "C")) %>%
-    mutate(CN_match = (N_count == N) & (C_count == C)) %>%
-    filter(CN_match) %>%
-    filter(T)
-  hist(test5$ppm_error)
-  fitdist_ppm = fitdistrplus::fitdist(test5$ppm_error, "norm")
-  plot(fitdist_ppm)
 }
 
 # Evaluate parameter
@@ -397,96 +367,21 @@ print(Sys.time()-printtime)
   Input_id = 603
   Mset$Data$id[Mset$Data$Input_id == Input_id]
   
-  node_id_selected = 430
+  node_id_selected = 155
   ilp_nodes_selected = ilp_nodes %>%
-    filter(node_id == node_id_selected)
+    filter(node_id %in% node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)%>%
     # filter(ilp_nodes1 %in% c(11486, 11488) | ilp_nodes2 %in% c(11486, 11488)) %>%
     arrange(-cplex_score, category) %>%
     filter(T)
-  
-  edge_id_selected = 2191
-  EdgeSet_selected = EdgeSet %>%
-    filter(edge_id == edge_id_selected)
-  ilp_nodes_edge_related = ilp_nodes %>%
-    filter(node_id %in% c(EdgeSet_selected$node1, EdgeSet_selected$node2)) 
-  
-}
-
-
-# ## PAVE evaluation ####
-{
-  library(readxl)
-  library(janitor)
-  groundtruth = read_xlsx("./4-4-Table S10-Annotation of all peaks detected in S. cerevisiae and E. coli-xi_LC.xlsx",
-                          sheet = "Yeast-neg-truth") %>%
-    arrange(ID...1) %>%
-    # dplyr::select(-c(36:67)) %>%
-    dplyr::select(ID...1,
-                  c(6:7,68:ncol(.)))
-
-  merge_result = ilp_nodes %>%
-    merge(groundtruth, by.x="Input_id", by.y="ID...1")
-    
-
-  merge_result = merge_result %>%
-    mutate(formula_match = formula == Formula...68)
-
-  merge_result_filter = merge_result %>%
-    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
-    filter(formula_match) %>%
-    # filter(!is.na(Formula_validated) | Formula_validated == "Y") %>%
-    filter(!is.na(Formula_validated) | Formula_validated == "Y", Formula_validated != "?") %>%
-    # arrange(-ilp_result) %>%
-    # distinct(node_id, .keep_all=T) %>% 
-    # filter(ilp_result < 0.01) %>% 
-    # filter(!formula_match) %>%
-    dplyr::select(path, everything()) %>%
-    filter(Status_validated == "Adduct", category == "Metabolite")
+  heterodimer_ilp_edges_node_related = heterodimer_ilp_edges %>%
+    filter(node1 == node_id_selected | node2 == node_id_selected | linktype == node_id_selected)%>%
+    arrange(-cplex_score, category) %>%
     filter(T)
   
-  # test = tabyl(merge_result_filter, category, Status_validated)
-  
-  # merge_result_filter2 = merge_result_filter %>%
-  #   filter(category == "Metabolite" | Status_validated == "Metabolite", 
-  #          category != Status_validated) %>%
-  #   filter(T)
 }
 
-
-
-## deprecated ####
-# {
-#   ConnectionSet = list()
-#   
-#   FormulaSet_df = bind_rows(FormulaSet)
-#   library_edge = FormulaSet_df %>%
-#     filter(RT == -1) %>% # parent RT = -1 means it is library
-#     mutate(edge_ID = 1:nrow(.),
-#            edge_category = "library_edge") %>%
-#     dplyr::rename(node1 = parent_ID, 
-#                   node2 = node_id,
-#                   formula1 = parent,
-#                   formula2 = formula) %>%
-#     dplyr::select(edge_ID, node1, node2, formula1, formula2, transform, direction, edge_category) %>%
-#     filter(T)
-#   
-#   data_edge = FormulaSet_df %>%
-#     filter(RT != -1) %>% # parent RT != -1 means it is data edge
-#     mutate(edge_ID = 1:nrow(.),
-#            edge_category = "data_edge") %>%
-#     dplyr::rename(node1 = parent_ID, 
-#                   node2 = node_id,
-#                   formula1 = parent,
-#                   formula2 = formula) %>%
-#     dplyr::select(edge_ID, node1, node2, formula1, formula2, transform, direction, edge_category) %>%
-#     filter(T)
-#   
-#   ConnectionSet[["library_edge"]] = library_edge
-#   ConnectionSet[["data_edge"]] = data_edge
-#   
-# }
 
 ## Merge with ANOVA results ####
 # {
