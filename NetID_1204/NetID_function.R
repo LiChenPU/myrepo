@@ -1045,7 +1045,7 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
       filter(node_mass[node_id] - mass < mass * propagation_ppm_threshold,
              !grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%
       # Need to avoid exponential growth because heterodimer entries grows at n^2 rate
-      filter(!category %in% c("Heterodimer","Unknown")) %>%
+      filter(!category %in% c("Heterodimer","Unknown","Natural_abundance")) %>%
       filter(steps < 0.02 | (steps >= 1  & steps <1.02))
     
     if(nrow(transform) == 0){next}
@@ -1061,7 +1061,9 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
   heterodimer = bind_rows(heterodimer_ls) %>%
     merge(new_nodes_df_heterodimer %>% dplyr::select(-c("formula", "mass", "rdbe")), all.x = T) %>%
     mutate(node_id = node2) %>%
-    dplyr::select(-node2)
+    dplyr::select(-node2) %>%
+    distinct(formula, node_id, transform, parent_formula, parent_id, .keep_all = T)
+  
   
   # for(i in unique(new_nodes_df_heterodimer$node_id)){
   #   sf[[i]] = bind_rows(sf[[i]], new_nodes_df_heterodimer[new_nodes_df_heterodimer$node_id == i, ])
@@ -1149,9 +1151,9 @@ Propagate_formulaset = function(Mset,
 {
   # biotransform_step = 2
   # artifact_step = 3
-  # propagation_ppm_threshold = 5e-6
-  # propagation_abs_threshold = 5e-4
-  # record_RT_tol = 0.15
+  # propagation_ppm_threshold = 3e-6
+  # propagation_abs_threshold = 1e-4
+  # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
 
   sf = FormulaSet
@@ -1244,7 +1246,8 @@ Propagate_formulaset = function(Mset,
         mutate(msr_mass = node_mass[as.character(node_id)],
                mass_dif = abs(msr_mass-mass)) %>%
         mutate(mass_retain = mass_dif / mass <= record_ppm_tol) %>%
-        filter(mass_retain)
+        filter(mass_retain) %>%
+        dplyr::select(-msr_mass, -mass_dif, -mass_retain)
       
       sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experimental_MS2_fragment)
       
@@ -1707,13 +1710,14 @@ score_ilp_nodes = function(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate
 }
 
 ## initiate_ilp_edges ####
-initiate_ilp_edges = function(EdgeSet_all_df, CplexSet){
+initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"){
   
   ilp_nodes = CplexSet$ilp_nodes %>%
     arrange(ilp_node_id) 
   
   EdgeSet_df = EdgeSet_all_df %>%
-    filter(category != "Heterodimer")
+    filter(category != "Heterodimer") %>%
+    filter(!category %in% Exclude)
   
   ilp_nodes_assigned = ilp_nodes %>% filter(category != "Unknown")
   node_id_ilp_node_mapping = split(ilp_nodes_assigned$ilp_node_id, ilp_nodes_assigned$node_id)
@@ -1884,9 +1888,11 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
   ilp_nodes_assigned = ilp_nodes %>% filter(category != "Unknown")
   node_id_ilp_node_mapping = split(ilp_nodes_assigned$ilp_node_id, ilp_nodes_assigned$node_id)
   
-  ilp_nodes_met = ilp_nodes %>% filter(category == "Metabolite") 
-  node_id_ilp_node_mapping_met = split(ilp_nodes_met$ilp_node_id, ilp_nodes_met$node_id)
-  ilp_nodes_nonmet = ilp_nodes %>% filter(!category %in% c("Metabolite","Unknown"))
+  ilp_nodes_nonmet = ilp_nodes %>% 
+    filter(!category %in% c("Metabolite","Unknown")) %>%
+    filter(rdbe %% 1 == 0) %>% # Remove heterodimer which may be radicals
+    filter(!grepl("\\[", formula)) # Remove natural abundance in heterodimer
+    
   node_id_ilp_node_mapping_nonmet = split(ilp_nodes_nonmet$ilp_node_id, ilp_nodes_nonmet$node_id)
   
   ilp_nodes_formula = ilp_nodes %>%
