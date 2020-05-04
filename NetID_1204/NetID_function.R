@@ -719,7 +719,7 @@ expand_library = function(lib, rule, direction, category){
     dplyr::select(formula, mass, rdbe, category, parent_id, parent_formula, transform, direction)
   return(expansion)
 }
-### Match_library ####
+### match_library ####
 match_library = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, NodeSet){
   lib_mass = lib$mass
   length_lib = length(lib_mass)
@@ -734,7 +734,7 @@ match_library = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, N
     while(lib_mass[i_min] < node_mass[i] - mass_tol & i_min < length_lib){
       i_min = i_min + 1
     }
-    # if i_min's position larger than upper threhold, then move up i 
+    # if i_min's position larger than upper threhold, then move up i
     if(lib_mass[i_min] > node_mass[i] + mass_tol){
       i = i+1
       next
@@ -748,15 +748,15 @@ match_library = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, N
     }
     i_max = i_max - 1
     
-    # if there is no overlap of between i_min above lower threhold and i_max below upper threhold 
-    # it means i_min is maximum and i_max is maximum - 1, then break 
+    # if there is no overlap of between i_min above lower threhold and i_max below upper threhold
+    # it means i_min is maximum and i_max is maximum - 1, then break
     if(i_min > i_max){break}
     
     # Otherwise, record
     candidate = lib[i_min:i_max,]
     if(record_RT_tol < 999){
-      candidate = candidate %>%
-        filter(abs(node_RT[i] - node_RT[as.character(parent_id)]) < record_RT_tol) 
+      candidate_filter = abs(node_RT[i] - node_RT[as.character(candidate$parent_id)]) < record_RT_tol
+      candidate = candidate[candidate_filter, ]
       
       if(nrow(candidate) == 0){
         i = i + 1
@@ -766,16 +766,47 @@ match_library = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, N
       # Actually, keeping both propagation direction makes it easier to trace parents
     }
     
-    adding = candidate %>%
-      mutate(node_id = temp_id[i]) %>%
-      mutate(steps = current_step)
-    sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], adding)
+    candidate["node_id"] = temp_id[i]
+    candidate["steps"] = current_step
+    
+    sf[[temp_id[i]]] = bind_rows(sf[[temp_id[i]]], candidate)
     
     i = i+1
   }
   return(sf)
 }
-
+### match_library_slow ####
+match_library_propagation = function(lib, sf, record_ppm_tol, record_RT_tol, current_step, NodeSet){
+  
+  node_mass = sapply(NodeSet, "[[", "mz")
+  node_RT = sapply(NodeSet, "[[", "RT")
+  
+  lib = lib %>%
+    mutate(parent_mz = node_mass[parent_id],
+           parent_RT = node_RT[parent_id])
+  
+  for(i in 1:length(NodeSet)){
+    temp_node_mz = NodeSet[[i]]$mz
+    temp_node_RT = NodeSet[[i]]$RT
+    
+    lib_filter = lib %>%
+      filter(abs(parent_RT - temp_node_RT) < record_RT_tol) %>%
+      filter(abs(mass - temp_node_mz) < pmin(parent_mz, temp_node_mz) * record_ppm_tol)
+    
+    if(nrow(lib_filter) == 0){
+      next
+    }
+    
+    adding = lib_filter %>%
+      dplyr::select(-parent_RT, -parent_mz) %>%
+      mutate(node_id = i) %>%
+      mutate(steps = current_step)
+    
+    sf[[i]] = bind_rows(sf[[i]], adding)
+  }
+  return(sf)
+  
+}
 ## Initialize formula pool ####
 Initilize_empty_formulaset = function(NodeSet){
   # sf_str = data.frame(
@@ -1241,7 +1272,6 @@ Propagate_formulaset = function(Mset,
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
-      # 
       sf_add_mass_filter = bind_rows(oligomer, heterodimer, library_MS2_fragment) %>%
         mutate(msr_mass = node_mass[as.character(node_id)],
                mass_dif = abs(msr_mass-mass)) %>%
@@ -1517,7 +1547,7 @@ Score_formulaset = function(FormulaSet,
 
 
 ## initiate_ilp_nodes ####
-initiate_ilp_nodes = function(FormulaSet_df, 
+initiate_ilp_nodes = function(FormulaSet_df,
                               artifact_decay = 1){
 
   # artifact_decay = 1
@@ -2746,95 +2776,10 @@ Read_cplex_result = function(solution){
   CPLEX_all_x = bind_cols(CPLEX_all_x)
   return(CPLEX_all_x)
 }
-## query_path ####
-query_path = function(query_node_id = 6,
-                      result_ls, 
-                      LibrarySet){
-  
-  # query_node_id = 2
-  # test1 = result_ls[[503]]
-  # test2 = result_ls[[204]]
-  temp = result_ls[[query_node_id]]
-  current_step = max(temp$steps)
-  if(is.null(temp)){
-    trace_ls = NULL
-    id_ls = NULL
-  } else {
-    trace_ls = list()
-    id_ls = numeric()
-    while(nrow(temp) != 0){
-      result_ilp_node = temp %>% 
-        filter(ilp_result > 0.01) %>%
-        arrange(-ilp_result, -cplex_score, -score_prior_propagation, steps, parent_id) %>%
-        slice(1)
-      
-      if(nrow(result_ilp_node)==0){
-        result_ilp_node = temp %>% 
-          filter(steps <= current_step) %>%
-          arrange(-cplex_score, -score_prior_propagation, steps, parent_id) %>%
-          slice(1)
-      }
-      
-      parent_id = result_ilp_node$parent_id
-      if(parent_id %in% id_ls){
-        break
-      }
-      
-      if(result_ilp_node$steps == 0){
-        id_ls[[length(id_ls) + 1]] = parent_id
-        # trace_ls[[length(trace_ls) + 1]] = list(LibrarySet$name[LibrarySet$library_id == parent_id],
-        #                                         LibrarySet$formula[LibrarySet$library_id == parent_id])
-        if(result_ilp_node$transform == ""){
-          trace_ls[[length(trace_ls) + 1]] = c(LibrarySet$name[LibrarySet$library_id == parent_id],
-                                               LibrarySet$formula[LibrarySet$library_id == parent_id])
-        } else{
-          if(result_ilp_node$direction == 1){
-            temp_sign = "+"
-          } else {
-            temp_sign = "-"
-          }
-          trace_ls[[length(trace_ls) + 1]] = c(LibrarySet$name[LibrarySet$library_id == parent_id],
-                                               LibrarySet$formula[LibrarySet$library_id == parent_id],
-                                               temp_sign, result_ilp_node$transform)
-        }
-        
-        break
-      }
-      
-      if(result_ilp_node$category %in% c("Metabolite", "Adduct", "Fragment", 
-                                         "Ring_artifact", "Natural_abundance", "Radical",
-                                         "Library_MS2_fragment", "Experiment_MS2_fragment")){
-        temp_sign = ifelse(result_ilp_node$direction == 1, "+", "-")
-        transform = c(temp_sign, result_ilp_node$transform)
-      } else if(result_ilp_node$category %in% c("Heterodimer")){
-        transform = c("+ Peak", result_ilp_node$transform)
-      } else if(result_ilp_node$category %in% c("Multicharge")){
-        transform = c("/", result_ilp_node$transform)
-      } else if(result_ilp_node$category %in% c("Oligomer")){
-        transform = c("*", result_ilp_node$transform)
-      }
-      
-      trace_ls[[length(trace_ls) + 1]] = c(transform, "->", result_ilp_node$formula)
-      id_ls[[length(id_ls) + 1]] = parent_id
-      
-      current_step = result_ilp_node$steps
-      
-      temp = result_ls[[parent_id]] %>%
-        filter(formula == result_ilp_node$parent_formula) 
-    }
-  }
-  
-  
-  # Output formating
-  {
-    paste_combine = c()
-    for(i in length(trace_ls):1){
-      paste_combine = c(paste_combine, trace_ls[[i]])
-    }
-  }
-  
-  paste(paste_combine, collapse = " ")
-}
+
+# Annotation functions -------- ####
+
+
 # MS2 functions ---------- #####
 ## Read Xi MS2 format file ####
 Add_MS2_nodeset = function(MS2_folder, NodeSet){
@@ -3109,4 +3054,162 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 #   
 #   
 #   
+# }
+## track_annotation ####
+# track_annotation = function(ilp_nodes, ilp_edges){
+#   
+#   ilp_nodes_ls = list()
+#   for(i in 1:nrow(ilp_nodes)){
+#     # print(i)
+#     temp_ilp_node_id = ilp_nodes_ilp$ilp_node_id[i]
+#     
+#     temp_ilp_edge = ilp_edges %>%
+#       filter(ilp_nodes1 == temp_ilp_node_id | ilp_nodes2 == temp_ilp_node_id)
+#     
+#     temp_parent = temp_ilp_edge %>%
+#       filter((ilp_nodes1 == temp_ilp_node_id & direction != 1 )| 
+#                (ilp_nodes2 == temp_ilp_node_id & direction != -1)) %>%
+#       arrange(-ilp_result, -cplex_score)
+#     # temp_parent_high = temp_parent %>% filter(ilp_result > 0.01)
+#     # temp_parent_low = temp_parent %>% filter(ilp_result <= 0.01)
+#     
+#     temp_child = temp_ilp_edge %>%
+#       filter((ilp_nodes1 == temp_ilp_node_id & direction != -1 )| 
+#                (ilp_nodes2 == temp_ilp_node_id & direction != 1)) %>%
+#       arrange(-ilp_result)
+#     # temp_child_high = temp_child %>% filter(ilp_result > 0.01)
+#     # temp_child_low = temp_child %>% filter(ilp_result <= 0.01)
+#     
+#     ilp_nodes_ls[[as.character(temp_ilp_node_id)]] = list(parent = temp_parent,
+#                                                           child = temp_child)
+#   }
+#   return(ilp_nodes_ls)
+# }
+
+## query_path #####
+# query_path = function(query_node_id,
+#                       ilp_nodes_ls, 
+#                       LibrarySet){
+# 
+#   # query_node_id = 87
+#   trace_ls = list()
+#   ilp_id_ls = numeric()
+#   
+#   # For each ilp_nodes, find its best parent
+#   
+#   temp_parent = ilp_nodes_ls[[as.character(query_node_id)]]
+#   
+#     temp_ilp_node = ilp_nodes_ls[[87]] %>%
+#       arrange(-ilp_result) %>%
+#       slice(1)
+#     
+#     temp_ilp_edge = ilp_edges_ilp %>%
+#       filter((ilp_nodes1 == temp_ilp_node$ilp_node_id & direction != 1 )| 
+#              (ilp_nodes2 == temp_ilp_node$ilp_node_id & direction != -1)) %>%
+#       slice(1)
+#     
+#   
+#   
+#   
+#   
+#   
+#   node_id2 = temp_ilp_edge$node1
+#   
+#   temp_ilp_node2 = ilp_nodes_ls[[node_id2]] %>%
+#     arrange(-ilp_result) %>%
+#     filter(ilp_result > 0.01)
+#   
+#   temp_ilp_node = temp_ilp_node2$ilp_node_id
+#   
+#   if(temp_ilp_node2$steps == 0){
+#     stop()
+#   }
+#   
+#   temp_ilp_edge = ilp_edges_ilp %>%
+#     filter((ilp_nodes1 == temp_ilp_node & direction != 1 )| 
+#              (ilp_nodes2 == temp_ilp_node & direction != -1)) %>%
+#     slice(1)
+#   
+#   
+#   temp = result_ls[[87]]
+#   current_step = max(temp$steps)
+#     trace_ls = list()
+#     id_ls = numeric()
+#     while(nrow(temp) != 0){
+#       result_ilp_node = temp %>% 
+#         filter(ilp_result > 0.01) %>%
+#         arrange(-ilp_result, -cplex_score, -score_prior_propagation, steps) %>%
+#         slice(1)
+#       
+#       if(nrow(result_ilp_node)>1){
+#         
+#         
+#       }
+#       
+#       if(nrow(result_ilp_node)==0){
+#         result_ilp_node = temp %>% 
+#           filter(steps <= current_step) %>%
+#           arrange(-cplex_score, -score_prior_propagation, steps, category, parent_id) %>%
+#           slice(1)
+#       }
+#       
+#       parent_id = result_ilp_node$parent_id
+#       if(parent_id %in% id_ls){
+#         break
+#       }
+#       
+#       if(result_ilp_node$steps == 0){
+#         id_ls[[length(id_ls) + 1]] = parent_id
+#         # trace_ls[[length(trace_ls) + 1]] = list(LibrarySet$name[LibrarySet$library_id == parent_id],
+#         #                                         LibrarySet$formula[LibrarySet$library_id == parent_id])
+#         if(result_ilp_node$transform == ""){
+#           trace_ls[[length(trace_ls) + 1]] = c(LibrarySet$name[LibrarySet$library_id == parent_id],
+#                                                LibrarySet$formula[LibrarySet$library_id == parent_id])
+#         } else{
+#           if(result_ilp_node$direction == 1){
+#             temp_sign = "+"
+#           } else {
+#             temp_sign = "-"
+#           }
+#           trace_ls[[length(trace_ls) + 1]] = c(LibrarySet$name[LibrarySet$library_id == parent_id],
+#                                                LibrarySet$formula[LibrarySet$library_id == parent_id],
+#                                                temp_sign, result_ilp_node$transform)
+#         }
+#         
+#         break
+#       }
+#       
+#       if(result_ilp_node$category %in% c("Metabolite", "Adduct", "Fragment", 
+#                                          "Ring_artifact", "Natural_abundance", "Radical",
+#                                          "Library_MS2_fragment", "Experiment_MS2_fragment")){
+#         temp_sign = ifelse(result_ilp_node$direction == 1, "+", "-")
+#         transform = c(temp_sign, result_ilp_node$transform)
+#       } else if(result_ilp_node$category %in% c("Heterodimer")){
+#         transform = c("+ Peak", result_ilp_node$transform)
+#       } else if(result_ilp_node$category %in% c("Multicharge")){
+#         transform = c("/", result_ilp_node$transform)
+#       } else if(result_ilp_node$category %in% c("Oligomer")){
+#         transform = c("*", result_ilp_node$transform)
+#       }
+#       
+#       trace_ls[[length(trace_ls) + 1]] = c(transform, "->", result_ilp_node$formula)
+#       id_ls[[length(id_ls) + 1]] = parent_id
+#       
+#       current_step = result_ilp_node$steps
+#       
+#       temp = result_ls[[parent_id]] %>%
+#         filter(formula == result_ilp_node$parent_formula) 
+#     }
+#   }
+#   
+#   
+#   # Output formating
+#   {
+#     paste_combine = c()
+#     for(i in length(trace_ls):1){
+#       paste_combine = c(paste_combine, trace_ls[[i]])
+#     }
+#   }
+#   
+#   paste(paste_combine, collapse = " ")
 # }
