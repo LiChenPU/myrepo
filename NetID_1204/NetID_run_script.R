@@ -6,14 +6,15 @@ printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 source("NetID_function.R")
 
-work_dir = "Xi_new_neg"
+work_dir = "Mcap"
 MS2_folder = "MS2"
 MS2_library_file = "./dependent/HMDB_pred_MS2_neg3.rds"
 MS2_library = readRDS(MS2_library_file)
 
-ion_mode = -1
+ion_mode = 1
 mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
-LC_method = "Hilic_25min_QE"
+# LC_method = "Hilic_25min_QE"
+LC_method = "Hilic_Rutgers_QEPlus"
 Empirical_rules_file = "./dependent/Empirical_rules.csv"
 print(work_dir)
 print(ion_mode)
@@ -41,22 +42,22 @@ print(ion_mode)
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
   
-  filename_wl = "Lu-Table-S4-final.xlsx"
-  WL = readxl::read_xlsx(filename_wl) %>%
-    dplyr::rename(medRt = rt,
-                  medMz = mz) %>%
-    dplyr::rename(Formula = Formula...34,
-                  Feature = Feature...35,
-                  Background = Background...27) 
-  
-  raw_data_WL = Mset$Raw_data %>%
-    merge(WL, all = T) %>%
-    mutate(id = 1:nrow(.),
-           yeast = 10^sig,
-           yeast2 = 10^sig) %>%
-    filter(is.na(Background)) %>%
-    dplyr::select(colnames(Mset$Raw_data))
-  Mset[["Raw_data"]] = raw_data_WL
+  # filename_wl = "Lu-Table-S4-final.xlsx"
+  # WL = readxl::read_xlsx(filename_wl) %>%
+  #   dplyr::rename(medRt = rt,
+  #                 medMz = mz) %>%
+  #   dplyr::rename(Formula = Formula...34,
+  #                 Feature = Feature...35,
+  #                 Background = Background...27) 
+  # 
+  # raw_data_WL = Mset$Raw_data %>%
+  #   merge(WL, all = T) %>%
+  #   mutate(id = 1:nrow(.),
+  #          yeast = 10^sig,
+  #          yeast2 = 10^sig) %>%
+  #   filter(is.na(Background)) %>%
+  #   dplyr::select(colnames(Mset$Raw_data))
+  # Mset[["Raw_data"]] = raw_data_WL
 }
 
 ## Initialise ####
@@ -72,7 +73,7 @@ print(ion_mode)
                                 mz_tol=1/10^6, 
                                 rt_tol=0.1,
                                 inten_cutoff=0e4,
-                                high_blank_cutoff = 2,
+                                high_blank_cutoff = 0,
                                 first_sample_col_num = 15)
   
   print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
@@ -100,7 +101,7 @@ print(ion_mode)
                                         ppm_tol = 5e-6)
   
   Sys_msr_error = Check_sys_error(NodeSet, FormulaSet, LibrarySet, 
-                                  RT_match = T)
+                                  RT_match = F)
   
   mass_adjustment = abs(Sys_msr_error$ppm_adjust + Sys_msr_error$abs_adjust/250*1e6) > 0.2
   # mass_adjustment = Sys_msr_error$fitdistData$estimate["mean"] > 10*Sys_msr_error$fitdistData$sd["mean"]
@@ -117,7 +118,6 @@ print(ion_mode)
                                           expand = T,
                                           ppm_tol = 5e-6)
   }
-  
   
 }
 
@@ -147,6 +147,7 @@ print(ion_mode)
 
 ## Candidate formula pool
 {
+  
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
@@ -154,10 +155,14 @@ print(ion_mode)
                                     artifact_step = 3,
                                     propagation_ppm_threshold = 5e-6,
                                     propagation_abs_threshold = 2e-4,
-                                    record_RT_tol = 0.1,
+                                    record_RT_tol = 0.15,
                                     record_ppm_tol = 5e-6)
   
+  all_formulas = bind_rows(FormulaSet) %>%
+    distinct(node_id, formula, category, .keep_all = T) 
+  
 }
+
 print(Sys.time()-printtime)
 
 ## CplexSet & Scoring ####
@@ -177,7 +182,7 @@ print(Sys.time()-printtime)
   # Initialize
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet_df, artifact_decay = 1) 
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet, 
-                                               Exclude = "Biotransform")
+                                               Exclude = "")
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
   
   # Score
@@ -204,7 +209,7 @@ save.image(paste0(timestamp,".RData"))
 ## Run_cplex ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
-                                               relative_gap = 1e-3, total_run_time = 1000))
+                                               relative_gap = 1e-4, total_run_time = 1500))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
@@ -238,38 +243,6 @@ print(Sys.time()-printtime)
     filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
     # filter(grepl("Thiamine", path))
     filter(T)
-}
-
-## Show path ####
-{
-  
-  ilp_nodes_merge = ilp_nodes %>%
-    dplyr::select(node_id, formula, temp_cat, ilp_node_id, ilp_result, score_prior_propagation, cplex_score)
-  
-  result = FormulaSet_df %>%
-    mutate(temp_cat = case_when(
-      category == "Metabolite" ~ "Metabolite", 
-      category == "Unknown" ~ "Unknown",
-      T ~ "Artifact")) %>%
-    merge(ilp_nodes_merge, all.x = T) %>%
-    split(.$node_id)
-  
-  result_ls = vector("list", length(NodeSet))
-  for(i in 1:length(NodeSet)){
-    if(!is.null(result[[as.character(i)]])){
-      result_ls[[i]] = result[[as.character(i)]]
-    } 
-  }
-  
-  node_path = sapply(unique(ilp_nodes$node_id), query_path, result_ls, LibrarySet)
-  path_annotation = data.frame(node_id = unique(ilp_nodes$node_id),
-                               path = node_path)
-
-  ilp_nodes = ilp_nodes %>%
-    merge(path_annotation) %>%
-    dplyr::select(path, everything()) 
-  
-  # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
 }
 
 ## View Results ####
@@ -314,6 +287,99 @@ print(Sys.time()-printtime)
   
 }
 
+# Path annotation
+{
+  # core_met annotation 
+  # Does optimization result impact ranking? 
+  # No, it does not. Optimization selects different formulas, the ranking selects structure.
+  
+  core_annotation = core_annotate(ilp_nodes, FormulaSet_df, LibrarySet)
+  core_annotation_unique = core_annotate_unique(core_annotation)
+  g_met = initiate_g_met(ilp_nodes, ilp_edges)
+  
+  met_dist_mat = initiate_met_dist_mat(g_met, ilp_nodes, core_annotation_unique)
+  
+  g_nonmet = initiate_g_nonmet(ilp_nodes, ilp_edges, heterodimer_ilp_edges)
+  
+  nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, ilp_nodes, core_annotation_unique)
+  
+  path_annotation = rep("", nrow(ilp_nodes))
+  
+  
+  
+  core_annotation_nonmet = as_data_frame(g_nonmet, "vertices") %>%
+    filter(category != "Unknown") %>%
+    filter(steps %% 1 == 0) %>%
+    mutate(core_annotate = paste("Peak", node_id, formula)) %>%
+    dplyr::rename(ilp_node_id = name) %>%
+    mutate(ilp_node_id = as.integer(ilp_node_id))
+  
+  ilp_edges_annotate_met = as_data_frame(g_met)
+  ilp_edges_annotate_nonmet = as_data_frame(g_nonmet)
+  # options(warn = 2)
+  tictoc::tic()
+  for(i in 1:nrow(ilp_nodes)){
+    print(i)
+    # if(i == 1000)break
+    if(ilp_nodes$temp_cat[i] == "Artifact"){
+      
+      
+      path_annotation[i] = track_annotation_nonmet(i, ilp_edges_annotate = ilp_edges_annotate_nonmet,
+                                                   g_nonmet, graph_path_mode = "out",
+                                            nonmet_dist_mat, core_annotation_nonmet)
+    } else if(ilp_nodes$temp_cat[i] == "Metabolite"){
+      
+      path_annotation[i] = track_annotation_met(i, ilp_edges_annotate = ilp_edges_annotate_met,
+                                                g_met, graph_path_mode = "all",
+                                                met_dist_mat, core_annotation_unique)
+    } else {
+      path_annotation[i] = "Unknown"
+    }
+  }
+  tictoc::toc()
+  
+  i=2
+  test = ilp_nodes %>%
+    mutate(path = path_annotation) %>%
+    # filter(path == "No edge connections.") %>%
+    filter(ilp_result > 0.5) %>%
+    # filter(category == "Metabolite") %>%
+    # filter(steps != 0) %>%
+    filter(T)
+  test2 = FormulaSet_df %>%
+    filter(node_id == 135)
+  
+  test_edge = ilp_edges %>%
+    filter(node1 == 14, node2 == 126)
+}
+
+
+
+print("total run time")
+save.image()
+print(Sys.time()-printtime)
+
+## Query specific nodes or edges ####
+{
+  Input_id = 603
+  Mset$Data$id[Mset$Data$Input_id == Input_id]
+  
+  node_id_selected = 996
+  ilp_nodes_selected = ilp_nodes %>%
+    filter(node_id %in% node_id_selected)
+  ilp_edges_node_related = ilp_edges %>%
+    filter(node1 == node_id_selected | node2 == node_id_selected)%>%
+    # filter(ilp_nodes1 %in% c(11486, 11488) | ilp_nodes2 %in% c(11486, 11488)) %>%
+    arrange(-cplex_score, category) %>%
+    filter(T)
+  heterodimer_ilp_edges_node_related = heterodimer_ilp_edges %>%
+    filter(node1 == node_id_selected | node2 == node_id_selected | linktype == node_id_selected)%>%
+    arrange(-cplex_score, category) %>%
+    filter(T)
+  
+}
+
+
 # Evaluate parameter
 {
   # How RT differ between connected peaks
@@ -357,32 +423,6 @@ print(Sys.time()-printtime)
   print(fitdist_mz_correct)
   
 }
-
-print("total run time")
-save.image()
-print(Sys.time()-printtime)
-
-## Query specific nodes or edges ####
-{
-  Input_id = 603
-  Mset$Data$id[Mset$Data$Input_id == Input_id]
-  
-  node_id_selected = 155
-  ilp_nodes_selected = ilp_nodes %>%
-    filter(node_id %in% node_id_selected)
-  ilp_edges_node_related = ilp_edges %>%
-    filter(node1 == node_id_selected | node2 == node_id_selected)%>%
-    # filter(ilp_nodes1 %in% c(11486, 11488) | ilp_nodes2 %in% c(11486, 11488)) %>%
-    arrange(-cplex_score, category) %>%
-    filter(T)
-  heterodimer_ilp_edges_node_related = heterodimer_ilp_edges %>%
-    filter(node1 == node_id_selected | node2 == node_id_selected | linktype == node_id_selected)%>%
-    arrange(-cplex_score, category) %>%
-    filter(T)
-  
-}
-
-
 ## Merge with ANOVA results ####
 # {
 #   temp = ilp_nodes %>%
@@ -398,3 +438,38 @@ print(Sys.time()-printtime)
 #   # save.image()
 # }
 
+# Deprecated ####
+## Show path ####
+# {
+#   
+#   ilp_nodes_merge = ilp_nodes %>%
+#     dplyr::select(node_id, formula, temp_cat, ilp_node_id, ilp_result, score_prior_propagation, cplex_score)
+#   
+#   result = FormulaSet_df %>%
+#     mutate(temp_cat = case_when(
+#       category == "Metabolite" ~ "Metabolite", 
+#       category == "Unknown" ~ "Unknown",
+#       T ~ "Artifact")) %>%
+#     merge(ilp_nodes_merge, all.x = T) %>%
+#     filter(node_id == 5506)
+#   # split(.$node_id)
+#   
+#   test = result[[5506]]
+#   
+#   result_ls = vector("list", length(NodeSet))
+#   for(i in 1:length(NodeSet)){
+#     if(!is.null(result[[as.character(i)]])){
+#       result_ls[[i]] = result[[as.character(i)]]
+#     } 
+#   }
+#   
+#   node_path = sapply(unique(ilp_nodes$node_id), query_path, result_ls, LibrarySet)
+#   path_annotation = data.frame(node_id = unique(ilp_nodes$node_id),
+#                                path = node_path)
+#   
+#   ilp_nodes = ilp_nodes %>%
+#     merge(path_annotation) %>%
+#     dplyr::select(path, everything()) 
+#   
+#   # save(ilp_nodes, ilp_edges, heterodimer_ilp_edges, result_ls, file="network.RData")
+# }

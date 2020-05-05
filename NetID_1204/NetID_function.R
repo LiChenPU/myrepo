@@ -2778,8 +2778,350 @@ Read_cplex_result = function(solution){
 }
 
 # Annotation functions -------- ####
+## core_annotate ####
+core_annotate = function(ilp_nodes, FormulaSet_df, LibrarySet){
+  # Make annotation to core peaks (where steps == 0)
+  
+  core_ranks = FormulaSet_df %>%
+    # filter(category == "Metabolite") %>%
+    filter(steps == 0) %>%
+    merge(LibrarySet %>%
+            dplyr::select(library_id, name, note, origin, SMILES, status) %>% 
+            dplyr::rename(parent_id = library_id)) %>%
+    mutate(score_source = case_when(
+      origin == "Manual_library" ~ 0.5,
+      origin == "Library_known" ~ 0.5,
+      status == "quantified" ~ 0.6,
+      status == "detected" ~ 0.3,
+      status == "expected" ~ 0,
+      status == "predicted" ~ -0.5
+    )) %>% 
+    mutate(score_source = ifelse(transform == "", score_source, score_source-0.7)) %>%
+    mutate(rank_score = score_source + prior_score - database_prior) %>%
+    arrange(-rank_score) %>% 
+    mutate(core_annotate = case_when(
+      transform == "" ~ paste(name, parent_formula),
+      direction == 1 ~ paste(name, parent_formula, "+", transform),
+      direction == -1 ~ paste(name, parent_formula, "-", transform)
+    )) %>%
+    mutate(temp_cat = case_when(
+      category == "Unknown" ~ "Unknown",
+      category == "Metabolite" ~ "Metabolite", 
+      T ~ "Artifact"
+    )) %>%
+    inner_join(ilp_nodes %>%
+                 dplyr::select(node_id, formula, category, ilp_node_id))
+  
+  return(core_ranks)
+}
+## core_annotate_unique ####
+core_annotate_unique = function(core_annotation){
+  core_annotation_filter = core_annotation %>%
+    distinct(node_id, formula, category, .keep_all = T) %>%
+    dplyr::select(node_id, rank_score)
+  core_annotation_best = core_annotation %>%
+    semi_join(core_annotation_filter)
+  core_annotation_unique = core_annotation_best %>%
+    distinct(node_id, formula, category, .keep_all = T)
+}
+
+## initiate_g_met ####
+initiate_g_met = function(ilp_nodes, ilp_edges){
+  ilp_nodes_met = ilp_nodes %>%
+    filter(temp_cat == "Metabolite") %>%
+    arrange(-ilp_result)
+  ilp_edges_met = ilp_edges %>%
+    filter(category == "Biotransform") %>%
+    dplyr::select(ilp_nodes1, ilp_nodes2, everything())
+  
+  g_met = graph_from_data_frame(ilp_edges_met, 
+                                directed = T, 
+                                vertices = ilp_nodes_met)
+  
+}
+
+## initiate_g_nonmet ####
+initiate_g_nonmet = function(ilp_nodes, ilp_edges, heterodimer_ilp_edges){
+  
+  ilp_nodes = ilp_nodes %>%
+    arrange(-ilp_result)
+  
+  ilp_edges_merge = merge(ilp_edges, heterodimer_ilp_edges, all = T) 
+  
+  ilp_edges_nonmet = ilp_edges_merge %>%
+    filter(category != "Biotransform") %>%
+    dplyr::select(ilp_nodes1, ilp_nodes2, everything())
+  
+  ilp_edges_nonmet_reorder1 = ilp_edges_nonmet %>%
+    filter(direction %in% c(0, 1)) %>%
+    mutate(direction = 1) %>%
+    dplyr::rename(from = ilp_nodes1, to = ilp_nodes2)
+  
+  ilp_edges_nonmet_reorder2 = ilp_edges_nonmet %>%
+    filter(direction %in% c(0, -1)) %>%
+    mutate(direction = -1) %>%
+    dplyr::rename(from = ilp_nodes2, to = ilp_nodes1)
+  
+  ilp_edges_nonmet_directed = bind_rows(ilp_edges_nonmet_reorder1, ilp_edges_nonmet_reorder2)
+    
+  ilp_edges_weights = ilp_edges_nonmet_directed %>%
+    mutate(edge_weight = 2 - ilp_result - 0.1*cplex_score) %>%
+    mutate(edge_weight = ifelse(category == "Heterodimer", edge_weight + 0.5, edge_weight)) %>%
+    arrange(edge_weight)
+  
+  g_nonmet = graph_from_data_frame(ilp_edges_weights, 
+                                directed = T, 
+                                vertices = ilp_nodes)
+  
+  return(g_nonmet)
+}
+
+## initiate_met_dist_mat ####
+initiate_met_dist_mat = function(g_met, ilp_nodes, core_annotation_unique){
+  
+  ilp_nodes_met = ilp_nodes %>%
+    filter(temp_cat == "Metabolite") %>%
+    arrange(-ilp_result)
+
+  met_annotation_unique = core_annotation_unique %>%
+    filter(category == "Metabolite") 
+  # 2273 core_met * 15342 ilp_metabolites means 267 Mb ~ 35MB
+  core_met_names = met_annotation_unique %>% pull(ilp_node_id) %>% as.character()
+  
+  # Keep order of from and to but treated as undirected graph
+  distMatrix <- shortest.paths(g_met, 
+                               v=core_met_names,
+                               to=V(g_met),
+                               mode = "all") 
+  
+  distMatrix[distMatrix==0] = Inf # So that shortest distance prevent finding itself
+  
+  return(distMatrix)
+}
+
+## initiate_nonmet_dist_mat ####
+initiate_nonmet_dist_mat = function(g_nonmet, ilp_nodes, core_annotation_unique){
+  
+  ilp_nodes_nonmet = ilp_nodes %>%
+    filter(!category %in% c("Metabolite", "Unknown")) %>%
+    arrange(-ilp_result)
+  target_names = ilp_nodes_nonmet %>% pull(ilp_node_id) %>% as.character()
+  
+  core_names = ilp_nodes %>%
+    filter(category != "Unknown") %>%
+    filter(steps %% 1 == 0) %>% 
+    pull(ilp_node_id) %>% as.character()
+  
+  g_edges = as_data_frame(g_nonmet, "edges") 
+  
+  # core_names = "61508"
+  # target_names = "28"
+  
+  distMatrix <- shortest.paths(g_nonmet, 
+                               v=core_names,
+                               to=target_names, 
+                               weights = g_edges$edge_weight,
+                               mode = c("out"))
+  distMatrix[distMatrix==0] = Inf 
+  
+  # An idea of compression 
+  # Calculate sparse matrix on the run (Compression sparse column/row format)
+  # Make sure each column can be extracted conviniently 
+  
+  return(distMatrix)
+  
+}
+
+## track_annotation_met ####  
+track_annotation_met = function(query_ilp_id, 
+                                ilp_edges_annotate,
+                                g_annotation = g_met, 
+                                graph_path_mode = "all", 
+                                dist_mat = met_dist_mat, 
+                                core_annotation_unique){
+  
+  # g_annotation = g_met
+  # dist_mat = met_dist_mat
+  # query_ilp_id = 173
+  # graph_path_mode = "all"
+  
+  core_ilp_id = as.integer(row.names(dist_mat))
+  
+  if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
+    return("Not existed in distance matrix")
+  }
+  
+  query_distMatrix = dist_mat[, as.character(query_ilp_id)]
+  query_distMatrix_min = min(query_distMatrix)
+  
+  if(is.infinite(query_distMatrix_min)){
+    return("No edge connections.")
+  }
+  
+  if(query_ilp_id %in% core_ilp_id){
+    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
+    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
+  } else{
+    shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+    parent_selected = names(shortest_ilp_nodes)[1]
+    paths_connect_ij_nodes = shortest_paths(g_annotation, 
+                                            from = parent_selected, 
+                                            to = as.character(query_ilp_id), 
+                                            mode = graph_path_mode, 
+                                            output = "vpath")
+    
+    
+    ilp_node_path = paths_connect_ij_nodes[[1]] %>% unlist() %>% names() %>% as.numeric()
+    
+    temp_core = core_annotation_unique$core_annotate[core_annotation_unique$ilp_node_id == ilp_node_path[1]]
+    
+    transform_path = c()
+    for(i in 1:(length(ilp_node_path)-1)){
+      temp_ilp_edge_filter = ilp_edges_annotate$from == ilp_node_path[i] &
+        ilp_edges_annotate$to == ilp_node_path[i+1]
+      temp_ilp_edge = ilp_edges_annotate[temp_ilp_edge_filter,]
+      
+      if(dim(temp_ilp_edge)[1] == 0){
+        temp_ilp_edge_filter = ilp_edges_annotate$to == ilp_node_path[i] &
+          ilp_edges_annotate$from == ilp_node_path[i+1]
+        temp_ilp_edge = ilp_edges_annotate[temp_ilp_edge_filter,]
+        temp_ilp_edge$direction = -1
+      }
+      
+      temp_sign = ifelse(temp_ilp_edge$direction != -1, "+", "-")
+      temp_linktype = temp_ilp_edge$linktype
+      temp_formula = ifelse(temp_ilp_edge$direction != -1, temp_ilp_edge$formula2, temp_ilp_edge$formula1)
+      
+      transform_path = paste(transform_path, temp_sign, temp_linktype, "->", temp_formula)
+      
+    }
+    temp_annotation = paste0(temp_core, transform_path, collapse = "")
+  }
+  
+  return(temp_annotation)
+}
 
 
+## track_annotation_nonmet ####  
+track_annotation_nonmet = function(query_ilp_id, 
+                                   ilp_edges_annotate,
+                                g_annotation = g_nonmet, 
+                                graph_path_mode = "out", 
+                                dist_mat = nonmet_dist_mat, 
+                                core_annotation_unique){
+  
+  # g_annotation = g_nonmet
+  # graph_path_mode = "out"
+  # dist_mat = nonmet_dist_mat
+  # core_annotation_unique = core_annotation_nonmet
+  # query_ilp_id = 33
+  
+  core_ilp_id = as.integer(row.names(dist_mat))
+  
+  if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
+    return("Not existed in distance matrix")
+  }
+  
+  query_distMatrix = dist_mat[, as.character(query_ilp_id)]
+  query_distMatrix_min = min(query_distMatrix)
+  
+  if(is.infinite(query_distMatrix_min)){
+    return("No edge connections.")
+  }
+  
+  if(query_ilp_id %in% core_ilp_id){
+    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
+    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
+  } else {
+    shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+    parent_selected = names(shortest_ilp_nodes)[1]
+    paths_connect_ij_nodes = shortest_paths(g_annotation, 
+                                            from = parent_selected, 
+                                            to = as.character(query_ilp_id), 
+                                            mode = graph_path_mode, 
+                                            output = "vpath")
+    
+    
+    ilp_node_path = paths_connect_ij_nodes[[1]] %>% unlist() %>% names() %>% as.numeric()
+    
+    temp_core = core_annotation_unique$core_annotate[core_annotation_unique$ilp_node_id == ilp_node_path[1]]
+    
+    transform_path = c()
+    for(i in 1:(length(ilp_node_path)-1)){
+      temp_ilp_edge_filter = ilp_edges_annotate$from == ilp_node_path[i] &
+        ilp_edges_annotate$to == ilp_node_path[i+1]
+      temp_ilp_edge = ilp_edges_annotate[temp_ilp_edge_filter,]
+      
+      if(dim(temp_ilp_edge)[1] == 0){
+        temp_ilp_edge_filter = ilp_edges_annotate$to == ilp_node_path[i] &
+          ilp_edges_annotate$from == ilp_node_path[i+1]
+        temp_ilp_edge = ilp_edges_annotate[temp_ilp_edge_filter,]
+        temp_ilp_edge$direction = -1
+      }
+      
+      temp_sign = case_when(
+        temp_ilp_edge$direction[1] != -1 & temp_ilp_edge$category[1] == "Oligomer" ~ "*",
+        temp_ilp_edge$direction[1] == -1 & temp_ilp_edge$category[1] == "Oligomer" ~ "/",
+        temp_ilp_edge$direction[1] != -1 & temp_ilp_edge$category[1] == "Heterodimer" ~ "+ Peak",
+        temp_ilp_edge$direction[1] != -1 ~ "+",
+        temp_ilp_edge$direction[1] == -1 ~ "-"
+      )
+      
+      temp_linktype = temp_ilp_edge$linktype[1]
+      temp_formula = ifelse(temp_ilp_edge$direction[1] != -1, temp_ilp_edge$formula2, temp_ilp_edge$formula1)
+      
+      transform_path = paste(transform_path, temp_sign, temp_linktype, "->", temp_formula)
+    }
+    temp_annotation = paste0(temp_core, transform_path, collapse = "")
+  }
+  
+  return(temp_annotation)
+}
+
+
+## Network annotation ####
+empty_function = function(){
+  {
+    # Given a query id (node_id), find relevant ilp_id, distMatrix and closest nodes
+    query_id = 996
+    
+    query_ilp_id = ilp_nodes_met %>% 
+      filter(node_id==query_id) %>%
+      pull(1)
+    
+    query_distMatrix = distMatrix[, query_ilp_id]
+    
+    if(is.null(dim(query_distMatrix))){
+      shortest_ilp_nodes = list(which(query_distMatrix == min(query_distMatrix)))
+    } else {
+      shortest_ilp_nodes = apply(query_distMatrix, 2, function(x){
+        which(x == min(x, na.rm=T))
+      })
+    }
+  }
+  
+  # path
+  # Given a pair of parent and query ilp_id, generate a network
+  {
+    parent_names = names(shortest_ilp_nodes[[1]])
+    
+    paths_connect_ij_nodes = lapply(parent_names, function(x){
+      temp = shortest_paths(g_met, from = x, to = query_ilp_id[1], mode = "all")
+      unlist(temp$vpath)
+    })
+    paths_rownum = unique(as.numeric(unlist(paths_connect_ij_nodes)))
+    
+    ilp_nodes_met_selected = ilp_nodes_met[paths_rownum,]
+    
+    ilp_id_selected = ilp_nodes_met$name[paths_rownum]
+    ilp_edges_met_selected = ilp_edges_met %>%
+      filter(from %in% ilp_id_selected, to %in% ilp_id_selected)
+    
+    g_met_selected = graph_from_data_frame(ilp_edges_met_selected, directed = F)
+    
+    plot.igraph(g_met_selected)
+  }
+}
 # MS2 functions ---------- #####
 ## Read Xi MS2 format file ####
 Add_MS2_nodeset = function(MS2_folder, NodeSet){
