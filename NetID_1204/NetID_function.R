@@ -19,6 +19,7 @@
   library(readxl)
   library(stringr)
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  options(scipen=999) # Turn off scientific expression
 }
 
 # Fucntions ####
@@ -892,10 +893,13 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
     lib_adduct = bind_rows(lib_adduct, lib_adduct_1, lib_adduct_2)
   }
 
-  initial_lib = bind_rows(lib_met, lib_adduct, lib_manual) %>%
-    # mutate(RT = -1) %>%
-    # filter(grepl("(?<!H)-.", formula, perl=T))
-    filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured, it will get filtered
+  initial_lib1 = bind_rows(lib_adduct, lib_manual) %>%
+    filter((!grepl("-|NA", formula)) | grepl("H-(1|2)", formula)) 
+  
+  initial_lib2 = bind_rows(lib_met) %>%
+    filter(!grepl("-|NA", formula)) 
+  
+  initial_lib = bind_rows(initial_lib1, initial_lib2) %>%
     arrange(mass)
   
   sf = FormulaSet
@@ -1268,7 +1272,7 @@ Propagate_formulaset = function(Mset,
       }
       
       lib_artifact = bind_rows(lib_artifact_ls) %>%
-        filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
+        filter((!grepl("-|NA", formula)) | grepl("H-(1|2)", formula)) %>% # in case a Rb1H-1 is measured
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
@@ -1553,11 +1557,11 @@ initiate_ilp_nodes = function(FormulaSet_df,
   # artifact_decay = 1
   
   ilp_nodes = FormulaSet_df %>%
-    mutate(temp_cat = ifelse(category %in% c("Metabolite", "Unknown"), category, "Artifact")) %>%
-    distinct(node_id, formula, temp_cat, .keep_all=T) %>%
+    mutate(class = ifelse(category %in% c("Metabolite", "Unknown"), category, "Artifact")) %>%
+    distinct(node_id, formula, class, .keep_all=T) %>%
     arrange(node_id) %>%
     mutate(ilp_node_id = 1:nrow(.)) %>%
-    dplyr::select(ilp_node_id, node_id, temp_cat, formula) %>%
+    dplyr::select(ilp_node_id, node_id, class, formula) %>%
     filter(T)
   
   # Unknowns 
@@ -1565,7 +1569,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
     FormulaSet_unknowns = FormulaSet_df %>% 
       filter(category == "Unknown")
     ilp_nodes_unknowns = ilp_nodes %>%
-      filter(temp_cat == "Unknown") %>%
+      filter(class == "Unknown") %>%
       merge(FormulaSet_unknowns) %>%
       mutate(score_prior_propagation = prior_score)
   }
@@ -1575,7 +1579,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
     FormulaSet_metabolites = FormulaSet_df %>% 
       filter(category == "Metabolite")
     ilp_nodes_metabolites = ilp_nodes %>%
-      filter(temp_cat == "Metabolite") %>%
+      filter(class == "Metabolite") %>%
       merge(FormulaSet_metabolites) %>%
       mutate(score_prior_propagation = prior_score) %>%
       arrange(-score_prior_propagation, steps) %>%
@@ -1588,7 +1592,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
       filter(!category %in% c("Metabolite", "Unknown", "Heterodimer")) %>%
       filter(steps == 0)
     ilp_nodes_artifacts0 = ilp_nodes %>%
-      filter(temp_cat == "Artifact") %>%
+      filter(class == "Artifact") %>%
       merge(FormulaSet_artifacts0, all.y = T) %>%
       mutate(score_prior_propagation = prior_score) %>%
       arrange(-score_prior_propagation, steps) %>%
@@ -1627,7 +1631,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
           score_prior_propagation < artifact_decay ~ prior_score,
           score_prior_propagation >= artifact_decay ~ score_prior_propagation + prior_score - artifact_decay
         )) %>%
-        mutate(temp_cat = "Artifact")
+        mutate(class = "Artifact")
       
       ilp_nodes_artifacts = bind_rows(ilp_nodes_artifacts, temp)
     }
@@ -1642,7 +1646,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
   
   ilp_nodes_result = bind_rows(ilp_nodes2, ilp_nodes_artifacts2) %>%
     arrange(node_id, -score_prior_propagation, steps, category) %>%
-    distinct(ilp_node_id, formula, temp_cat, .keep_all = T) %>%
+    distinct(ilp_node_id, formula, class, .keep_all = T) %>%
     # group_by(ilp_node_id) %>%
     # filter(n()>1)
     arrange(ilp_node_id)
@@ -1987,9 +1991,10 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all_df, CplexSet, NodeSet){
 
 ## score_ilp_edges ####
 score_ilp_edges = function(CplexSet, NodeSet,
-                           rule_score_biotransform = 0, rule_score_artifact = 0.5, 
+                           rule_score_biotransform = 0, rule_score_adduct = 0.5, 
                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
+                           rule_score_radical = 0.2,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                            inten_score_isotope = 1, 
@@ -2020,7 +2025,8 @@ score_ilp_edges = function(CplexSet, NodeSet,
         category == "Natural_abundance" ~ rule_score_natural_abundance,
         category == "Oligomer" ~ rule_score_oligomer,
         category == "Fragment" ~ rule_score_fragment,
-        category %in% c("Adduct", "Radical") ~ rule_score_artifact
+        category == "Adduct" ~ rule_score_adduct, 
+        category == "Radical" ~ rule_score_radical
         # category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
       filter(T)
@@ -2804,7 +2810,7 @@ core_annotate = function(ilp_nodes, FormulaSet_df, LibrarySet){
       direction == 1 ~ paste(name, parent_formula, "+", transform),
       direction == -1 ~ paste(name, parent_formula, "-", transform)
     )) %>%
-    mutate(temp_cat = case_when(
+    mutate(class = case_when(
       category == "Unknown" ~ "Unknown",
       category == "Metabolite" ~ "Metabolite", 
       T ~ "Artifact"
@@ -2828,7 +2834,7 @@ core_annotate_unique = function(core_annotation){
 ## initiate_g_met ####
 initiate_g_met = function(ilp_nodes, ilp_edges){
   ilp_nodes_met = ilp_nodes %>%
-    filter(temp_cat == "Metabolite") %>%
+    filter(class == "Metabolite") %>%
     arrange(-ilp_result)
   ilp_edges_met = ilp_edges %>%
     filter(category == "Biotransform") %>%
@@ -2866,7 +2872,7 @@ initiate_g_nonmet = function(ilp_nodes, ilp_edges, heterodimer_ilp_edges){
     
   ilp_edges_weights = ilp_edges_nonmet_directed %>%
     mutate(edge_weight = 2 - ilp_result - 0.1*cplex_score) %>%
-    mutate(edge_weight = ifelse(category == "Heterodimer", edge_weight + 0.5, edge_weight)) %>%
+    mutate(edge_weight = ifelse(category == "Heterodimer", edge_weight + 1.5, edge_weight)) %>%
     arrange(edge_weight)
   
   g_nonmet = graph_from_data_frame(ilp_edges_weights, 
@@ -2880,7 +2886,7 @@ initiate_g_nonmet = function(ilp_nodes, ilp_edges, heterodimer_ilp_edges){
 initiate_met_dist_mat = function(g_met, ilp_nodes, core_annotation_unique){
   
   ilp_nodes_met = ilp_nodes %>%
-    filter(temp_cat == "Metabolite") %>%
+    filter(class == "Metabolite") %>%
     arrange(-ilp_result)
 
   met_annotation_unique = core_annotation_unique %>%
@@ -2900,12 +2906,19 @@ initiate_met_dist_mat = function(g_met, ilp_nodes, core_annotation_unique){
 }
 
 ## initiate_nonmet_dist_mat ####
-initiate_nonmet_dist_mat = function(g_nonmet, ilp_nodes, core_annotation_unique){
+initiate_nonmet_dist_mat = function(g_nonmet, ilp_nodes, only_ilp_result = T){
   
   ilp_nodes_nonmet = ilp_nodes %>%
     filter(!category %in% c("Metabolite", "Unknown")) %>%
     arrange(-ilp_result)
-  target_names = ilp_nodes_nonmet %>% pull(ilp_node_id) %>% as.character()
+  
+  if(only_ilp_result){
+    ilp_nodes_nonmet = ilp_nodes_nonmet %>%
+      filter(ilp_result > 0.01)
+  }
+
+  target_names = ilp_nodes_nonmet %>% 
+    pull(ilp_node_id) %>% as.character()
   
   core_names = ilp_nodes %>%
     filter(category != "Unknown") %>%
@@ -2942,8 +2955,9 @@ track_annotation_met = function(query_ilp_id,
   
   # g_annotation = g_met
   # dist_mat = met_dist_mat
-  # query_ilp_id = 173
+  # query_ilp_id = 100000
   # graph_path_mode = "all"
+  # ilp_edges_annotate = ilp_edges_annotate_met
   
   core_ilp_id = as.integer(row.names(dist_mat))
   
@@ -3014,13 +3028,18 @@ track_annotation_nonmet = function(query_ilp_id,
   # graph_path_mode = "out"
   # dist_mat = nonmet_dist_mat
   # core_annotation_unique = core_annotation_nonmet
-  # query_ilp_id = 33
-  
-  core_ilp_id = as.integer(row.names(dist_mat))
+  # query_ilp_id = 56
   
   if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
     return("Not existed in distance matrix")
   }
+  
+  core_ilp_id = as.integer(row.names(dist_mat))
+  if(query_ilp_id %in% core_ilp_id){
+    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
+    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
+    return(temp_annotation)
+  } 
   
   query_distMatrix = dist_mat[, as.character(query_ilp_id)]
   query_distMatrix_min = min(query_distMatrix)
@@ -3029,10 +3048,8 @@ track_annotation_nonmet = function(query_ilp_id,
     return("No edge connections.")
   }
   
-  if(query_ilp_id %in% core_ilp_id){
-    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
-    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
-  } else {
+  ## Network ####
+  {
     shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
     parent_selected = names(shortest_ilp_nodes)[1]
     paths_connect_ij_nodes = shortest_paths(g_annotation, 
@@ -3077,7 +3094,6 @@ track_annotation_nonmet = function(query_ilp_id,
   
   return(temp_annotation)
 }
-
 
 ## Network annotation ####
 empty_function = function(){
