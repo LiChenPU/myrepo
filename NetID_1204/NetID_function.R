@@ -894,7 +894,8 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
   }
 
   initial_lib1 = bind_rows(lib_adduct, lib_manual) %>%
-    filter((!grepl("-|NA", formula)) | grepl("H-(1|2)", formula)) 
+    filter(!str_detect(formula, "((?<!H)-)|(-(?!1))"))
+    # filter((!grepl("-|NA", formula)) | grepl("H-(1|2)", formula)) 
   
   initial_lib2 = bind_rows(lib_met) %>%
     filter(!grepl("-|NA", formula)) 
@@ -1064,14 +1065,13 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
            direction = 1,
            steps = current_step,
            transform = linktype) %>%
-    dplyr::select(-c("linktype"))
-  
-  heterodimer_ls = list()
+    dplyr::select(-c("linktype")) 
   
   if(nrow(new_nodes_df_heterodimer) == 0){
     return(NULL)
   }
- 
+  
+  heterodimer_ls = list()
   
   for(i in 1:nrow(new_nodes_df_heterodimer)){
     temp = new_nodes_df_heterodimer[i,]
@@ -1080,13 +1080,15 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
       filter(node_mass[node_id] - mass < mass * propagation_ppm_threshold,
              !grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%
       # Need to avoid exponential growth because heterodimer entries grows at n^2 rate
-      filter(!category %in% c("Heterodimer","Unknown","Natural_abundance")) %>%
-      filter(steps < 0.02 | (steps >= 1  & steps <1.02))
+      filter(!category %in% c("Heterodimer","Unknown","Natural_abundance", "Radical")) %>%
+      filter(steps <= 0.01 | (steps >= 1  & steps <= 1.01))
     
     if(nrow(transform) == 0){next}
+
     heterodimer_ls[[length(heterodimer_ls)+1]] = list(parent_id = rep(temp$parent_id, length(transform$formula)),
                                                       transform = rep(temp$transform, length(transform$formula)),
                                                       node2 = rep(temp$node2, length(transform$formula)),
+                                                      parent_formula = rep(temp$parent_formula, length(transform$formula)),
                                                       formula = my_calculate_formula(temp$formula, transform$formula),
                                                       rdbe = temp$rdbe + transform$rdbe,
                                                       mass = temp$mass + transform$mass)
@@ -1096,14 +1098,9 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
   heterodimer = bind_rows(heterodimer_ls) %>%
     merge(new_nodes_df_heterodimer %>% dplyr::select(-c("formula", "mass", "rdbe")), all.x = T) %>%
     mutate(node_id = node2) %>%
-    dplyr::select(-node2) %>%
+    dplyr::select(-node2) %>% 
     distinct(formula, node_id, transform, parent_formula, parent_id, .keep_all = T)
-  
-  
-  # for(i in unique(new_nodes_df_heterodimer$node_id)){
-  #   sf[[i]] = bind_rows(sf[[i]], new_nodes_df_heterodimer[new_nodes_df_heterodimer$node_id == i, ])
-  # }
-  
+
   return(heterodimer)
 }
 ### propagate_experimental_MS2_fragment ####
@@ -1179,15 +1176,15 @@ Propagate_formulaset = function(Mset,
                                 FormulaSet,
                                 biotransform_step = 5,
                                 artifact_step = 5,
-                                propagation_ppm_threshold = 2e-6,
-                                propagation_abs_threshold = 5e-4,
+                                propagation_ppm_threshold = 5e-6,
+                                propagation_abs_threshold = 2e-4,
                                 record_RT_tol = 0.1,
                                 record_ppm_tol = 5e-6)
 {
   # biotransform_step = 2
   # artifact_step = 3
-  # propagation_ppm_threshold = 3e-6
-  # propagation_abs_threshold = 1e-4
+  # propagation_ppm_threshold = 5e-6
+  # propagation_abs_threshold = 2e-4
   # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
 
@@ -1227,7 +1224,7 @@ Propagate_formulaset = function(Mset,
       
       lib_artifact_ls = list()
       
-      # Expansion including isotope formulas
+      # Expansion including isotope and radical formulas and library_MS2_formulas
       {
         ring_artifact = propagate_ring_artifact(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step)
         
@@ -1244,10 +1241,11 @@ Propagate_formulaset = function(Mset,
       
       
       
-      # Expansion wihtout isotope formulas and radical
+      # Expansion wihtout isotope and radical formulas and library_MS2_formulas
       {
         new_nodes_df_filter = new_nodes_df %>%
           filter(!grepl("\\[", formula)) %>%
+          filter(category != "Library_MS2_fragment") %>%
           filter(rdbe %% 1 == 0)
         
         for(category_select in c("Adduct", "Fragment", "Radical")){
@@ -1272,7 +1270,7 @@ Propagate_formulaset = function(Mset,
       }
       
       lib_artifact = bind_rows(lib_artifact_ls) %>%
-        filter((!grepl("-|NA", formula)) | grepl("H-(1|2)", formula)) %>% # in case a Rb1H-1 is measured
+        filter(!str_detect(formula, "((?<!H)-)|(-(?!1))")) %>% # any "-" not preceded by H, or not followed by 1 is removed
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
@@ -2001,17 +1999,23 @@ score_ilp_edges = function(CplexSet, NodeSet,
                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                            MS2_score_experiment_fragment = 0.5){
 
-  # rule_score_biotransform = 0.05
-  # rule_score_artifact = 1
-  # rule_score_oligomer = 1
-  # rule_score_ring_artifact = 5
+  # rule_score_biotransform = 0
+  # rule_score_adduct = 0.5
+  # rule_score_oligomer = 0.5
   # rule_score_natural_abundance = 1
+  # rule_score_fragment = 0.3
+  # rule_score_ring_artifact = 2
+  # rule_score_radical = 0.2
   # rule_score_experiment_MS2_fragment = 1
   # rule_score_library_MS2_fragment = 0.3
+  # rt_penalty_artifact_cutoff = 0.05
+  # rt_penalty_artifact_ratio = 5
   # inten_score_isotope = 1
   # MS2_score_similarity = 1
   # MS2_similarity_cutoff = 0.3
   # MS2_score_experiment_fragment = 0.5
+  
+  
   ilp_edges = CplexSet$ilp_edges
     
   # Score rule category 
