@@ -89,14 +89,14 @@ plotStruc(test_sdf[[1]], regenCoords=T)
 # saveRDS(df_ls, "HMDB_pred_MS2_Data.rds")
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-MS2_library = readRDS("HMDB_pred_MS2_neg.rds")
+MS2_library = readRDS("HMDB_pred_MS2_pos.rds")
 
 H_mass = 1.00782503224
 e_mass = 0.00054857990943
-ion_mode = -1
+ion_mode = 1
 
 MS2_library2 = lapply(MS2_library, function(x){
-  x[["spectrum"]]$mz = x[["spectrum"]]$mz + e_mass
+  x[["spectrum"]]$mz = x[["spectrum"]]$mz - e_mass
   return(x)
 })
   
@@ -120,6 +120,7 @@ elem_df = bind_rows(elem_ls) %>%
   mutate(unsupport_elem = rowSums(., na.rm=T))
 
 all_formula_valid = !grepl("\\(", all_formula) & (elem_df$unsupport_elem == 0)
+
 MS2_library3 = list()
 for(i in 1:length(MS2_library2)){
   if(!all_formula_valid[i]){
@@ -137,11 +138,11 @@ for(i in 1:length(MS2_library2)){
     mutate(formula = my_pred_formula(test$spectrum$mz, ion_mode, parent_formula = test$formula, N_rule = F, ppm = 15)) %>%
     mutate(cal.mz = formula_mz(formula) + (H_mass-e_mass)*ion_mode,
            mz.dif = cal.mz - mz) %>%
-    # mutate(toremove = abs(mz.dif) < 1e-4)
+    # mutate(toremove = abs(mz.dif) < 1e-4) %>%
     # mutate(formula = ifelse(abs(mz.dif) < 1e-4, formula, NA)) %>%
-    filter(abs(mz.dif) < 1e-4) %>%
-    
-    dplyr::select(mz, inten, formula)
+    # filter(abs(mz.dif) < 1e-4) %>%
+    # dplyr::select(mz, inten, formula) %>%
+    filter(T)
   
   if(nrow(test_spec) < nrow(test$spectrum)){warning(i)}
   
@@ -152,24 +153,7 @@ for(i in 1:length(MS2_library2)){
   print(i)
   # return(test)
 }
-# saveRDS(MS2_library3, "HMDB_pred_MS2_neg2.rds")
-
-test = readRDS("HMDB_pred_MS2_neg2.rds")
-
-all_formula = sapply(test, "[[", "formula") 
-empty_MS2 = sapply(test, function(x){nrow(x$spectrum)}) == 0
-all_formula_invalid = grepl("\\(", all_formula) | empty_MS2
-
-result_formula = ""
-for(i in 1:length(all_formula)){
-  if(all_formula_invalid[i]) next
-  result_formula = my_calculate_formula(test[[i]]$formula, "C1")
-  test[[i]]$formula = my_calculate_formula(result_formula, "C-1")
-  print(i)
-}
-
-HMDB_pred_MS2_neg3 = test[!all_formula_invalid]
-saveRDS(HMDB_pred_MS2_neg3,"HMDB_pred_MS2_neg3.rds")
+saveRDS(MS2_library3, "HMDB_pred_MS2_pos2.rds")
 
 
 ## predict formula ####
