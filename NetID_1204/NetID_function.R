@@ -937,7 +937,9 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
            lib_rt = library_RT[as.character(parent_id)]) %>%
     mutate(rt_match = abs(msr_rt - lib_rt) < 1) %>%
     arrange(-rt_match) %>%
-    distinct(node_id, .keep_all = T)
+    distinct(node_id, .keep_all = T) %>%
+    # distinct(formula, .keep_all = T) %>%
+    filter(T)
   
   lsq_result = lm(Library_known_msr$mass_dif~Library_known_msr$msr_mass)
     
@@ -953,7 +955,7 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
   
   
   #
-  plot(Library_known_msr$msr_mass, Library_known_msr$mass_dif)
+  # plot(Library_known_msr$msr_mass, Library_known_msr$mass_dif)
   ## Normal test 
   # shapiro.test(Library_known_msr$mass_dif)
   # shapiro.test(Library_known_msr$ppm_mass_dif)
@@ -961,6 +963,7 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
   # if(fitdistData$estimate["mean"] > 10*fitdistData$sd["mean"]){
     plot(fitdistData)
     print(fitdistData)
+    
   # }
   
   return(list(ppm_adjust = ppm_adjust, 
@@ -1239,6 +1242,14 @@ Propagate_formulaset = function(Mset,
         }
       }
       
+      # Oligomer allows isotope peaks
+      {
+        new_nodes_df_filter = new_nodes_df %>%
+          filter(category != "Library_MS2_fragment") %>%
+          filter(rdbe %% 1 == 0)
+        oligomer = propagate_oligomer(new_nodes_df_filter, sf, 
+                                      EdgeSet_oligomer, NodeSet, current_step)
+      }
       
       
       # Expansion wihtout isotope and radical formulas and library_MS2_formulas
@@ -1259,8 +1270,7 @@ Propagate_formulaset = function(Mset,
           
         }
         
-        oligomer = propagate_oligomer(new_nodes_df_filter, sf, 
-                                      EdgeSet_oligomer, NodeSet, current_step)
+        
         heterodimer = propagate_heterodimer(new_nodes_df_filter, sf, 
                                             EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold)
         experimental_MS2_fragment = propagate_experimental_MS2_fragment(new_nodes_df_filter, sf, 
@@ -1648,7 +1658,6 @@ initiate_ilp_nodes = function(FormulaSet_df,
     # group_by(ilp_node_id) %>%
     # filter(n()>1)
     arrange(ilp_node_id)
-
   
   return(ilp_nodes_result)
   
