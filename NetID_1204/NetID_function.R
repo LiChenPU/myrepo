@@ -433,8 +433,8 @@ Ring_artifact_connection = function(peak_group,
   return(EdgeSet_ring_artifact)
 }
 
-## Oligomer_connection ####
-Oligomer_connection = function(peak_group, ppm_tol = 10){
+## Oligomer_multicharge_connection ####
+Oligomer_multicharge_connection = function(peak_group, ppm_tol = 10){
   oligomer = peak_group %>% 
     mutate(mz_ratio12 = mass1/mass2,
            mz_ratio21 = mass2/mass1) %>% 
@@ -459,14 +459,50 @@ Oligomer_connection = function(peak_group, ppm_tol = 10){
       node2 = as.numeric(x["node2"]),
       category = "Oligomer",
       linktype = as.character(x["ratio"]),
-      # linktype = as.vector(paste0("x", x["ratio"])),
-      direction = 0
+      direction = 1
     )
   })
   
-  return(EdgeSet_oligomer)
+  EdgeSet_multicharge = apply(oligomer, 1, function(x){
+    list(
+      node1 = as.numeric(x["node1"]),
+      node2 = as.numeric(x["node2"]),
+      category = "Multicharge",
+      linktype = as.character(x["ratio"]),
+      direction = -1
+    )
+  })
+  
+  EdgeSet_oligomer_multicharge = bind_rows(EdgeSet_oligomer, EdgeSet_multicharge)
+  
+  return(EdgeSet_oligomer_multicharge)
 }
 
+## Multicharge_isotope_connection ####
+Multicharge_isotope_connection = function(EdgeSet, EdgeSet_oligomer_multicharge){
+  
+  EdgeSet_natural_abundance = bind_rows(EdgeSet) %>%
+    filter(category == "Natural_abundance")
+  
+  EdgeSet_multicharge = EdgeSet_oligomer_multicharge %>%
+    filter(category == "Multicharge") %>%
+    mutate(linktype = as.numeric(linktype)) %>%
+    dplyr::select(node1, node2, linktype)
+  
+  edge_multicharge_isotope = EdgeSet_natural_abundance %>%
+    filter(node1 %in% EdgeSet_multicharge$node2, node2 %in% EdgeSet_multicharge$node2) %>% 
+    merge(EdgeSet_multicharge, by.x = "node1", by.y="node2", suffixes = c("",".parent")) %>%
+    merge(EdgeSet_multicharge, by.x = "node2", by.y="node2", suffixes = c("",".isotope")) %>%
+    filter(linktype.parent == linktype.isotope) %>%
+    mutate(linktype = mapply(my_calculate_formula, linktype, linktype, 
+                             sign = -(linktype.parent-1)/linktype.parent)) %>%
+    mutate(node1 = node1.parent,
+           node2 = node1.isotope,
+           category = "Multicharge_isotope") %>%
+    dplyr::select(colnames(EdgeSet_natural_abundance))
+  
+  return(edge_multicharge_isotope)
+}
 ## Heterodimer_connection ####
 Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5){
   
@@ -973,13 +1009,12 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
   # return(NULL)
 }
 
-
 ### propagate_ring_artifact ####
 propagate_ring_artifact = function(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step){
   node_mass = sapply(NodeSet, "[[", "mz")
   
-  node1 = sapply(EdgeSet_ring_artifact, "[[", "node1")
-  node2 = sapply(EdgeSet_ring_artifact, "[[", "node2")
+  node1 = EdgeSet_ring_artifact$node1
+  node2 = EdgeSet_ring_artifact$node2
   node1_node2_mapping = bind_rows(EdgeSet_ring_artifact) %>%
     dplyr::select(-c("category", "linktype", "direction"))
   
@@ -1028,6 +1063,19 @@ propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, curre
            rdbe = rdbe * linktype) %>%
     dplyr::select(-c("node2","linktype"))
   
+  new_nodes_df_oligomer = new_nodes_df1
+
+  return(new_nodes_df_oligomer)
+}
+### propagate_multicharge ####
+propagate_multicharge = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, current_step){
+  
+  node_mass = sapply(NodeSet, "[[", "mz")
+  
+  node1_node2_mapping = bind_rows(EdgeSet_oligomer) %>%
+    dplyr::select(-c("category","direction")) %>%
+    mutate(linktype = as.numeric(linktype))
+  
   new_nodes_df2 = new_nodes_df %>% 
     filter(node_id %in% node1_node2_mapping$node2) %>% 
     dplyr::select(-c("category")) %>%
@@ -1044,17 +1092,14 @@ propagate_oligomer = function(new_nodes_df, sf, EdgeSet_oligomer, NodeSet, curre
            rdbe = rdbe / linktype) %>%
     dplyr::select(-c("node1","linktype"))
   
-  
-  new_nodes_df_oligomer = bind_rows(new_nodes_df1, new_nodes_df2)
-  
-
-  
+  new_nodes_df_oligomer = new_nodes_df2
   
   return(new_nodes_df_oligomer)
 }
+
 ### propagate_heterodimer ####
 propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet, 
-                                 current_step, propagation_ppm_threshold){
+                                 current_step, propagation_ppm_threshold, temp_propagation_category){
   node_mass = sapply(NodeSet, "[[", "mz")
   node1_node2_mapping = bind_rows(EdgeSet_heterodimer) %>%
     dplyr::select(-c("category", "direction"))
@@ -1080,12 +1125,10 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
     temp = new_nodes_df_heterodimer[i,]
     transform = sf[[as.numeric(temp$transform)]] %>%
       distinct(formula, .keep_all = T) %>%
-      filter(node_mass[node_id] - mass < mass * propagation_ppm_threshold,
-             !grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%
-      # Need to avoid exponential growth because heterodimer entries grows at n^2 rate
-      filter(!category %in% c("Heterodimer","Unknown","Natural_abundance", "Radical")) %>%
-      filter(steps <= 0.01 | (steps >= 1  & steps <= 1.01))
-    
+      filter(steps <= 0.01 | (steps >= 1  & steps <= 1.01)) %>%
+      filter(category %in% temp_propagation_category) %>%
+      filter(abs(node_mass[as.character(node_id)] - mass) < propagation_ppm_threshold * mass) # propagate from accurate formulas
+      
     if(nrow(transform) == 0){next}
 
     heterodimer_ls[[length(heterodimer_ls)+1]] = list(parent_id = rep(temp$parent_id, length(transform$formula)),
@@ -1106,12 +1149,12 @@ propagate_heterodimer = function(new_nodes_df, sf, EdgeSet_heterodimer, NodeSet,
 
   return(heterodimer)
 }
-### propagate_experimental_MS2_fragment ####
-propagate_experimental_MS2_fragment = function(new_nodes_df, sf, 
+### propagate_experiment_MS2_fragment ####
+propagate_experiment_MS2_fragment = function(new_nodes_df, sf, 
                                                EdgeSet_experiment_MS2_fragment, 
                                                NodeSet, current_step){
   
-  if(is.null(EdgeSet_experiment_MS2_fragment)){
+  if(nrow(EdgeSet_experiment_MS2_fragment)==0){
     return(NULL)
   }
   node_mass = sapply(NodeSet, "[[", "mz")
@@ -1177,6 +1220,7 @@ propagate_library_MS2_fragment = function(new_nodes_df, sf, EdgeSet_library_MS2_
 Propagate_formulaset = function(Mset, 
                                 NodeSet,
                                 FormulaSet,
+                                EdgeSet_all_df,
                                 biotransform_step = 5,
                                 artifact_step = 5,
                                 propagation_ppm_threshold = 5e-6,
@@ -1198,6 +1242,12 @@ Propagate_formulaset = function(Mset,
   temp_id = as.numeric(names(node_mass)) # numeric
 
   
+  propagation_rule = Mset$Global_parameter$propagation_rule
+  propagation_rule_ls = list()
+  for(i in colnames(propagation_rule)){
+    propagation_rule_ls[[i]] = colnames(propagation_rule)[propagation_rule[,i]]
+  }
+  
   ## Expansion 
   timer = Sys.time()
   step_count = 0
@@ -1206,77 +1256,169 @@ Propagate_formulaset = function(Mset,
     # Handle artifacts
     sub_step = 0
     while(sub_step < 0.01 * artifact_step){
+
+      node_step = step_count + sub_step
+      sub_step = sub_step+0.01
+      current_step = step_count + sub_step
       
       all_nodes_df = bind_rows(sf)
       new_nodes_df = all_nodes_df %>%
-        distinct(node_id, formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
-        filter(steps==(step_count + sub_step)) %>% # This garantee only formulas generated from the step go to next propagation
-        filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
-        filter(category != "Unknown") %>% # filter out unkwown formulas from propagation
-        filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
-        filter(abs(node_mass[as.character(node_id)] - mass) < pmax(propagation_ppm_threshold * mass, 
-                                                                   propagation_abs_threshold)) # propagate from accurate formulas
-      
+        distinct(node_id, formula, category, .keep_all = T) %>%
+        filter(category != "Unknown") %>%
+        filter(abs(node_mass[as.character(node_id)] - mass) < 
+                 pmax(propagation_ppm_threshold * mass, propagation_abs_threshold)) # propagate from accurate formulas
       
       if(nrow(new_nodes_df)==0){break}
       
-      sub_step = sub_step+0.01
-      current_step = step_count + sub_step
-      print(paste("Step",step_count + sub_step,"elapsed="))
-      print((Sys.time()-timer))
-      
       lib_artifact_ls = list()
-      
-      # Expansion including isotope and radical formulas and library_MS2_formulas
+      # to Adduct ##
       {
-        ring_artifact = propagate_ring_artifact(new_nodes_df, sf, EdgeSet_ring_artifact, NodeSet, current_step)
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Adduct"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
         
-        for(category_select in c("Natural_abundance")){
-          rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
-          rule_2 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,-1))
+        if(nrow(temp_new_nodes_df) != 0){
+          temp_rule = empirical_rules %>% filter(category == "Adduct")
           
-          lib_1 = expand_library(new_nodes_df, rule_1, direction = 1, category = category_select)
-          lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = category_select)
+          temp_propagation = expand_library(temp_new_nodes_df, temp_rule, direction = 1, category = "Adduct")
           
-          lib_artifact_ls[[length(lib_artifact_ls)+1]] = bind_rows(lib_1, lib_2)
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = temp_propagation
         }
       }
       
-      # Oligomer allows isotope peaks
+      # to Fragment ##
       {
-        new_nodes_df_filter = new_nodes_df %>%
-          filter(category != "Library_MS2_fragment") %>%
-          filter(rdbe %% 1 == 0)
-        oligomer = propagate_oligomer(new_nodes_df_filter, sf, 
-                                      EdgeSet_oligomer, NodeSet, current_step)
-      }
-      
-      
-      # Expansion wihtout isotope and radical formulas and library_MS2_formulas
-      {
-        new_nodes_df_filter = new_nodes_df %>%
-          filter(!grepl("\\[", formula)) %>%
-          filter(category != "Library_MS2_fragment") %>%
-          filter(rdbe %% 1 == 0)
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Fragment"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
         
-        for(category_select in c("Adduct", "Fragment", "Radical")){
-          rule_1 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,1))
-          rule_2 = empirical_rules %>% filter(category == category_select) %>% filter(direction %in% c(0,-1))
+        if(nrow(temp_new_nodes_df) != 0){
+          temp_rule = empirical_rules %>% filter(category == "Fragment")
           
-          lib_1 = expand_library(new_nodes_df_filter, rule_1, direction = 1, category = category_select)
-          lib_2 = expand_library(new_nodes_df_filter, rule_2, direction = -1, category = category_select)
+          temp_propagation = expand_library(temp_new_nodes_df, temp_rule, direction = -1, category = "Fragment")
           
-          lib_artifact_ls[[length(lib_artifact_ls)+1]] = bind_rows(lib_1, lib_2)
-          
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = temp_propagation
         }
         
+      }
+      
+      # to Natural_abundance ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Natural_abundance"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
         
-        heterodimer = propagate_heterodimer(new_nodes_df_filter, sf, 
-                                            EdgeSet_heterodimer, NodeSet, current_step, propagation_ppm_threshold)
-        experimental_MS2_fragment = propagate_experimental_MS2_fragment(new_nodes_df_filter, sf, 
-                                                                        EdgeSet_experiment_MS2_fragment, NodeSet, current_step)
-        library_MS2_fragment = propagate_library_MS2_fragment(new_nodes_df_filter, sf, 
-                                                              EdgeSet_library_MS2_fragment_df, NodeSet, current_step)
+        if(nrow(temp_new_nodes_df) != 0){
+        
+          temp_rule = empirical_rules %>% filter(category == "Natural_abundance") %>% filter(direction == 1)
+          temp_propagation = expand_library(temp_new_nodes_df, temp_rule, direction = 1, category = "Natural_abundance")
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = temp_propagation
+          
+          # [10]B has a direction of -1
+          temp_rule = empirical_rules %>% filter(category == "Natural_abundance") %>% filter(direction == -1)
+          temp_propagation = expand_library(temp_new_nodes_df, temp_rule, direction = -1, category = "Natural_abundance")
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = temp_propagation
+        }
+      }
+      
+      # to Radical ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Radical"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step)
+        
+        if(nrow(temp_new_nodes_df) != 0){
+          temp_rule = empirical_rules %>% filter(category == "Radical")
+          
+          temp_propagation = expand_library(temp_new_nodes_df, temp_rule, direction = -1, category = "Radical")
+          
+          lib_artifact_ls[[length(lib_artifact_ls)+1]] = temp_propagation
+        }
+      }
+      
+      # to Heterodimer ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Heterodimer"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Heterodimer")
+        
+        temp_propagation_category = propagation_rule_ls[["Heterodimer"]]
+        heterodimer = propagate_heterodimer(temp_new_nodes_df, sf, 
+                                            temp_edgeset, NodeSet, current_step, 
+                                            propagation_ppm_threshold, temp_propagation_category)
+      }
+      
+      # to Oligomer ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Oligomer"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Oligomer")
+        
+        oligomer = propagate_oligomer(temp_new_nodes_df, sf, temp_edgeset, NodeSet, current_step)
+      }
+
+      # to Multicharge ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Multicharge"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step)
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Multicharge")
+        
+        multicharge = propagate_multicharge(temp_new_nodes_df, sf, temp_edgeset, NodeSet, current_step)
+      }
+      
+      # to Library_MS2_fragment ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Library_MS2_fragment"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Library_MS2_fragment")
+        
+        library_MS2_fragment = propagate_library_MS2_fragment(temp_new_nodes_df, sf, temp_edgeset, NodeSet, current_step)
+      }
+      
+      # to Experiment_MS2_fragment ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Experiment_MS2_fragment"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Experiment_MS2_fragment")
+        
+        experiment_MS2_fragment = propagate_experiment_MS2_fragment(temp_new_nodes_df, sf, temp_edgeset, NodeSet, current_step)
+      }
+      
+      # to Ring_artifact ##
+      {
+        temp_new_nodes_df = new_nodes_df %>%
+          filter(category %in% propagation_rule_ls[["Ring_artifact"]]) %>%
+          distinct(node_id, formula, .keep_all = T) %>%
+          filter(steps==node_step) 
+        
+        temp_edgeset = EdgeSet_all_df %>%
+          filter(category == "Ring_artifact")
+        
+        ring_artifact = propagate_ring_artifact(temp_new_nodes_df, sf, temp_edgeset, NodeSet, current_step)
       }
       
       lib_artifact = bind_rows(lib_artifact_ls) %>%
@@ -1284,14 +1426,15 @@ Propagate_formulaset = function(Mset,
         # mutate(RT = node_RT[as.character(parent_id)]) %>%
         arrange(mass)
       
-      sf_add_mass_filter = bind_rows(oligomer, heterodimer, library_MS2_fragment) %>%
+      sf_add_mass_filter = bind_rows(oligomer, multicharge, heterodimer, library_MS2_fragment) %>%
         mutate(msr_mass = node_mass[as.character(node_id)],
                mass_dif = abs(msr_mass-mass)) %>%
         mutate(mass_retain = mass_dif / mass <= record_ppm_tol) %>%
         filter(mass_retain) %>%
-        dplyr::select(-msr_mass, -mass_dif, -mass_retain)
+        dplyr::select(-msr_mass, -mass_dif, -mass_retain, -formula1, -formula2, -edge_id)
       
-      sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experimental_MS2_fragment)
+      sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experiment_MS2_fragment) %>%
+        dplyr::select(-formula1, -formula2, -edge_id)
       
       sf = match_library(lib_artifact,
                          sf,
@@ -1303,22 +1446,22 @@ Propagate_formulaset = function(Mset,
       for(i in unique(sf_add$node_id)){
         sf[[i]] = bind_rows(sf[[i]], sf_add[sf_add$node_id == i, ])
       }
+      
+      print(paste("Step", current_step, "elapsed="))
+      print((Sys.time()-timer))
     }
     
     all_nodes_df = bind_rows(sf)
     new_nodes_df = all_nodes_df %>%
       filter(category == "Metabolite") %>% # only metabolites go to biotransformation, also garantee it is not filtered.
-      distinct(node_id,formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
+      distinct(node_id, formula, .keep_all=T) %>% # This garantee only new formulas will go to next propagation
       filter(steps == step_count) %>% # only formulas generated from the step go to next propagation
       filter(rdbe > -1) %>% # filter out formula has ring and double bind less than -1
-      filter(!grepl("\\.|Ring_artifact|MS2_fragment", formula)) %>%  # filter formula with decimal point and ring artifacts
       filter(abs(node_mass[as.character(node_id)] - mass) < pmax(propagation_ppm_threshold * mass, 
                                                                  propagation_abs_threshold)) # propagate from accurate formulas
     
     step_count = step_count+1
     current_step = step_count
-    print(paste("Step",current_step,"elapsed="))
-    print(Sys.time()-timer)
     
     if(nrow(new_nodes_df)==0){break}
     
@@ -1331,8 +1474,7 @@ Propagate_formulaset = function(Mset,
     lib_2 = expand_library(new_nodes_df, rule_2, direction = -1, category = "Metabolite")
     
     lib_met = bind_rows(lib_1, lib_2) %>%
-      filter(!grepl("-|NA", formula)) %>% # in case a Rb1H-1 is measured
-      # mutate(RT = node_RT[as.character(parent_id)]) %>%
+      filter(!grepl("-|NA", formula)) %>% 
       arrange(mass)
     
     sf = match_library(lib_met,
@@ -1341,6 +1483,9 @@ Propagate_formulaset = function(Mset,
                        record_RT_tol=Inf,
                        current_step,
                        NodeSet)
+    
+    print(paste("Step",current_step,"elapsed="))
+    print(Sys.time()-timer)
   }
   
   return(sf)
@@ -1870,7 +2015,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
       formula2 = ilp_nodes_formula[ilp_nodes2]
       if(length(formula2) == 0){next}
       
-      if(any(category == c("Adduct", "Natural_abundance"))){
+      if(any(category == c("Adduct", "Natural_abundance", "Multicharge_isotope"))){
         # Direction is not needed as it is always node1 + linktype = node2
         transform = EdgeSet_df$linktype[i]
         formula_transform = my_calculate_formula(formula1, transform)
@@ -2001,7 +2146,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
                            rule_score_biotransform = 0, rule_score_adduct = 0.5, 
                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
-                           rule_score_radical = 0.2,
+                           rule_score_radical = 0.2, rule_score_multicharge_isotope = 1,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                            inten_score_isotope = 1, 
@@ -2039,7 +2184,8 @@ score_ilp_edges = function(CplexSet, NodeSet,
         category == "Oligomer" ~ rule_score_oligomer,
         category == "Fragment" ~ rule_score_fragment,
         category == "Adduct" ~ rule_score_adduct, 
-        category == "Radical" ~ rule_score_radical
+        category == "Radical" ~ rule_score_radical,
+        category == "Multicharge_isotope" ~ rule_score_multicharge_isotope
         # category != "Biotransform" ~ rule_score_artifact, 
       )) %>%
       filter(T)

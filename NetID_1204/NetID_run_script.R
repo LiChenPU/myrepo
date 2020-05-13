@@ -6,15 +6,16 @@ printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 source("NetID_function.R")
 
-work_dir = "Mcap"
-ion_mode = 1
-LC_method = "Hilic_Rutgers_QEPlus" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE"
-MS2_library_file = "./dependent/HMDB_pred_MS2_pos.rds"
+work_dir = "Xi_new_neg"
+ion_mode = -1
+LC_method = "Hilic_25min_QE" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE"
+MS2_library_file = "./dependent/HMDB_pred_MS2_neg.rds"
 
 MS2_folder = "MS2"
 MS2_library = readRDS(MS2_library_file)
 mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
 Empirical_rules_file = "./dependent/Empirical_rules.csv"
+propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
 
 # sink(paste(timestamp,"log.txt"))
 # sink()
@@ -29,7 +30,8 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
   Mset[["Empirical_rules"]]=Read_rule_table(rule_table_file = Empirical_rules_file)
   
   Mset[["Global_parameter"]]=list(mode = ion_mode,
-                                    LC_method = LC_method)
+                                  LC_method = LC_method,
+                                  propagation_rule = propagation_rule)
 }
 
 ## WL data format ####
@@ -39,22 +41,23 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
   
-  # filename_wl = "Lu-Table-S4-final.xlsx"
+  filename_wl = "Lu-Table-S4-final.xlsx"
   # WL = readxl::read_xlsx(filename_wl, sheet = "Positive mode") %>%
-  #   dplyr::rename(medRt = rt,
-  #                 medMz = mz) %>%
-  #   dplyr::rename(Formula = Formula...34,
-  #                 Feature = Feature...35,
-  #                 Background = Background...27)
-  # 
-  # raw_data_WL = Mset$Raw_data %>%
-  #   merge(WL, all = T) %>%
-  #   mutate(id = 1:nrow(.),
-  #          yeast = 10^sig,
-  #          yeast2 = 10^sig) %>%
-  #   filter(is.na(Background)) %>%
-  #   dplyr::select(colnames(Mset$Raw_data))
-  # Mset[["Raw_data"]] = raw_data_WL
+  WL = readxl::read_xlsx(filename_wl, sheet = "Negative mode") %>%
+    dplyr::rename(medRt = rt,
+                  medMz = mz) %>%
+    dplyr::rename(Formula = Formula...34,
+                  Feature = Feature...35,
+                  Background = Background...27)
+
+  raw_data_WL = Mset$Raw_data %>%
+    merge(WL, all = T) %>%
+    mutate(id = 1:nrow(.),
+           yeast = 10^sig,
+           yeast2 = 10^sig) %>%
+    filter(is.na(Background)) %>%
+    dplyr::select(colnames(Mset$Raw_data))
+  Mset[["Raw_data"]] = raw_data_WL
 }
 
 ## Initialise ####
@@ -98,7 +101,7 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
                                         ppm_tol = 5e-6)
   
   Sys_msr_error = Check_sys_error(NodeSet, FormulaSet, LibrarySet, 
-                                  RT_match = T)
+                                  RT_match = F)
   
   mass_adjustment = abs(Sys_msr_error$ppm_adjust + Sys_msr_error$abs_adjust/250*1e6) > 0.2
   # mass_adjustment = Sys_msr_error$fitdistData$estimate["mean"] > 10*Sys_msr_error$fitdistData$sd["mean"]
@@ -127,38 +130,42 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
   # Extension edgeset
   peak_group = Peak_grouping(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
   EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
-  EdgeSet_oligomer = Oligomer_connection(peak_group, ppm_tol = 10)
+  EdgeSet_oligomer_multicharge = Oligomer_multicharge_connection(peak_group, ppm_tol = 10)
+  EdgeSet_multicharge_isotope = Multicharge_isotope_connection(EdgeSet, EdgeSet_oligomer_multicharge)
   EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
   EdgeSet_experiment_MS2_fragment = Experiment_MS2_fragment_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5)
   EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, FormulaSet, MS2_library,
                                                                     inten_threshold = 1e5,
                                                                     ppm_tol = 10, abs_tol = 1e-4)
+  
+  
+  
   EdgeSet_all_df = merge_edgeset(EdgeSet, 
                                  EdgeSet_ring_artifact, 
-                                 EdgeSet_oligomer, 
+                                 EdgeSet_oligomer_multicharge, 
+                                 EdgeSet_multicharge_isotope,
                                  EdgeSet_heterodimer,
                                  EdgeSet_experiment_MS2_fragment,
                                  EdgeSet_library_MS2_fragment_df)
+  
+  
 }
 
 ## Candidate formula pool ####
 {
-  
   FormulaSet = Propagate_formulaset(Mset, 
                                     NodeSet,
                                     FormulaSet,
+                                    EdgeSet_all_df,
                                     biotransform_step = 2,
                                     artifact_step = 3,
                                     propagation_ppm_threshold = 5e-6,
                                     propagation_abs_threshold = 2e-4,
-                                    record_RT_tol = 0.2,
+                                    record_RT_tol = 0.15,
                                     record_ppm_tol = 5e-6)
   
   all_formulas = bind_rows(FormulaSet) %>%
-    # distinct(node_id, formula, category, .keep_all = T) %>%
-    # filter(category == "Library_MS2_fragment") %>%
-    filter(node_id == 177) %>%
-    # filter(grepl("-", formula)) %>%
+    distinct(node_id, formula, category, .keep_all = T) %>%
     filter(T)
   
 }
@@ -191,7 +198,7 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
                                             rule_score_biotransform = 0, rule_score_adduct = 0.5, 
                                             rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                                             rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
-                                            rule_score_radical = 0.2,
+                                            rule_score_radical = 0.2, rule_score_multicharge_isotope = 1, 
                                             rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                                             rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                                             inten_score_isotope = 1, 
@@ -206,10 +213,11 @@ Empirical_rules_file = "./dependent/Empirical_rules.csv"
   
 save.image(paste0(timestamp,".RData"))
 print(Sys.time()-printtime)
+
 ## Run_cplex ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
-                                               relative_gap = 1e-4, total_run_time = 2000))
+                                               relative_gap = 1e-3, total_run_time = 25000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
@@ -244,11 +252,6 @@ print(Sys.time()-printtime)
     # filter(grepl("Thiamine", path))
     filter(T)
 }
-
-print("total run time")
-save.image()
-print(Sys.time()-printtime)
-
 
 # Path annotation ####
 {
@@ -297,42 +300,45 @@ print(Sys.time()-printtime)
   
   ilp_nodes_annotation = ilp_nodes %>%
     mutate(path = path_annotation)
-  
-
 }
 
-## Maven output format ####
-{
+print("total run time")
+save.image()
+print(Sys.time()-printtime)
 
-  test = ilp_nodes_annotation %>%
-    filter(ilp_result > 0.01) %>%
-    # filter(class == "Metabolite", steps != 0) %>%
-    filter(T)
-
-  test2 = Mset$Data %>%
-    inner_join(test) %>%
-    dplyr::select(colnames(Mset$Data), node_id, class, formula, path, ppm_error, -id) %>%
-    arrange(Input_id)
-
-  
-  test3 = read_csv("Mcap_NetID_1.csv") %>%
-    arrange(Input_id) %>%
-    dplyr::select(Input_id, class, formula, path) %>%
-    dplyr::rename(Class = class,
-                  Formula = formula,
-                  Path = path)
-  
-  test4 = test2 %>%
-    inner_join(test3) %>%
-    filter(log10_inten > 5) %>%
-    filter(grepl("Br", formula))
-    # filter(Class != class)
-  
-  library(janitor)
-  tabyl(test4, Class, class)
-    
-  write_csv(test2, paste0(work_dir, timestamp,"_NetID.csv"))
-}
+# ## Maven output format ####
+# {
+# 
+#   test = ilp_nodes_annotation %>%
+#     filter(ilp_result > 0.01) %>%
+#     # filter(class == "Metabolite", steps != 0) %>%
+#     filter(T)
+# 
+#   test2 = Mset$Data %>%
+#     inner_join(test) %>%
+#     dplyr::select(colnames(Mset$Data), node_id, class, formula, path, ppm_error, -id) %>%
+#     arrange(Input_id) %>%
+#     filter(class == "Unknown")
+# 
+#   
+#   test3 = read_csv("Mcap_NetID.csv") %>%
+#     arrange(Input_id) %>%
+#     dplyr::select(Input_id, class, formula, path) %>%
+#     dplyr::rename(Class = class,
+#                   Formula = formula,
+#                   Path = path)
+#   
+#   test4 = test2 %>%
+#     inner_join(test3) %>%
+#     # filter(log10_inten > 5) %>%
+#     # filter(grepl("Br", formula))
+#     filter(Path == path)
+#   
+#   library(janitor)
+#   tabyl(test4, Class, class)
+#     
+#   # write_csv(test2, paste(work_dir, timestamp,"NetID.csv", sep="_"))
+# }
 
 
 
@@ -353,24 +359,56 @@ print(Sys.time()-printtime)
   
   test3_filter = test3 %>%
     filter(sig > 5) %>%
-    filter(category == "Adduct") %>%
-    # filter(category == "Metabolite") %>%
+    # filter(category == "Adduct") %>%
+    filter(category == "Natural_abundance") %>%
     filter(Feature == "Metabolite") %>%
     # filter(Feature == "Isotope") %>%
     # filter(!Feature %in% c("Buffer Sensitive", "Fragment_CID")) %>%
     # filter(Feature...23 != "Metabolite") %>%
     # filter(category != "Unknown") %>%
-    mutate(C_count = sapply(formula, elem_num_query, "C"),
-           N_count = sapply(formula, elem_num_query, "N")) %>%
-    mutate(CN_match = (N_count == N) & (C_count == C)) %>%
+    # mutate(C_count = sapply(formula, elem_num_query, "C"),
+    #        N_count = sapply(formula, elem_num_query, "N")) %>%
+    # mutate(CN_match = (N_count == N) & (C_count == C)) %>%
     # filter(!is.na(C)) %>%
-    filter(!CN_match) %>%
+    # filter(!CN_match) %>%
     filter(T)
   
+  # write_csv(test3, paste(work_dir, timestamp,"NetID.csv", sep="_"))
+  # write_csv(crosstable2, paste(work_dir, timestamp,"crosstable2.csv", sep="_"))
   library(janitor)
   test4 = tabyl(test3, Feature)
   crosstable = tabyl(test3, Feature, category, Feature...23)
   crosstable = tabyl(test3, Feature, category)
+  crosstable2 = tabyl(test3, category, Feature)
+  
+  test5 = test3 %>%
+    mutate(Feature2 = case_when(
+      is.na(Feature) ~ "Unknown",
+      Feature == "Metabolite" ~ "Metabolite",
+      T ~ "Artifact"
+      )) %>%
+    # filter(Feature == "Metabolite", category == "Metabolite") %>%
+    # filter(Formula == formula) %>%
+    filter(T)
+  crosstable3 = tabyl(test5, class, Feature2)
+  cross_netid = tabyl(test5, class)
+  cross_bmw = tabyl(test5, Feature2)
+  
+  test6 = test3 %>%
+    filter(Feature != "Metabolite" | is.na(Feature)) %>%
+    filter(category != "Metabolite" ) %>%
+    filter(Feature...23 == "Metabolite") %>%
+    # mutate(C_count = sapply(formula, elem_num_query, "C"),
+    #        N_count = sapply(formula, elem_num_query, "N")) %>%
+    # mutate(C_count_BMW = sapply(Formula, elem_num_query, "C"),
+    # N_count_BMW = sapply(Formula, elem_num_query, "N")) %>%
+    # mutate(CN_match = (N_count == N) & (C_count == C)) %>%
+    # mutate(CN_match_BMW = (N_count_BMW == N) & (C_count_BMW == C)) %>%
+    # filter(Formula == formula) %>%
+    filter(T)
+  
+  test_7 = tabyl(test3, Feature...23)
+  
 }
 
 ## Query specific nodes or edges ####
@@ -378,7 +416,7 @@ print(Sys.time()-printtime)
   Input_id = 603
   Mset$Data$id[Mset$Data$Input_id == Input_id]
 
-  node_id_selected = 813
+  node_id_selected = 540
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id %in% node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
@@ -391,15 +429,10 @@ print(Sys.time()-printtime)
     arrange(-cplex_score, category) %>%
     filter(T)
   
-  test_temp = test3 %>%
-    filter(mass > 175, mass < 184) %>%
-    filter(medRt > 13.5, medRt < 14) %>%
-    filter(mass %% 1 < 0.9, mass %% 1 > 0.2)  %>%
-    # filter(category != "Ring_artifact") %>%
-    mutate(dif = medMz - 176.8757) %>%
-    mutate(inten_ratio = 10^(sig - 7.819756), 
-           rt_dif = (medRt - 13.95752)*1000)
-  
+  edge_related_to_node = EdgeSet_all_df %>%
+    filter(node1 == node_id_selected | node2 == node_id_selected)
+  ilp_nodes_related_to_edge = ilp_nodes_ilp %>%
+    filter(node_id %in% c(edge_related_to_node$node1, edge_related_to_node$node2)) 
   
 }
 
