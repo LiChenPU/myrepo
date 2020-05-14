@@ -258,7 +258,8 @@ Initiate_nodeset = function(Mset){
   return(NodeSet)
 }
 ## Initiate_edgeset ####
-Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_tol_bio = Inf, rt_tol_nonbio = 0.2){
+Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, 
+                            rt_tol_bio = Inf, rt_tol_nonbio = 0.2){
   mz_tol_ppm = mz_tol_ppm/1e6
   
   temp_mz_list = NodeSet %>% sapply("[[","mz") %>% sort()
@@ -280,8 +281,8 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_t
       temp_edge_list = list()
       i=j=j_pos=1
       while(i<=merge_nrow){
-        mass_tol = max(temp_mz_list[i]*mz_tol_ppm,mz_tol_abs)
-        while(1){
+        
+        while(TRUE){
           j=j+1
           if(j>merge_nrow){break}
           temp_ms = temp_mz_list[j]-temp_mz_list[i]
@@ -290,6 +291,8 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, rt_t
             j_pos = j # locate the last j that has smaller ms
             next
           }
+          
+          mass_tol = max(temp_mz_list[j]*mz_tol_ppm,mz_tol_abs)
           # Criteria to entry
           if(abs(temp_ms-temp_fg)<mass_tol){
             delta_RT = temp_RT_list[names(temp_mz_list[j])] - temp_RT_list[names(temp_mz_list[i])]
@@ -3022,9 +3025,6 @@ initiate_g_met = function(ilp_nodes, ilp_edges){
 ## initiate_g_nonmet ####
 initiate_g_nonmet = function(ilp_nodes, ilp_edges, heterodimer_ilp_edges){
   
-  ilp_nodes = ilp_nodes %>%
-    arrange(-ilp_result)
-  
   ilp_edges_merge = merge(ilp_edges, heterodimer_ilp_edges, all = T) 
   
   ilp_edges_nonmet = ilp_edges_merge %>%
@@ -3136,6 +3136,13 @@ track_annotation_met = function(query_ilp_id,
     return("Not existed in distance matrix")
   }
   
+  if(query_ilp_id %in% core_ilp_id){
+    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
+    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
+    
+    return(temp_annotation)
+  }
+  
   query_distMatrix = dist_mat[, as.character(query_ilp_id)]
   query_distMatrix_min = min(query_distMatrix)
   
@@ -3143,10 +3150,7 @@ track_annotation_met = function(query_ilp_id,
     return("No edge connections.")
   }
   
-  if(query_ilp_id %in% core_ilp_id){
-    core_annotation_unique_filter = core_annotation_unique$ilp_node_id == query_ilp_id
-    temp_annotation = core_annotation_unique$core_annotate[core_annotation_unique_filter]
-  } else{
+  {
     shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
     parent_selected = names(shortest_ilp_nodes)[1]
     paths_connect_ij_nodes = shortest_paths(g_annotation, 
@@ -3184,6 +3188,83 @@ track_annotation_met = function(query_ilp_id,
   }
   
   return(temp_annotation)
+}
+
+
+## network_annotation_met ####  
+network_annotation_met = function(query_ilp_id, 
+                                ilp_edges_annotate,
+                                g_annotation = g_met, 
+                                graph_path_mode = "all", 
+                                dist_mat = met_dist_mat){
+  
+  # g_annotation = g_met
+  # dist_mat = met_dist_mat
+  # query_ilp_id = 2143
+  # graph_path_mode = "all"
+  # ilp_edges_annotate = ilp_edges_annotate_met
+  
+  core_ilp_id = as.integer(row.names(dist_mat))
+  query_ilp_id = as.character(query_ilp_id)
+  
+  if(!any(query_ilp_id == colnames(dist_mat))){
+    return(NULL)
+  }
+  
+  query_distMatrix = dist_mat[, query_ilp_id]
+  query_distMatrix_min = min(query_distMatrix)
+  
+  if(is.infinite(query_distMatrix_min)){
+    sub_nodes = as_data_frame(g_annotation, "vertices") %>%
+      filter(name %in% query_ilp_id)
+    
+    sub_edges = as_data_frame(g_annotation, "edges") %>%
+      filter(from %in% query_ilp_id & 
+               to %in% query_ilp_id)
+    
+    g_met_interest = graph_from_data_frame(sub_edges,
+                                           directed = F,
+                                           vertices = sub_nodes)
+    return(g_met_interest)
+  }
+  
+  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+  parent_selected = names(shortest_ilp_nodes)
+  paths_connect_ij_nodes = shortest_paths(g_annotation, 
+                                          from = parent_selected, 
+                                          to = query_ilp_id, 
+                                          mode = graph_path_mode, 
+                                          output = "vpath")
+  
+
+  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+  parent_selected = names(shortest_ilp_nodes)
+  paths_connect_ij_nodes = lapply(parent_selected, function(x){
+    shortest_paths(g_annotation, 
+                                          from = x, 
+                                          to = query_ilp_id, 
+                                          mode = graph_path_mode, 
+                                          output = "vpath")
+    })
+  
+  ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
+    x[[1]] %>% unlist() %>% names() %>% as.numeric()
+  })
+  
+  ilp_node_interest = unlist(ilp_node_path)
+  
+  sub_nodes = as_data_frame(g_annotation, "vertices") %>%
+    filter(name %in% as.character(ilp_node_interest))
+  
+  sub_edges = as_data_frame(g_annotation, "edges") %>%
+    filter(from %in% as.character(ilp_node_interest) & 
+             to %in% as.character(ilp_node_interest))
+  
+  g_met_interest = graph_from_data_frame(sub_edges,
+                                     directed = F,
+                                     vertices = sub_nodes)
+
+  return(g_met_interest)
 }
 
 
@@ -3263,6 +3344,72 @@ track_annotation_nonmet = function(query_ilp_id,
   }
   
   return(temp_annotation)
+}
+
+## track_annotation_nonmet ####  
+network_annotation_nonmet = function(query_ilp_id, 
+                                     ilp_edges_annotate,
+                                     g_annotation = g_nonmet, 
+                                     graph_path_mode = "out", 
+                                     dist_mat = nonmet_dist_mat, 
+                                     core_annotation_unique){
+  
+  # g_annotation = g_met
+  # dist_mat = met_dist_mat
+  # query_ilp_id = 1865
+  # graph_path_mode = "all"
+  # ilp_edges_annotate = ilp_edges_annotate_met
+  
+  core_ilp_id = as.integer(row.names(dist_mat))
+  
+  if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
+    return("Not existed in distance matrix")
+  }
+  
+  query_distMatrix = dist_mat[, as.character(query_ilp_id)]
+  query_distMatrix_min = min(query_distMatrix)
+  
+  # if(is.infinite(query_distMatrix_min)){
+  #   return("No edge connections.")
+  # }
+  
+  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+  parent_selected = names(shortest_ilp_nodes)
+  paths_connect_ij_nodes = shortest_paths(g_annotation, 
+                                          from = parent_selected, 
+                                          to = as.character(query_ilp_id), 
+                                          mode = graph_path_mode, 
+                                          output = "vpath")
+  
+  
+  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+  parent_selected = names(shortest_ilp_nodes)
+  paths_connect_ij_nodes = lapply(parent_selected, function(x){
+    shortest_paths(g_annotation, 
+                   from = x, 
+                   to = as.character(query_ilp_id), 
+                   mode = graph_path_mode, 
+                   output = "vpath")
+  })
+  
+  ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
+    x[[1]] %>% unlist() %>% names() %>% as.numeric()
+  })
+  
+  ilp_node_interest = unlist(ilp_node_path)
+  
+  sub_nodes = as_data_frame(g_annotation, "vertices") %>%
+    filter(name %in% as.character(ilp_node_interest))
+  
+  sub_edges = as_data_frame(g_annotation, "edges") %>%
+    filter(from %in% as.character(ilp_node_interest) & 
+             to %in% as.character(ilp_node_interest))
+  
+  g_met_interest = graph_from_data_frame(sub_edges,
+                                         directed = F,
+                                         vertices = sub_nodes)
+  
+  return(g_met_interest)
 }
 
 ## Network annotation ####
