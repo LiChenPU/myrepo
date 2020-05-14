@@ -1940,6 +1940,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
       
       transform = EdgeSet_df$linktype[i]
       formula_transform = my_calculate_formula(formula1, transform)
+    #------------------------------------------------------------------------#
     } else if(category == "Fragment") {
       # node1 cannot be metabolite, and node2 can be anything
       node1 = EdgeSet_df$node1[i]
@@ -1953,10 +1954,25 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
       
       transform = EdgeSet_df$linktype[i]
       formula_transform = my_calculate_formula(formula1, transform)
+    #------------------------------------------------------------------------#
     } else if(category == "Oligomer") {
       # Both can be anything for simplicity
       node1 = EdgeSet_df$node1[i]
       ilp_nodes1 = node_id_ilp_node_mapping[[as.character(node1)]]
+      formula1 = ilp_nodes_formula[ilp_nodes1]
+      if(length(formula1) == 0){next}
+      node2 = EdgeSet_df$node2[i]
+      ilp_nodes2 = node_id_ilp_node_mapping_nonmet[[as.character(node2)]]
+      formula2 = ilp_nodes_formula[ilp_nodes2]
+      if(length(formula2) == 0){next}
+      
+      fold = as.numeric(EdgeSet_df$linktype[i])
+      formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
+    #------------------------------------------------------------------------#
+    } else if(category == "Multicharge") {
+      # Both can be anything for simplicity
+      node1 = EdgeSet_df$node1[i]
+      ilp_nodes1 = node_id_ilp_node_mapping_nonmet[[as.character(node1)]]
       formula1 = ilp_nodes_formula[ilp_nodes1]
       if(length(formula1) == 0){next}
       node2 = EdgeSet_df$node2[i]
@@ -1966,6 +1982,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
       
       fold = as.numeric(EdgeSet_df$linktype[i])
       formula_transform = mapply(my_calculate_formula, formula1, formula1, fold-1)
+      #------------------------------------------------------------------------#
     } else if(category == "Experiment_MS2_fragment"){
       # node1 cannot be metabolite, and node2 to be anything
       node1 = EdgeSet_df$node1[i]
@@ -2046,10 +2063,6 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
     merge(EdgeSet_df, all.x = T) %>%
     mutate(formula1 = ilp_nodes_formula[ilp_nodes1],
            formula2 = ilp_nodes_formula[ilp_nodes2]) %>%
-    # Remove those oligomer edge linking both metabolites
-    filter(!(ilp_nodes1 %in% ilp_nodes_met$ilp_node_id &
-               ilp_nodes2 %in% ilp_nodes_met$ilp_node_id &
-               category %in% "Oligomer")) %>%
     mutate(ilp_edge_id = 1:nrow(.))
   
   return(ilp_edges)
@@ -2146,7 +2159,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
                            rule_score_biotransform = 0, rule_score_adduct = 0.5, 
                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
-                           rule_score_radical = 0.2, rule_score_multicharge_isotope = 1,
+                           rule_score_radical = 0.2, rule_score_multicharge = 0.5, rule_score_multicharge_isotope = 1,
                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                            rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                            inten_score_isotope = 1, 
@@ -2179,9 +2192,10 @@ score_ilp_edges = function(CplexSet, NodeSet,
         category == "Biotransform" ~ rule_score_biotransform,
         category == "Ring_artifact" ~ rule_score_ring_artifact,
         category == "Experiment_MS2_fragment" ~ rule_score_experiment_MS2_fragment,
-        category == "Library_MS2_fragment" ~ 0,
+        category == "Library_MS2_fragment" ~ 0, # special handling below
         category == "Natural_abundance" ~ rule_score_natural_abundance,
         category == "Oligomer" ~ rule_score_oligomer,
+        category == "Multicharge" ~ rule_score_multicharge, 
         category == "Fragment" ~ rule_score_fragment,
         category == "Adduct" ~ rule_score_adduct, 
         category == "Radical" ~ rule_score_radical,
@@ -3018,13 +3032,11 @@ initiate_g_nonmet = function(ilp_nodes, ilp_edges, heterodimer_ilp_edges){
     dplyr::select(ilp_nodes1, ilp_nodes2, everything())
   
   ilp_edges_nonmet_reorder1 = ilp_edges_nonmet %>%
-    filter(direction %in% c(0, 1)) %>%
-    mutate(direction = 1) %>%
+    filter(direction == 1) %>%
     dplyr::rename(from = ilp_nodes1, to = ilp_nodes2)
   
   ilp_edges_nonmet_reorder2 = ilp_edges_nonmet %>%
-    filter(direction %in% c(0, -1)) %>%
-    mutate(direction = -1) %>%
+    filter(direction == -1) %>%
     dplyr::rename(from = ilp_nodes2, to = ilp_nodes1)
   
   ilp_edges_nonmet_directed = bind_rows(ilp_edges_nonmet_reorder1, ilp_edges_nonmet_reorder2)
@@ -3186,8 +3198,7 @@ track_annotation_nonmet = function(query_ilp_id,
   # g_annotation = g_nonmet
   # graph_path_mode = "out"
   # dist_mat = nonmet_dist_mat
-  # core_annotation_unique = core_annotation_nonmet
-  # query_ilp_id = 56
+  # query_ilp_id = 287
   
   if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
     return("Not existed in distance matrix")
@@ -3236,10 +3247,10 @@ track_annotation_nonmet = function(query_ilp_id,
       }
       
       temp_sign = case_when(
-        temp_ilp_edge$direction[1] != -1 & temp_ilp_edge$category[1] == "Oligomer" ~ "*",
-        temp_ilp_edge$direction[1] == -1 & temp_ilp_edge$category[1] == "Oligomer" ~ "/",
-        temp_ilp_edge$direction[1] != -1 & temp_ilp_edge$category[1] == "Heterodimer" ~ "+ Peak",
-        temp_ilp_edge$direction[1] != -1 ~ "+",
+        temp_ilp_edge$category[1] == "Oligomer" ~ "*",
+        temp_ilp_edge$category[1] == "Multicharge" ~ "/",
+        temp_ilp_edge$category[1] == "Heterodimer" ~ "+ Peak",
+        temp_ilp_edge$direction[1] == 1 ~ "+",
         temp_ilp_edge$direction[1] == -1 ~ "-"
       )
       
