@@ -198,7 +198,8 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
                                             rule_score_biotransform = 0, rule_score_adduct = 0.5, 
                                             rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
                                             rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
-                                            rule_score_radical = 0.2, rule_score_multicharge_isotope = 1, 
+                                            rule_score_radical = 0.2, rule_score_multicharge = 0.5, 
+                                            rule_score_multicharge_isotope = 1, 
                                             rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
                                             rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
                                             inten_score_isotope = 1, 
@@ -251,14 +252,17 @@ print(Sys.time()-printtime)
     filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
     # filter(grepl("Thiamine", path))
     filter(T)
+  
+  saveRDS(list(ilp_nodes = ilp_nodes,
+               ilp_edges = ilp_edges, 
+               heterodimer_ilp_edges = heterodimer_ilp_edges,
+               FormulaSet_df = FormulaSet_df,
+               LibrarySet = LibrarySet),
+          "output.rds")
 }
 
 # Path annotation ####
 {
-  # core_met annotation 
-  # Does optimization result impact ranking? 
-  # No, it does not. Optimization selects different formulas, the ranking selects structure.
-  
   core_annotation = core_annotate(ilp_nodes, FormulaSet_df, LibrarySet)
   core_annotation_unique = core_annotate_unique(core_annotation)
   g_met = initiate_g_met(ilp_nodes, ilp_edges)
@@ -300,6 +304,10 @@ print(Sys.time()-printtime)
   
   ilp_nodes_annotation = ilp_nodes %>%
     mutate(path = path_annotation)
+  
+  test = ilp_edges %>%
+    filter(category != "Biotransform")
+  tabyl(test, category, direction)
 }
 
 print("total run time")
@@ -360,8 +368,8 @@ print(Sys.time()-printtime)
   test3_filter = test3 %>%
     filter(sig > 5) %>%
     # filter(category == "Adduct") %>%
-    filter(category == "Natural_abundance") %>%
-    filter(Feature == "Metabolite") %>%
+    filter(category == "Multicharge") %>%
+    # filter(Feature == "Metabolite") %>%
     # filter(Feature == "Isotope") %>%
     # filter(!Feature %in% c("Buffer Sensitive", "Fragment_CID")) %>%
     # filter(Feature...23 != "Metabolite") %>%
@@ -376,7 +384,6 @@ print(Sys.time()-printtime)
   # write_csv(test3, paste(work_dir, timestamp,"NetID.csv", sep="_"))
   # write_csv(crosstable2, paste(work_dir, timestamp,"crosstable2.csv", sep="_"))
   library(janitor)
-  test4 = tabyl(test3, Feature)
   crosstable = tabyl(test3, Feature, category, Feature...23)
   crosstable = tabyl(test3, Feature, category)
   crosstable2 = tabyl(test3, category, Feature)
@@ -416,7 +423,7 @@ print(Sys.time()-printtime)
   Input_id = 603
   Mset$Data$id[Mset$Data$Input_id == Input_id]
 
-  node_id_selected = 540
+  node_id_selected = 124
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id %in% node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
@@ -433,6 +440,7 @@ print(Sys.time()-printtime)
     filter(node1 == node_id_selected | node2 == node_id_selected)
   ilp_nodes_related_to_edge = ilp_nodes_ilp %>%
     filter(node_id %in% c(edge_related_to_node$node1, edge_related_to_node$node2)) 
+  
   
 }
 
