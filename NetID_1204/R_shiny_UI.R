@@ -46,7 +46,7 @@ ui <- tagList(
     
       ## mainPanel ####
       mainPanel(
-        tabPanel("peak_table", dataTableOutput("peak_list"))
+        tabPanel("peak_table", DT::dataTableOutput("peak_list"))
       )
     ),
       
@@ -119,8 +119,12 @@ ui <- tagList(
                ),
                ## Structure ####
                column(5,
-                      plotOutput("structure"),
-                      dataTableOutput("structure_list")
+                      plotOutput("structure", 
+                                 click = clickOpts(id = "struct_plot_click"),
+                                 dblclick = dblclickOpts(id = "struct_plot_dblclick"),
+                                 hover = hoverOpts(id = "struct_plot_hover"),
+                                 brush = brushOpts(id = "struct_plot_brush")),
+                      DT::dataTableOutput("structure_list")
                       
                       ## Structure here ##
                       )
