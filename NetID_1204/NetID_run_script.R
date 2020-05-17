@@ -55,7 +55,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
     mutate(id = 1:nrow(.),
            yeast = 10^sig,
            yeast2 = 10^sig) %>%
-    filter(is.na(Background)) %>%
+    # filter(is.na(Background)) %>%
     dplyr::select(colnames(Mset$Raw_data))
   Mset[["Raw_data"]] = raw_data_WL
 }
@@ -232,7 +232,7 @@ print(Sys.time()-printtime)
   
   ilp_nodes = CplexSet$ilp_nodes %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.)]) %>%
-    inner_join(Mset$Data %>% dplyr::select(id, Input_id), by = c("node_id"="id")) %>%
+    inner_join(Mset$Data %>% dplyr::select(id, Input_id, log10_inten, medMz, medRt), by = c("node_id"="id")) %>%
     filter(T)
   
   ilp_edges = CplexSet$ilp_edges %>%
@@ -243,22 +243,12 @@ print(Sys.time()-printtime)
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
   
-  ilp_nodes_ilp = ilp_nodes %>%
-    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
-    # filter(grepl("Thiamine", path))
-    filter(T)
-  
-  ilp_edges_ilp = ilp_edges %>%
-    filter(ilp_result > 0.01 | is.na(ilp_result)) %>%
-    # filter(grepl("Thiamine", path))
-    filter(T)
-  
   saveRDS(list(ilp_nodes = ilp_nodes,
                ilp_edges = ilp_edges, 
                heterodimer_ilp_edges = heterodimer_ilp_edges,
                FormulaSet_df = FormulaSet_df,
                LibrarySet = LibrarySet),
-          "output.rds")
+          paste(timestamp, "output.rds", sep="_"))
 }
 
 # Path annotation ####
@@ -273,15 +263,15 @@ print(Sys.time()-printtime)
   
   nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, ilp_nodes, only_ilp_result = T)
   
-  core_annotation_nonmet = as_data_frame(g_nonmet, "vertices") %>%
+  core_annotation_nonmet = igraph::as_data_frame(g_nonmet, "vertices") %>%
     filter(category != "Unknown") %>%
     filter(steps %% 1 == 0) %>%
     mutate(core_annotate = paste("Peak", node_id, formula)) %>%
     dplyr::rename(ilp_node_id = name) %>%
     mutate(ilp_node_id = as.integer(ilp_node_id))
   
-  ilp_edges_annotate_met = as_data_frame(g_met)
-  ilp_edges_annotate_nonmet = as_data_frame(g_nonmet)
+  ilp_edges_annotate_met = igraph::as_data_frame(g_met)
+  ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet)
   
   # Roughly 10s ~ 1000 entries(including skipped ones)
   path_annotation = rep("", nrow(ilp_nodes))
@@ -305,9 +295,6 @@ print(Sys.time()-printtime)
   ilp_nodes_annotation = ilp_nodes %>%
     mutate(path = path_annotation)
   
-  test = ilp_edges %>%
-    filter(category != "Biotransform")
-  tabyl(test, category, direction)
 }
 
 print("total run time")
@@ -354,7 +341,7 @@ print(Sys.time()-printtime)
 {
   test = ilp_nodes_annotation %>% 
     filter(ilp_result > 0.01)
-  test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T) %>%
+  test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T, suffixes = c("",".y")) %>%
     dplyr::select(colnames(WL), node_id, class, path, formula, ppm_error, parent_id, parent_formula, transform, category, mass)
     
   # write_csv(test2, "WL_neg_NetID.csv", na="")
@@ -366,20 +353,18 @@ print(Sys.time()-printtime)
     mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
   
   test3_filter = test3 %>%
-    filter(sig > 5) %>%
-    # filter(category == "Adduct") %>%
-    filter(category == "Multicharge") %>%
-    # filter(Feature == "Metabolite") %>%
-    # filter(Feature == "Isotope") %>%
-    # filter(!Feature %in% c("Buffer Sensitive", "Fragment_CID")) %>%
-    # filter(Feature...23 != "Metabolite") %>%
-    # filter(category != "Unknown") %>%
+    filter(sig > 5.7) %>%
+    filter(class == "Unknown") %>%
+    # filter(class == "Metabolite") %>%
     # mutate(C_count = sapply(formula, elem_num_query, "C"),
     #        N_count = sapply(formula, elem_num_query, "N")) %>%
     # mutate(CN_match = (N_count == N) & (C_count == C)) %>%
+    # filter(C!=0 | N!=0) %>%
     # filter(!is.na(C)) %>%
     # filter(!CN_match) %>%
     filter(T)
+  
+  # table(test3_filter$CN_match)
   
   # write_csv(test3, paste(work_dir, timestamp,"NetID.csv", sep="_"))
   # write_csv(crosstable2, paste(work_dir, timestamp,"crosstable2.csv", sep="_"))
@@ -423,7 +408,7 @@ print(Sys.time()-printtime)
   Input_id = 603
   Mset$Data$id[Mset$Data$Input_id == Input_id]
 
-  node_id_selected = 124
+  node_id_selected = 4640
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id %in% node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
@@ -435,6 +420,13 @@ print(Sys.time()-printtime)
     filter(node1 == node_id_selected | node2 == node_id_selected | linktype == node_id_selected) %>%
     arrange(-cplex_score, category) %>%
     filter(T)
+  edges_selected = EdgeSet_all_df %>%
+    filter(node1 == node_id_selected | node2 == node_id_selected)
+   
+  test = test3 %>%
+    # filter(empirical_POratio_prior == 0) %>%
+    filter(grepl("Cr", formula))
+  tabyl(test, Feature)
   
   edge_related_to_node = EdgeSet_all_df %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
