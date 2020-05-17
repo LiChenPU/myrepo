@@ -18,6 +18,19 @@
   library(cplexAPI)
   library(readxl)
   library(stringr)
+  # Shiny library
+  library(shiny)
+  library(igraph)
+  library(reactlog)
+  library(ShinyTester)
+  library(shinythemes)
+  library(visNetwork)
+  library(dplyr)
+  library(RColorBrewer)
+  library(stringr)
+  library(ChemmineR)
+  library(ChemmineOB)
+  
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   options(scipen=999) # Turn off scientific expression
 }
@@ -1682,7 +1695,7 @@ Score_formulaset = function(FormulaSet,
     formula_Si = sapply(formula_Si, function(x){sum(as.numeric(x))})
     
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O >= 2*formula_Si, 0, -10))
+      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O > 1*formula_Si, 0, -10))
   }
   
   # Penalize formula based on RDBE rule
@@ -3363,10 +3376,11 @@ network_annotation_nonmet = function(query_ilp_id,
                                   weight_tol = 1,
                                   optimized_only = T){
   
-  # query_ilp_id = 3
+  # query_ilp_id = 6030
   # g_annotation = g_nonmet
   # core_ilp_node = core_nonmet
   # weight_tol = 1
+  # optimized_only = T
   
   if(optimized_only){
     g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
@@ -3376,7 +3390,8 @@ network_annotation_nonmet = function(query_ilp_id,
     g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
       filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
       arrange(-ilp_result) %>%
-      distinct(from, to, .keep_all=T) 
+      distinct(from, to, .keep_all=T) %>%
+      filter(ilp_result>1e-6)
     
     g_annotation = graph_from_data_frame(g_edges, 
                                          directed = T, 
@@ -3469,7 +3484,8 @@ network_child_nonmet = function(query_ilp_id,
     g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
       filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
       arrange(-ilp_result) %>%
-      distinct(from, to, .keep_all=T) 
+      distinct(from, to, .keep_all=T) %>%
+      filter(ilp_result > 0.01)
     
     g_annotation = graph_from_data_frame(g_edges, 
                                          directed = T, 
@@ -3486,15 +3502,12 @@ network_child_nonmet = function(query_ilp_id,
 }
 
 ## Plot_g_interest ####
-Plot_g_interest = function(g_interest, query_ilp_node, show_metabolite_labels = T, show_artifact_labels = T,
-                           show_biotransform_edge_labels = T, show_artifact_edge_labels = T)
+Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, show_edge_labels = T)
 {
   
-  # query_ilp_node = 523
-  # show_metabolite_labels = T
-  # show_artifact_labels = T
-  # show_biotransform_edge_labels = T
-  # show_artifact_edge_labels = T
+  # query_ilp_node = 871
+  # show_node_labels = T
+  # show_edge_labels = T
   
   if(!is.igraph(g_interest)){return(NULL)}
   
@@ -3521,34 +3534,18 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_metabolite_labels = 
   
   
   
-  if(show_metabolite_labels){
+  if(show_node_labels){
     nodes = nodes %>%
-      mutate(label = ifelse(class == "Metabolite", formula, label))
-  }
-  
-  if(show_artifact_labels){
-    nodes = nodes %>%
-      mutate(label = ifelse(class == "Artifact", formula, label))
+      mutate(label = formula)
   }
   
   edges = igraph::as_data_frame(g_interest, "edges") %>%
     mutate(arrows = "to") %>%
     mutate(label = "") %>%
-    # mutate(color = case_when(
-    #   category == "Biotransform" ~ my_palette[1],
-    #   category != "Biotransform" ~ my_palette[3]
-    # )) %>%
     mutate(color = "#666666") %>%
-    # mutate(title = paste0(category, "<br>",
-    #                       ifelse(direction==-1, paste0("-",linktype), linktype), "<br>")
-    # ) %>%
     filter(T)
   
-  if(show_biotransform_edge_labels){
-    edges = edges %>%
-      mutate(label = ifelse(category == "Biotransform", linktype, label))
-  }
-  if(show_artifact_edge_labels){
+  if(show_edge_labels & nrow(edges)!=0){
     edges = edges %>%
       mutate(label = case_when(
         category == "Multicharge" ~ paste0(linktype, "-charge"),
@@ -3560,29 +3557,20 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_metabolite_labels = 
       ))
   }
   
-  visNetwork(nodes, edges, height = "100%", width = "100%") %>% 
+  visNetwork(nodes, edges) %>% 
     visLegend() %>%
     visOptions(manipulation = TRUE, 
-               highlightNearest = TRUE, 
-               nodesIdSelection = TRUE
+               highlightNearest = TRUE
+               # height = "100%", width = "100%"
     ) %>%
-    # visGroups(groupname = "Metabolite", color = my_palette[1]) %>%
-    # visGroups(groupname = "Artifact", color = my_palette[3]) %>%
-    # visGroups(groupname = "Unknown", color = "#666666") %>%
+    visEvents(click = "function(nodes){
+                  Shiny.onInputChange('click', nodes.nodes[0]);
+              ;}") %>%
     visInteraction(navigationButtons = TRUE) %>%
-    visPhysics(stabilization = F) %>%
-    # visLayout(randomSeed = 123) %>%
-    # visLayout(hierarchical = TRUE) %>%
-    # visLayout(randomSeed = 123)
-    visIgraphLayout(layout = "layout_nicely")
+    visIgraphLayout(layout = "layout_with_fr", 
+                    randomSeed = 123)
   
 }
-
-
-
-
-
-
 ## Network annotation ####
 empty_function = function(){
   {
@@ -3625,6 +3613,22 @@ empty_function = function(){
     
     plot.igraph(g_met_selected)
   }
+}
+## my_SMILES2structure ####
+my_SMILES2structure =function(SMILES){
+  SDF = try(smiles2sdf(SMILES), silent=T)
+  if(inherits(SDF, "try-error")){
+    plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+    text(x=0.5, y=0.5, paste("Invalid SMILES"))
+    return(0)
+  }
+  tryError = try(ChemmineR::plotStruc(SDF[[1]]), silent=T)
+  if(inherits(tryError, "try-error")){
+    plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+    text(x=0.5, y=0.5, paste("Invalid SDF"))
+    return(0)
+  }
+  return(1)
 }
 # MS2 functions ---------- #####
 ## Read Xi MS2 format file ####
