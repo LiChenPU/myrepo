@@ -9,16 +9,13 @@ server <- function(input, output, session) {
       show_peak_list(ilp_nodes,
                      mz_interest = input$mz_interest, 
                      ion_form = input$ion_form, 
-                     mz_ppm = input$mz_ppm,
-                     input$Peak_inten_range[1], input$Peak_inten_range[2],
-                     mz_lb = input$mz_range[1], mz_ub = input$mz_range[2],
-                     rt_lb = input$rt_range[1], rt_ub = input$rt_range[2])
+                     mz_ppm = input$mz_ppm)
       
     })
     
     output$peak_list <- DT::renderDataTable({
       peak_list()
-    }, options = list(pageLength = 10),
+    }, options = list(pageLength = 12),
     filter = 'bottom',
     rownames = FALSE
     )
