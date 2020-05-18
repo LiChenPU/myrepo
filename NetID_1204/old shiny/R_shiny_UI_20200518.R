@@ -14,7 +14,7 @@ ui <- tagList(
         ## filter and parameter ####
         column(3, 
                wellPanel(
-                 textInput(inputId = "input_interest", 
+                 numericInput(inputId = "mz_interest", 
                               label = "Enter a mz or formula of interest",
                               value = 0),
                  selectInput(inputId = "ion_form", 
@@ -24,8 +24,24 @@ ui <- tagList(
                  numericInput(inputId = "mz_ppm", 
                               label = "ppm",
                               value = 3)
-                 )
+                 ),
                
+               wellPanel(
+                 numericInput(inputId = "peak_id",
+                              label = "Peak ID",
+                              value = 1
+                 ),
+                 selectInput(inputId = "formula",
+                             label = "Formula",
+                             choices = character(0)
+                 ),
+                 selectInput(inputId = "class",
+                             label = "Class",
+                             choices = character(0)
+                 ),
+                 checkboxInput("optimized_only", "optimized_only",
+                               value = T)
+               )
         ),
         
         ## peak_list ####
@@ -35,30 +51,8 @@ ui <- tagList(
         
       ),
       
-      br(),
-      hr(),
-      
-      fluidRow(
-        column(2,
-               numericInput(inputId = "peak_id",
-                            label = "Peak ID",
-                            value = 1)),
-        column(2,
-               selectInput(inputId = "formula",
-                           label = "Formula",
-                           choices = character(0))),
-        column(2,
-               selectInput(inputId = "class",
-                           label = "Class",
-                           choices = character(0))),
-        column(2,
-               checkboxInput("optimized_only", "optimized_only",
-                             value = T))
-      ),
-      
       fluidRow(
         ## Network plot and options ####
-        
         column(6,
                column(2,
                       checkboxInput("node_labels", "Node labels",
@@ -79,7 +73,7 @@ ui <- tagList(
                ),
         
         ## Structure ####
-        column(6,
+        column(5,
                plotOutput("structure", 
                           click = clickOpts(id = "struct_plot_click"),
                           dblclick = dblclickOpts(id = "struct_plot_dblclick"),

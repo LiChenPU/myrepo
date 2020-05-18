@@ -36,6 +36,8 @@ setwd(datapath)
   # ilp_edges_annotate_met = igraph::as_data_frame(g_met, "edges")
   # ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet, "edges")
   core_rank = core_annotate(ilp_nodes, dt$FormulaSet_df, dt$LibrarySet)
+  
+  data(isotopes)
 
 }
 
