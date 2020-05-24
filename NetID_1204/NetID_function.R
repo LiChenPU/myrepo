@@ -18,18 +18,7 @@
   library(cplexAPI)
   library(readxl)
   library(stringr)
-  # Shiny library
-  library(shiny)
-  library(igraph)
-  library(reactlog)
-  library(ShinyTester)
-  library(shinythemes)
-  library(visNetwork)
-  library(dplyr)
-  library(RColorBrewer)
-  library(stringr)
-  library(ChemmineR)
-  library(ChemmineOB)
+
   
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   options(scipen=999) # Turn off scientific expression
@@ -1170,13 +1159,14 @@ propagate_experiment_MS2_fragment = function(new_nodes_df, sf,
                                                EdgeSet_experiment_MS2_fragment, 
                                                NodeSet, current_step){
   
+  
   if(nrow(EdgeSet_experiment_MS2_fragment)==0){
     return(NULL)
   }
   node_mass = sapply(NodeSet, "[[", "mz")
   
-  node1 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node1")
-  node2 = sapply(EdgeSet_experiment_MS2_fragment, "[[", "node2")
+  node1 = EdgeSet_experiment_MS2_fragment$node1
+  node2 = EdgeSet_experiment_MS2_fragment$node2
   node1_node2_mapping = bind_rows(EdgeSet_experiment_MS2_fragment) %>%
     dplyr::select(-c("category", "linktype", "direction"))
   
@@ -1450,7 +1440,7 @@ Propagate_formulaset = function(Mset,
         dplyr::select(-msr_mass, -mass_dif, -mass_retain, -formula1, -formula2, -edge_id)
       
       sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experiment_MS2_fragment) %>%
-        dplyr::select(-formula1, -formula2, -edge_id)
+        dplyr::select(-formula1, -formula2, -mass_dif, -edge_id)
       
       sf = match_library(lib_artifact,
                          sf,
@@ -1695,7 +1685,8 @@ Score_formulaset = function(FormulaSet,
     formula_Si = sapply(formula_Si, function(x){sum(as.numeric(x))})
     
     FormulaSet_df = FormulaSet_df %>%
-      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & formula_O > 1*formula_Si, 0, -10))
+      mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & 
+                                                formula_O >= 1.01*formula_Si, 0, -10)) # make sure when no O and no Si, it is true
   }
   
   # Penalize formula based on RDBE rule
@@ -1846,20 +1837,9 @@ score_ilp_nodes = function(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate
   # Score mass accuracy
   {
     ilp_nodes = ilp_nodes %>%
-      # Allow machine mass accuracy MassDistsigma or ppm_error to have different number than general
-      # mutate(score_mass = ifelse(mass < 100, 
-      #                            dnorm(ppm_error/3, 0, MassDistsigma)/dnorm(0, 0, MassDistsigma),
-      #                            dnorm(ppm_error, 0, MassDistsigma)/dnorm(0, 0, MassDistsigma))) %>%
-      # mutate(score_mass = score_mass+1e-10) %>%
       mutate(score_mass = dgamma(abs(ppm_error), 1, scale = mass_dist_gamma_rate) * mass_dist_gamma_rate) %>%
       mutate(score_mass = log10(score_mass)) %>%
       filter(T)
-    # 
-    # temp = integer(0)
-    # for(i in seq(0,5,0.01)){
-    #   temp[length(temp)+1]=dgamma(i, shape=1, scale = mass_dist_gamma_rate)*mass_dist_gamma_rate
-    # }
-    # plot(seq(0,5,0.01), log(temp))
   }
 
   # Score penalties for isotopes
@@ -3206,91 +3186,6 @@ track_annotation_met = function(query_ilp_id,
 }
 
 
-## network_annotation_met ####  
-network_annotation_met = function(query_ilp_id, 
-                                  g_annotation = g_met, 
-                                  core_ilp_node = core_met,
-                                  optimized_only = T){
-  
-  # g_annotation = g_met
-  # query_ilp_id = 2
-  # core_ilp_node = core_met
-  
-  if(optimized_only){
-    g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-      filter(ilp_result != 0)
-    g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-      filter(from %in% g_nodes$name, to %in% g_nodes$name)
-
-    g_annotation = graph_from_data_frame(g_edges,
-                                         directed = T,
-                                         vertices = g_nodes)
-
-    core_ilp_node = core_ilp_node %>%
-      filter(ilp_result != 0)
-  }
-  
-  core_ilp_id = as.character(core_ilp_node$ilp_node_id)
-  query_ilp_id = as.character(query_ilp_id)
-  
-  valid_ilp_ids = igraph::as_data_frame(g_annotation, "vertices") %>% pull(name)
-  
-  if(!any(query_ilp_id == valid_ilp_ids)){
-    return(NULL)
-  }
-  
-  query_distMatrix <- shortest.paths(g_annotation,
-                                     v=core_ilp_id,
-                                     to=query_ilp_id,
-                                     mode = "all")
-  
-  query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
-  
-  if(is.infinite(query_distMatrix_min)){
-    sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-      filter(name == query_ilp_id)
-    
-    sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-      filter(FALSE)
-    
-    g_met_interest = graph_from_data_frame(sub_edges,
-                                           directed = T,
-                                           vertices = sub_nodes)
-    return(g_met_interest)
-  }
-  
-  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
-  parent_selected = core_ilp_id[shortest_ilp_nodes]
-  paths_connect_ij_nodes = lapply(parent_selected, function(x){
-    shortest_paths(g_annotation, 
-                   from = x, 
-                   to = query_ilp_id, 
-                   mode = "all", 
-                   output = "vpath")
-  })
-  
-  ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
-    x[[1]] %>% unlist() %>% names() %>% as.numeric()
-  })
-  
-  ilp_node_interest = unlist(ilp_node_path)
-  
-  sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-    filter(name %in% as.character(ilp_node_interest))
-  
-  sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-    filter(from %in% as.character(ilp_node_interest) & 
-             to %in% as.character(ilp_node_interest))
-  
-  g_met_interest = graph_from_data_frame(sub_edges,
-                                     directed = F,
-                                     vertices = sub_nodes)
-  # plot.igraph(g_met_interest)
-
-  return(g_met_interest)
-}
-
-
 ## track_annotation_nonmet ####  
 track_annotation_nonmet = function(query_ilp_id, 
                                    ilp_edges_annotate,
@@ -3369,208 +3264,6 @@ track_annotation_nonmet = function(query_ilp_id,
   return(temp_annotation)
 }
 
-## network_annotation_nonmet ####  
-network_annotation_nonmet = function(query_ilp_id, 
-                                  g_annotation = g_nonmet, 
-                                  core_ilp_node = core_nonmet, 
-                                  weight_tol = 1,
-                                  optimized_only = T){
-  
-  # query_ilp_id = 6030
-  # g_annotation = g_nonmet
-  # core_ilp_node = core_nonmet
-  # weight_tol = 1
-  # optimized_only = T
-  
-  if(optimized_only){
-    g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-      filter(ilp_result != 0)
-    # g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-    #   filter(ilp_result != 0)
-    g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-      filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
-      arrange(-ilp_result) %>%
-      distinct(from, to, .keep_all=T) %>%
-      filter(ilp_result>1e-6)
-    
-    g_annotation = graph_from_data_frame(g_edges, 
-                                         directed = T, 
-                                         vertices = g_nodes)
-    
-    core_ilp_node = core_ilp_node %>%
-      filter(ilp_result != 0)
-  }
-  
-  core_ilp_id = as.character(core_ilp_node$ilp_node_id)
-  query_ilp_id = as.character(query_ilp_id)
-  
-  valid_ilp_ids = igraph::as_data_frame(g_annotation, "vertices") %>% pull(name)
-  
-  if(!any(query_ilp_id == valid_ilp_ids)){
-    return(NULL)
-  }
-  
-
-  g_edge = igraph::as_data_frame(g_annotation, "edges")
-  
-  query_distMatrix <- shortest.paths(g_annotation,
-                                     v=core_ilp_id,
-                                     to=query_ilp_id,
-                                     mode = "out",
-                                     weights = g_edge$edge_weight)
-  
-  query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
-  
-  if(is.infinite(query_distMatrix_min)){
-    sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-      filter(name == query_ilp_id)
-    
-    sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-      filter(FALSE)
-    
-    g_interest = graph_from_data_frame(sub_edges,
-                                           directed = F,
-                                           vertices = sub_nodes)
-    return(g_interest)
-  }
-  
-  shortest_ilp_nodes = which(query_distMatrix < query_distMatrix_min+weight_tol)
-  # shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
-  parent_selected = core_ilp_id[shortest_ilp_nodes]
-  paths_connect_ij_nodes = lapply(parent_selected, function(x){
-    all_shortest_paths(g_annotation, 
-                   from = x, 
-                   to = query_ilp_id, 
-                   mode = "out")
-  })
-  
-  ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
-    x[[1]] %>% unlist() %>% names() %>% as.numeric()
-  })
-  
-  ilp_node_interest = unlist(ilp_node_path)
-  
-  sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-    filter(name %in% as.character(ilp_node_interest))
-  
-  sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-    filter(from %in% as.character(ilp_node_interest) & 
-             to %in% as.character(ilp_node_interest))
-  
-  g_interest = graph_from_data_frame(sub_edges,
-                                         directed = T,
-                                         vertices = sub_nodes)
-  # plot.igraph(g_interest)
-  return(g_interest)
-}
-
-## network_child_nonmet ####  
-network_child_nonmet = function(query_ilp_id, 
-                                g_annotation = g_nonmet,
-                                connect_degree = 1, 
-                                optimized_only = T){
-  
-  # query_ilp_id = 3
-  # g_annotation = g_nonmet
-  # core_ilp_node = core_nonmet
-  
-  query_ilp_id = as.character(query_ilp_id)
-  
-  if(optimized_only){
-    g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
-      filter(ilp_result != 0)
-    # g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-    #   filter(ilp_result != 0)
-    g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-      filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
-      arrange(-ilp_result) %>%
-      distinct(from, to, .keep_all=T) %>%
-      filter(ilp_result > 0.01)
-    
-    g_annotation = graph_from_data_frame(g_edges, 
-                                         directed = T, 
-                                         vertices = g_nodes)
-  }
-  
-  g_partner = make_ego_graph(g_annotation, 
-                             connect_degree,
-                             nodes = query_ilp_id, 
-                             mode = c("out"))[[1]]
-  
-  # plot.igraph(g_partner)
-  return(g_partner)
-}
-
-## Plot_g_interest ####
-Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, show_edge_labels = T)
-{
-  
-  # query_ilp_node = 871
-  # show_node_labels = T
-  # show_edge_labels = T
-  
-  if(!is.igraph(g_interest)){return(NULL)}
-  
-  my_palette = brewer.pal(4, "Set3")
-  nodes = igraph::as_data_frame(g_interest, "vertices") %>%
-    dplyr::rename(id = name) %>%
-    mutate(size = log10_inten * 2) %>%
-    mutate(label = "") %>%
-    mutate(color = case_when(
-      # assigned to the first color, not overwitten by later assignment
-      id == as.character(query_ilp_node) ~ my_palette[4],
-      class == "Metabolite" ~ my_palette[1],
-      class == "Artifact" ~ my_palette[3],
-      class == "Unknown" ~ "#666666"
-    )) %>%
-    # [:digit:] means 0-9, \\. means ".", + means one or more, \\1 means the content in (), <sub> is HTML language
-    mutate(formula_sub = str_replace_all(formula,"([[:digit:]|\\.|-]+)","<sub>\\1</sub>")) %>%
-    mutate(title = paste0("Formula:", formula_sub, "<br>",
-                          "ID:", node_id, "<br>",
-                          "mz:", round(medMz,4), "<br>",
-                          "RT:", round(medRt,2), "<br>",
-                          "TIC:", format(signif(10^log10_inten,5), scientific = T))
-    )
-  
-  
-  
-  if(show_node_labels){
-    nodes = nodes %>%
-      mutate(label = formula)
-  }
-  
-  edges = igraph::as_data_frame(g_interest, "edges") %>%
-    mutate(arrows = "to") %>%
-    mutate(label = "") %>%
-    mutate(color = "#666666") %>%
-    filter(T)
-  
-  if(show_edge_labels & nrow(edges)!=0){
-    edges = edges %>%
-      mutate(label = case_when(
-        category == "Multicharge" ~ paste0(linktype, "-charge"),
-        category == "Oligomer" ~ paste0(linktype, "-mer"),
-        category == "Heterodimer" ~ paste0("Peak ", linktype),
-        category == "Library_MS2_fragment" ~ linktype,
-        direction == -1 ~ paste0("-", linktype),
-        T ~ linktype
-      ))
-  }
-  
-  visNetwork(nodes, edges) %>% 
-    visLegend() %>%
-    visOptions(manipulation = TRUE, 
-               highlightNearest = TRUE
-               # height = "100%", width = "100%"
-    ) %>%
-    visEvents(click = "function(nodes){
-                  Shiny.onInputChange('click', nodes.nodes[0]);
-              ;}") %>%
-    visInteraction(navigationButtons = TRUE) %>%
-    visIgraphLayout(layout = "layout_with_fr", 
-                    randomSeed = 123)
-  
-}
 ## Network annotation ####
 empty_function = function(){
   {
@@ -3614,22 +3307,6 @@ empty_function = function(){
     plot.igraph(g_met_selected)
   }
 }
-## my_SMILES2structure ####
-my_SMILES2structure =function(SMILES){
-  SDF = try(smiles2sdf(SMILES), silent=T)
-  if(inherits(SDF, "try-error")){
-    plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
-    text(x=0.5, y=0.5, paste("Invalid SMILES"))
-    return(0)
-  }
-  tryError = try(ChemmineR::plotStruc(SDF[[1]]), silent=T)
-  if(inherits(tryError, "try-error")){
-    plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
-    text(x=0.5, y=0.5, paste("Invalid SDF"))
-    return(0)
-  }
-  return(1)
-}
 # MS2 functions ---------- #####
 ## Read Xi MS2 format file ####
 Add_MS2_nodeset = function(MS2_folder, NodeSet){
@@ -3642,6 +3319,7 @@ Add_MS2_nodeset = function(MS2_folder, NodeSet){
   setwd(MS2_folder)
   
   MS2_filenames = list.files(pattern = ".xlsx")
+  
   for(i_filename in 1:length(MS2_filenames)){
     MS2_filename = MS2_filenames[i_filename]
     
