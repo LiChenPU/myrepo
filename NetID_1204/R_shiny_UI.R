@@ -1,7 +1,7 @@
-
 ## ui ####
 ui <- tagList(
   # shinythemes::themeSelector(),
+  useShinyjs(),
   navbarPage(
     theme = shinytheme("cerulean"), # other theme can be viewed from themeSelector()
     "NetID",
@@ -81,10 +81,19 @@ ui <- tagList(
         ## Structure ####
         column(6,
                plotOutput("structure", 
-                          click = clickOpts(id = "struct_plot_click"),
-                          dblclick = dblclickOpts(id = "struct_plot_dblclick"),
-                          hover = hoverOpts(id = "struct_plot_hover"),
-                          brush = brushOpts(id = "struct_plot_brush")),
+                            dblclick = dblclickOpts(id = "struct_plot_dblclick")),
+                 
+               textOutput("struct_annotation"),
+               
+               column(2, offset = 3, 
+                      actionButton("previous_struct", "<-")),
+               column(2, offset = 0, 
+                      actionButton("next_struct", "->")),
+               column(2, 
+                      selectInput(inputId = "struct_num",
+                                  label = NULL,
+                                  choices = numeric(0))),
+               
                DT::dataTableOutput("structure_list")
         )
       )

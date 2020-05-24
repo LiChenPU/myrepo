@@ -1,19 +1,18 @@
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 source('R_shiny_functions.R')
-source("NetID_function.R")
-
 # options(shiny.reactlog=TRUE) # Enable reactlog here
-# shiny::showReactLog() # Run after closing the app
 # options(digits = 8)
 
 # Read in files ####
-datapath = ("./Xi_new_neg")
+datapath = "./WL_liver_neg"
 setwd(datapath)
+filename = "20200519181142_output.rds"
 
-# Prepare 
+
+# Global parameter in the backgroun ####
 {
-  dt = readRDS("20200518002230_output.rds")
+  dt = readRDS(filename)
   
   ilp_nodes = dt$ilp_nodes %>%
     mutate(medMz = signif(medMz, 7),
@@ -44,58 +43,16 @@ setwd(datapath)
 ## Run shiny ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  source("NetID_function.R")
+  reactlogReset()
   source('R_shiny_functions.R')
   source('R_shiny_UI.R', local = TRUE)
   source('R_shiny_Server.R')
   app = shinyApp(ui = ui, server = server)
   runApp(app)
+  
+  shiny::reactlogShow() # Run after closing the app
 }
 
-
-
-#----####
-
-# function ####
-{
-  # given a metabolite ilp
-  # show all shortest connections of from core
-  # for each core, show all possible formulas
-  g_met_interest = network_annotation_met(query_ilp_id = 2, 
-                                          g_annotation = g_met, 
-                                          core_ilp_node = core_met,
-                                          optimized_only = T)
-  Plot_g_interest(g_met_interest, query_ilp_node = 2)
-  
-  g_artifact_interest = network_annotation_nonmet(query_ilp_id = 6030, 
-                                                  g_annotation = g_nonmet, 
-                                                  core_ilp_node = core_nonmet, 
-                                                  weight_tol = 1,
-                                                  optimized_only = T)
-  Plot_g_interest(g_artifact_interest, query_ilp_node = 6030)
-  
-  g_child_artifact = network_child_nonmet(query_ilp_id = 2, 
-                                          g_annotation = g_nonmet,
-                                          connect_degree = 1,
-                                          optimized_only = T)
-  Plot_g_interest(g_child_artifact, query_ilp_node = 2)
-  
-  # test = layout_with_fr(g_child_artifact, grid = "grid")
-  
-  
-  
-  
-  my_SMILES2structure(core_rank$SMILES[8])
-  
-  
-  
-  
-  
-  
-}
-
-
-
-
-
-
+test = dt$ilp_nodes %>%
+  filter(node_id == 1802)
+  filter(category == "Library_MS2_fragment")
