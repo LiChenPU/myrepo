@@ -2805,22 +2805,28 @@ Initiate_cplexset_lp = function(CplexSet){
   # triplet_edges
   # Because triplet_node take max(triplet_node$i) rows, and max(triplet_node$j) columns
   {
-    triplet_edge_edge = ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_node$i), 
+    triplet_edge_edge1 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i), 
                 j = ilp_edge_id + max(triplet_node$j),
-                v = 2)
+                v = 1)
+    
+    triplet_edge_edge2 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 + max(triplet_node$i), 
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
     
     triplet_edge_node1 = ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_node$i),
+      transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
                 j = ilp_nodes1,
                 v = -1)
     
     triplet_edge_node2 = ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_node$i),
+      transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
                 j = ilp_nodes2,
                 v = -1)
     
-    triplet_edge = bind_rows(triplet_edge_edge, 
+    triplet_edge = bind_rows(triplet_edge_edge1, 
+                             triplet_edge_edge2,
                              triplet_edge_node1,
                              triplet_edge_node2)
   }
@@ -2916,27 +2922,39 @@ Initiate_cplexset_lp = function(CplexSet){
       filter(category == "Heterodimer") %>%
       mutate(ilp_edge_id = 1:nrow(.))
     
-    triplet_edge_edge = heterodimer_ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_isotope$i), 
+    triplet_edge_edge1 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 2 + max(triplet_isotope$i), 
                 j = ilp_edge_id + max(triplet_edge$j),
-                v = 3)
+                v = 1)
+    
+    triplet_edge_edge2 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 1 + max(triplet_isotope$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_edge_edge3 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 + max(triplet_isotope$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
     
     triplet_edge_node1 = heterodimer_ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_isotope$i),
+      transmute(i = ilp_edge_id * 3 - 2 + max(triplet_isotope$i),
                 j = ilp_nodes1,
                 v = -1)
     
     triplet_edge_node2 = heterodimer_ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_isotope$i),
+      transmute(i = ilp_edge_id * 3 - 1 + max(triplet_isotope$i),
                 j = ilp_nodes2,
                 v = -1)
     
     triplet_edge_node_link = heterodimer_ilp_edges %>%
-      transmute(i = ilp_edge_id + max(triplet_isotope$i),
+      transmute(i = ilp_edge_id * 3 + max(triplet_isotope$i),
                 j = ilp_nodes_link,
                 v = -1)
     
-    triplet_edge_heterodimer = bind_rows(triplet_edge_edge, 
+    triplet_edge_heterodimer = bind_rows(triplet_edge_edge1, 
+                                         triplet_edge_edge2,
+                                         triplet_edge_edge3,
                                          triplet_edge_node1,
                                          triplet_edge_node2,
                                          triplet_edge_node_link)
@@ -2998,7 +3016,7 @@ Initiate_cplexset_lp = function(CplexSet){
     obj <- c(ilp_nodes$cplex_score, 
              ilp_edges$cplex_score,
              heterodimer_ilp_edges$cplex_score)
-    lb <- rep(-1, nc)
+    lb <- rep(0, nc)
     ub <- rep(1, nc)
     # ctype <- rep("B",nc)
     
@@ -3016,16 +3034,16 @@ Initiate_cplexset_lp = function(CplexSet){
     ## 5. For double edges, where two ilp_nodes are connected by more than 1 edge, force to choose at most 1 edge
     
     node_id_count = as.numeric(table(ilp_nodes$node_id))
-    rhs = c(2 - node_id_count,  # special handling to make unselected peak as -1
-            rep(0, nrow(ilp_edges)), 
+    rhs = c(rep(1, max(ilp_rows)),
+            rep(0, nrow(ilp_edges) * 2), 
             rep(0, nrow_triplet_isotope_1), 
-            rep(-1, nrow_triplet_isotope_2), 
-            rep(0, nrow(heterodimer_ilp_edges)),
+            rep(0, nrow_triplet_isotope_2), 
+            rep(0, nrow(heterodimer_ilp_edges) * 3),
             rep(1, nrow_triplet_double_edges))
     sense <- c(rep("E", max(ilp_rows)), 
-               rep("L", nrow(ilp_edges)),
+               rep("L", nrow(ilp_edges) * 2),
                rep("E", nrow_triplet_isotope_1 + nrow_triplet_isotope_2), 
-               rep("L", nrow(heterodimer_ilp_edges)),
+               rep("L", nrow(heterodimer_ilp_edges) * 3),
                rep("L", nrow_triplet_double_edges))
     
     triplet_df = triplet_df %>% arrange(j)
