@@ -2424,6 +2424,8 @@ Initiate_cplexset = function(CplexSet){
     arrange(ilp_node_id)
   ilp_edges = CplexSet$ilp_edges %>%
     arrange(ilp_edge_id)
+  heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    arrange(ilp_edge_id)
   
   ## Core codes
   # Construct constraint matrix 
@@ -2557,7 +2559,7 @@ Initiate_cplexset = function(CplexSet){
   
   # triplet_heterodimer
   {
-    heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    heterodimer_ilp_edges = heterodimer_ilp_edges %>%
       filter(category == "Heterodimer") %>%
       mutate(ilp_edge_id = 1:nrow(.))
     
@@ -2779,6 +2781,8 @@ Initiate_cplexset_lp = function(CplexSet){
     arrange(ilp_node_id)
   ilp_edges = CplexSet$ilp_edges %>%
     arrange(ilp_edge_id)
+  heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    arrange(ilp_edge_id)
   
   ## Core codes
   # Construct constraint matrix 
@@ -2837,8 +2841,7 @@ Initiate_cplexset_lp = function(CplexSet){
   # triplet_heterodimer
   # e123 <= n1, e123 <= n2, e123 <= n3
   {
-    heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
-      filter(category == "Heterodimer") %>%
+    heterodimer_ilp_edges = heterodimer_ilp_edges %>%
       mutate(ilp_edge_id = 1:nrow(.))
     
     triplet_edge_edge1 = heterodimer_ilp_edges %>%
@@ -3027,13 +3030,37 @@ Initiate_cplexset_lp = function(CplexSet){
                                 triplet_isotope_node_2)
   }
   
+  # triplet heterodimer constraint
+  {
+    heterodimer_constraint = heterodimer_ilp_edges %>%
+      mutate(ilp_edge_id = 1:nrow(.)) %>%
+      group_by(node1, node2) %>%
+      mutate(n_group = n()) %>%
+      filter(n_group > 1) %>%
+      group_split() %>%
+      bind_rows(.id = "heterodimer_constraint_id") %>%
+      mutate(heterodimer_constraint_id = as.numeric(heterodimer_constraint_id))
+    
+    triplet_heterodimer_constraint_edge = heterodimer_constraint %>%
+      transmute(i = heterodimer_constraint_id + max(triplet_isotope$i),
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+
+    triplet_heterodimer_constraint = triplet_heterodimer_constraint_edge
+    
+    nrow_heterodimer_constraint = max(heterodimer_constraint$heterodimer_constraint_id)
+    
+  }
+  
+  
   # Generate sparse matrix on left hand side
   triplet_df = rbind(
     triplet_node,
     triplet_edge,
     triplet_edge_heterodimer,
     triplet_edge_double_edges,
-    triplet_isotope
+    triplet_isotope,
+    triplet_heterodimer_constraint
   )
   # nrow_triplet_double_edges = 0
   # nrow_triplet_isotope_1 = 0
@@ -3074,13 +3101,15 @@ Initiate_cplexset_lp = function(CplexSet){
             rep(0, nrow(heterodimer_ilp_edges) * 3),
             rep(0, nrow_triplet_double_edges * 2),
             rep(0, nrow_triplet_isotope_1), 
-            rep(0, nrow_triplet_isotope_2)
+            rep(0, nrow_triplet_isotope_2),
+            rep(1, nrow_heterodimer_constraint)
             )
     sense <- c(rep("E", max(ilp_rows)), 
                rep("L", nrow(ilp_edges) * 2),
                rep("L", nrow(heterodimer_ilp_edges) * 3),
                rep("L", nrow_triplet_double_edges * 2),
-               rep("E", nrow_triplet_isotope_1 + nrow_triplet_isotope_2)
+               rep("E", nrow_triplet_isotope_1 + nrow_triplet_isotope_2),
+               rep("L", nrow_heterodimer_constraint)
                )
     
     triplet_df = triplet_df %>% arrange(j)
