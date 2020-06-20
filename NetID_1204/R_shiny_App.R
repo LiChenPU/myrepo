@@ -7,7 +7,7 @@ source('R_shiny_functions.R')
 # Read in files ####
 datapath = "./WL_liver_neg"
 setwd(datapath)
-filename = "20200519181142_output.rds"
+filename = "20200528002603_output.rds"
 
 
 # Global parameter in the backgroun ####

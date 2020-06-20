@@ -51,7 +51,7 @@ show_peak_list = function(ilp_nodes, input_interest, ion_form, mz_ppm){
 ## initiate_g_met ####
 initiate_g_met = function(ilp_nodes, ilp_edges){
   ilp_nodes_met = ilp_nodes %>%
-    filter(class == "Metabolite") %>%
+    filter(grepl("Metabolite", class)) %>%
     arrange(-ilp_result)
   ilp_edges_met = ilp_edges %>%
     filter(category == "Biotransform") %>%
