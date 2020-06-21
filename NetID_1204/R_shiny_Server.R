@@ -97,44 +97,72 @@ server <- function(input, output, session) {
       g_parent <- reactive({
         print("enter g_parent")
         g_interest = NULL
-        if(input$class == "Metabolite"){
-          g_interest = network_annotation_met(query_ilp_id = query_ilp_id(),
+        if(input$class %in% c("Metabolite", "Putative Metabolite")){
+          g_interest = network_partner_met(query_ilp_id = query_ilp_id(),
+                                           search_degree = input$connect_degree,
                                               g_annotation = g_met,
                                               core_ilp_node = core_met,
                                               optimized_only = isolate(input$optimized_only))
         }
         if(input$class == "Artifact"){
-          g_interest = network_annotation_nonmet(query_ilp_id = query_ilp_id(), 
-                                                 g_annotation = g_nonmet, 
-                                                 core_ilp_node = core_nonmet, 
+          g_interest = network_partner_nonmet(query_ilp_id = query_ilp_id(),
+                                              search_degree = input$connect_degree,
+                                                 g_annotation = g_nonmet,
+                                                 core_ilp_node = core_nonmet,
                                                  weight_tol = 1,
                                                  optimized_only = isolate(input$optimized_only))
         }
         g_interest
       })
       
-      g_child <- reactive({
-        print("enter g_child")
-        g_child_artifact = network_child_nonmet(query_ilp_id = query_ilp_id(), 
+      g_child_met <- reactive({
+        print("enter g_child_met")
+        g_child_met = network_child_met(query_ilp_id = query_ilp_id(),
+                                           g_annotation = g_met,
+                                           connect_degree = input$connect_degree,
+                                           optimized_only = isolate(input$optimized_only))
+      })
+      g_child_nonmet <- reactive({
+        print("enter g_child_nonmet")
+        g_child_artifact = network_child_nonmet(query_ilp_id = query_ilp_id(),
                                                 g_annotation = g_nonmet,
-                                                connect_degree = 1,
+                                                connect_degree = input$connect_degree,
                                                 optimized_only = isolate(input$optimized_only))
       })
+      
+      
+      
       
       g_interest <- eventReactive(input$plot_network, {
         print("enter g_interest")
         merge_nodes = NULL
         merge_edges = NULL
-        if(input$parent_graph){
-          g1_nodes = igraph::as_data_frame(g_parent(), "vertices")
-          g1_edges = igraph::as_data_frame(g_parent(), "edges")
-          merge_nodes = bind_rows(merge_nodes, g1_nodes)
-          merge_edges = bind_rows(merge_edges, g1_edges)
+        if(input$biochemical_graph & input$class %in% c("Metabolite", "Putative Metabolite")){
+          # req(g_parent())
+          g_nodes = igraph::as_data_frame(g_parent(), "vertices")
+          g_edges = igraph::as_data_frame(g_parent(), "edges")
+          merge_nodes = bind_rows(merge_nodes, g_nodes)
+          merge_edges = bind_rows(merge_edges, g_edges)
         }
         
-        if(input$child_graph){
-          g2_nodes = igraph::as_data_frame(g_child(), "vertices")
-          g2_edges = igraph::as_data_frame(g_child(), "edges")
+        if(input$abiotic_graph & input$class == "Artifact"){
+          # req(g_parent())
+          g_nodes = igraph::as_data_frame(g_parent(), "vertices")
+          g_edges = igraph::as_data_frame(g_parent(), "edges")
+          merge_nodes = bind_rows(merge_nodes, g_nodes)
+          merge_edges = bind_rows(merge_edges, g_edges)
+        }
+        
+        if(input$biochemical_graph){
+          g2_nodes = igraph::as_data_frame(g_child_met(), "vertices")
+          print(g2_nodes)
+          g2_edges = igraph::as_data_frame(g_child_met(), "edges")
+          merge_nodes = bind_rows(merge_nodes, g2_nodes)
+          merge_edges = bind_rows(merge_edges, g2_edges)
+        }
+        if(input$abiotic_graph){
+          g2_nodes = igraph::as_data_frame(g_child_nonmet(), "vertices")
+          g2_edges = igraph::as_data_frame(g_child_nonmet(), "edges")
           merge_nodes = bind_rows(merge_nodes, g2_nodes)
           merge_edges = bind_rows(merge_edges, g2_edges)
         }

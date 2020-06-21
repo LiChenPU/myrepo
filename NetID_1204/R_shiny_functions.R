@@ -56,7 +56,10 @@ initiate_g_met = function(ilp_nodes, ilp_edges){
   ilp_edges_met = ilp_edges %>%
     filter(category == "Biotransform") %>%
     mutate(direction = ifelse(ilp_nodes1 < ilp_nodes2, 1, -1)) %>%
-    dplyr::select(ilp_nodes1, ilp_nodes2, everything())
+    dplyr::select(ilp_nodes1, ilp_nodes2, everything()) %>%
+    # filter(ilp_nodes1 %in% ilp_nodes_met$ilp_node_id, 
+    #        ilp_nodes2 %in% ilp_nodes_met$ilp_node_id)
+    filter(T)
   
   g_met = graph_from_data_frame(ilp_edges_met, 
                                 directed = T, 
@@ -124,6 +127,7 @@ core_annotate = function(ilp_nodes, FormulaSet_df, LibrarySet){
     mutate(class = case_when(
       category == "Unknown" ~ "Unknown",
       category == "Metabolite" ~ "Metabolite", 
+      category == "Putative Metabolite" ~ "Putative Metabolite",
       T ~ "Artifact"
     )) %>%
     inner_join(ilp_nodes %>%
@@ -131,11 +135,12 @@ core_annotate = function(ilp_nodes, FormulaSet_df, LibrarySet){
   
   return(core_rank)
 }
-## network_annotation_met ####  
-network_annotation_met = function(query_ilp_id, 
-                                  g_annotation = g_met, 
-                                  core_ilp_node = core_met,
-                                  optimized_only = T){
+## network_partner_met ####  
+network_partner_met = function(query_ilp_id, 
+                               search_degree = 2,
+                               g_annotation = g_met,
+                               core_ilp_node = core_met,
+                               optimized_only = T){
   
   # g_annotation = g_met
   # query_ilp_id = 2
@@ -171,7 +176,7 @@ network_annotation_met = function(query_ilp_id,
   
   query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
   
-  if(is.infinite(query_distMatrix_min)){
+  if(query_distMatrix_min > search_degree){
     sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
       filter(name == query_ilp_id)
     
@@ -184,7 +189,7 @@ network_annotation_met = function(query_ilp_id,
     return(g_met_interest)
   }
   
-  shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+  shortest_ilp_nodes = which(query_distMatrix <= search_degree)
   parent_selected = core_ilp_id[shortest_ilp_nodes]
   paths_connect_ij_nodes = lapply(parent_selected, function(x){
     shortest_paths(g_annotation, 
@@ -215,13 +220,14 @@ network_annotation_met = function(query_ilp_id,
   return(g_met_interest)
 }
 
-
-## network_annotation_nonmet ####  
-network_annotation_nonmet = function(query_ilp_id, 
-                                     g_annotation = g_nonmet, 
-                                     core_ilp_node = core_nonmet, 
-                                     weight_tol = 1,
-                                     optimized_only = T){
+## network_partner_nonmet ####  
+network_partner_nonmet = function(query_ilp_id, 
+                                  search_degree = 2,
+                                  g_annotation = g_nonmet,
+                                  core_ilp_node = core_nonmet,
+                                  weighted = F,
+                                  weight_tol = 0,
+                                  optimized_only = T){
   
   # query_ilp_id = 6030
   # g_annotation = g_nonmet
@@ -260,11 +266,20 @@ network_annotation_nonmet = function(query_ilp_id,
   
   g_edge = igraph::as_data_frame(g_annotation, "edges")
   
-  query_distMatrix <- shortest.paths(g_annotation,
-                                     v=core_ilp_id,
-                                     to=query_ilp_id,
-                                     mode = "out",
-                                     weights = g_edge$edge_weight)
+  
+  if(weighted){
+    query_distMatrix <- shortest.paths(g_annotation,
+                                       v=core_ilp_id,
+                                       to=query_ilp_id,
+                                       mode = "out",
+                                       weights = g_edge$edge_weight)
+  } else {
+    query_distMatrix <- shortest.paths(g_annotation,
+                                       v=core_ilp_id,
+                                       to=query_ilp_id,
+                                       mode = "out")
+  }
+  
   
   query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
   
@@ -281,7 +296,7 @@ network_annotation_nonmet = function(query_ilp_id,
     return(g_interest)
   }
   
-  shortest_ilp_nodes = which(query_distMatrix < query_distMatrix_min+weight_tol)
+  shortest_ilp_nodes = which(query_distMatrix <= search_degree + weight_tol)
   # shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
   parent_selected = core_ilp_id[shortest_ilp_nodes]
   paths_connect_ij_nodes = lapply(parent_selected, function(x){
@@ -309,6 +324,43 @@ network_annotation_nonmet = function(query_ilp_id,
                                      vertices = sub_nodes)
   # plot.igraph(g_interest)
   return(g_interest)
+}
+
+
+
+## network_child_met ####  
+network_child_met = function(query_ilp_id, 
+                                g_annotation = g_met,
+                                connect_degree = 1, 
+                                optimized_only = T){
+  
+  # query_ilp_id = 51693
+  # g_annotation = g_met
+  
+  query_ilp_id = as.character(query_ilp_id)
+  
+  if(optimized_only){
+    g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+      filter(ilp_result != 0)
+    # g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+    #   filter(ilp_result != 0)
+    g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+      filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
+      arrange(-ilp_result) %>%
+      distinct(from, to, .keep_all=T)
+    
+    g_annotation = graph_from_data_frame(g_edges, 
+                                         directed = T, 
+                                         vertices = g_nodes)
+  }
+  
+  g_partner = make_ego_graph(g_annotation, 
+                             connect_degree,
+                             nodes = query_ilp_id, 
+                             mode = c("all"))[[1]]
+  
+  plot.igraph(g_partner)
+  return(g_partner)
 }
 
 ## network_child_nonmet ####  
@@ -367,6 +419,7 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, sho
       # assigned to the first color, not overwitten by later assignment
       id == as.character(query_ilp_node) ~ my_palette[4],
       class == "Metabolite" ~ my_palette[1],
+      class == "Putative Metabolite" ~ my_palette[2],
       class == "Artifact" ~ my_palette[3],
       class == "Unknown" ~ "#666666"
     )) %>%
@@ -435,3 +488,188 @@ my_SMILES2structure = function(SMILES){
   return(1)
   
 }
+# Deprecated ####
+## network_annotation_met ####  
+# network_annotation_met = function(query_ilp_id, 
+#                                   g_annotation = g_met, 
+#                                   core_ilp_node = core_met,
+#                                   optimized_only = T){
+#   
+#   # g_annotation = g_met
+#   # query_ilp_id = 2
+#   # core_ilp_node = core_met
+#   
+#   if(optimized_only){
+#     g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#       filter(ilp_result != 0)
+#     g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#       filter(from %in% g_nodes$name, to %in% g_nodes$name)
+#     
+#     g_annotation = graph_from_data_frame(g_edges,
+#                                          directed = T,
+#                                          vertices = g_nodes)
+#     
+#     core_ilp_node = core_ilp_node %>%
+#       filter(ilp_result != 0)
+#   }
+#   
+#   core_ilp_id = as.character(core_ilp_node$ilp_node_id)
+#   query_ilp_id = as.character(query_ilp_id)
+#   
+#   valid_ilp_ids = igraph::as_data_frame(g_annotation, "vertices") %>% pull(name)
+#   
+#   if(!any(query_ilp_id == valid_ilp_ids)){
+#     return(NULL)
+#   }
+#   
+#   query_distMatrix <- shortest.paths(g_annotation,
+#                                      v=core_ilp_id,
+#                                      to=query_ilp_id,
+#                                      mode = "all")
+#   
+#   query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
+#   
+#   if(is.infinite(query_distMatrix_min)){
+#     sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#       filter(name == query_ilp_id)
+#     
+#     sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#       filter(FALSE)
+#     
+#     g_met_interest = graph_from_data_frame(sub_edges,
+#                                            directed = T,
+#                                            vertices = sub_nodes)
+#     return(g_met_interest)
+#   }
+#   
+#   shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+#   parent_selected = core_ilp_id[shortest_ilp_nodes]
+#   paths_connect_ij_nodes = lapply(parent_selected, function(x){
+#     shortest_paths(g_annotation, 
+#                    from = x, 
+#                    to = query_ilp_id, 
+#                    mode = "all", 
+#                    output = "vpath")
+#   })
+#   
+#   ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
+#     x[[1]] %>% unlist() %>% names() %>% as.numeric()
+#   })
+#   
+#   ilp_node_interest = unlist(ilp_node_path)
+#   
+#   sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#     filter(name %in% as.character(ilp_node_interest))
+#   
+#   sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#     filter(from %in% as.character(ilp_node_interest) & 
+#              to %in% as.character(ilp_node_interest))
+#   
+#   g_met_interest = graph_from_data_frame(sub_edges,
+#                                          directed = F,
+#                                          vertices = sub_nodes)
+#   # plot.igraph(g_met_interest)
+#   
+#   return(g_met_interest)
+# }
+# 
+# 
+## network_annotation_nonmet ####  
+# network_annotation_nonmet = function(query_ilp_id, 
+#                                      g_annotation = g_nonmet, 
+#                                      core_ilp_node = core_nonmet, 
+#                                      weight_tol = 1,
+#                                      optimized_only = T){
+#   
+#   # query_ilp_id = 6030
+#   # g_annotation = g_nonmet
+#   # core_ilp_node = core_nonmet
+#   # weight_tol = 1
+#   # optimized_only = T
+#   
+#   if(optimized_only){
+#     g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#       filter(ilp_result != 0)
+#     # g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#     #   filter(ilp_result != 0)
+#     g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#       filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
+#       arrange(-ilp_result) %>%
+#       distinct(from, to, .keep_all=T) %>%
+#       filter(ilp_result>1e-6)
+#     
+#     g_annotation = graph_from_data_frame(g_edges, 
+#                                          directed = T, 
+#                                          vertices = g_nodes)
+#     
+#     core_ilp_node = core_ilp_node %>%
+#       filter(ilp_result != 0)
+#   }
+#   
+#   core_ilp_id = as.character(core_ilp_node$ilp_node_id)
+#   query_ilp_id = as.character(query_ilp_id)
+#   
+#   valid_ilp_ids = igraph::as_data_frame(g_annotation, "vertices") %>% pull(name)
+#   
+#   if(!any(query_ilp_id == valid_ilp_ids)){
+#     return(NULL)
+#   }
+#   
+#   
+#   g_edge = igraph::as_data_frame(g_annotation, "edges")
+#   
+#   query_distMatrix <- shortest.paths(g_annotation,
+#                                      v=core_ilp_id,
+#                                      to=query_ilp_id,
+#                                      mode = "out",
+#                                      weights = g_edge$edge_weight)
+#   
+#   query_distMatrix_min = min(query_distMatrix[query_distMatrix!=0])
+#   
+#   if(is.infinite(query_distMatrix_min)){
+#     sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#       filter(name == query_ilp_id)
+#     
+#     sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#       filter(FALSE)
+#     
+#     g_interest = graph_from_data_frame(sub_edges,
+#                                        directed = F,
+#                                        vertices = sub_nodes)
+#     return(g_interest)
+#   }
+#   
+#   shortest_ilp_nodes = which(query_distMatrix < query_distMatrix_min+weight_tol)
+#   # shortest_ilp_nodes = which(query_distMatrix == query_distMatrix_min)
+#   parent_selected = core_ilp_id[shortest_ilp_nodes]
+#   paths_connect_ij_nodes = lapply(parent_selected, function(x){
+#     all_shortest_paths(g_annotation, 
+#                        from = x, 
+#                        to = query_ilp_id, 
+#                        mode = "out")
+#   })
+#   
+#   ilp_node_path = lapply(paths_connect_ij_nodes, function(x){
+#     x[[1]] %>% unlist() %>% names() %>% as.numeric()
+#   })
+#   
+#   ilp_node_interest = unlist(ilp_node_path)
+#   
+#   sub_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+#     filter(name %in% as.character(ilp_node_interest))
+#   
+#   sub_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+#     filter(from %in% as.character(ilp_node_interest) & 
+#              to %in% as.character(ilp_node_interest))
+#   
+#   g_interest = graph_from_data_frame(sub_edges,
+#                                      directed = T,
+#                                      vertices = sub_nodes)
+#   # plot.igraph(g_interest)
+#   return(g_interest)
+# }
+# 
+# 
+# 
+
+
