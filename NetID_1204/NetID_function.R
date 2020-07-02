@@ -1437,10 +1437,10 @@ Propagate_formulaset = function(Mset,
                mass_dif = abs(msr_mass-mass)) %>%
         mutate(mass_retain = mass_dif / mass <= record_ppm_tol) %>%
         filter(mass_retain) %>%
-        dplyr::select(-msr_mass, -mass_dif, -mass_retain, -formula1, -formula2, -edge_id)
+        dplyr::select(colnames(sf[[1]]))
       
       sf_add = bind_rows(sf_add_mass_filter, ring_artifact, experiment_MS2_fragment) %>%
-        dplyr::select(-formula1, -formula2, -mass_dif, -edge_id)
+        dplyr::select(colnames(sf[[1]]))
       
       sf = match_library(lib_artifact,
                          sf,
@@ -3546,7 +3546,7 @@ track_annotation_met = function(query_ilp_id,
   
   # g_annotation = g_met
   # dist_mat = met_dist_mat
-  # query_ilp_id = 100000
+  # query_ilp_id = 6202
   # graph_path_mode = "all"
   # ilp_edges_annotate = ilp_edges_annotate_met
   
