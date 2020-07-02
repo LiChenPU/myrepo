@@ -3433,7 +3433,7 @@ initiate_g_met = function(ilp_nodes, ilp_edges){
     arrange(-ilp_result)
   ilp_edges_met = ilp_edges %>%
     filter(category == "Biotransform") %>%
-    mutate(direction = ifelse(ilp_nodes1 < ilp_nodes2, 1, -1)) %>%
+    mutate(direction = ifelse(direction >= 0, 1, -1)) %>%
     dplyr::select(ilp_nodes1, ilp_nodes2, everything())
   
   g_met = graph_from_data_frame(ilp_edges_met, 
