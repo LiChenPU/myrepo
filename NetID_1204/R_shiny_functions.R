@@ -359,7 +359,7 @@ network_child_met = function(query_ilp_id,
                              nodes = query_ilp_id, 
                              mode = c("all"))[[1]]
   
-  plot.igraph(g_partner)
+  # plot.igraph(g_partner)
   return(g_partner)
 }
 
@@ -404,18 +404,21 @@ network_child_nonmet = function(query_ilp_id,
 Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, show_edge_labels = T)
 {
   
-  # query_ilp_node = 871
+  # query_ilp_node = 51693
   # show_node_labels = T
   # show_edge_labels = T
+  # g_interest = network_child_met(query_ilp_node)
+  # temp_nodes = igraph::as_data_frame(g_interest2, "vertices")
   
   if(!is.igraph(g_interest)){return(NULL)}
   
-  my_palette = brewer.pal(4, "Set3")
+  my_palette = brewer.pal(5, "Set3")
   nodes = igraph::as_data_frame(g_interest, "vertices") %>%
     dplyr::rename(id = name) %>%
     mutate(size = log10_inten * 2) %>%
     mutate(label = "") %>%
-    mutate(color = case_when(
+    mutate(color.border = "black") %>%
+    mutate(color.background = case_when(
       # assigned to the first color, not overwitten by later assignment
       id == as.character(query_ilp_node) ~ my_palette[4],
       class == "Metabolite" ~ my_palette[1],
@@ -440,19 +443,21 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, sho
   }
   
   edges = igraph::as_data_frame(g_interest, "edges") %>%
-    mutate(arrows = "to") %>%
+    mutate(arrows = "") %>%
+    # mutate(arrows = "to") %>%
     mutate(label = "") %>%
     mutate(color = "#666666") %>%
     filter(T)
   
   if(show_edge_labels & nrow(edges)!=0){
     edges = edges %>%
+      mutate(font.color = brewer.pal(9, "Blues")[7]) %>% 
       mutate(label = case_when(
         category == "Multicharge" ~ paste0(linktype, "-charge"),
         category == "Oligomer" ~ paste0(linktype, "-mer"),
         category == "Heterodimer" ~ paste0("Peak ", linktype),
         category == "Library_MS2_fragment" ~ linktype,
-        direction == -1 ~ paste0("-", linktype),
+        # direction == -1 ~ paste0("-", linktype),
         T ~ linktype
       ))
   }

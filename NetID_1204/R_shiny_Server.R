@@ -43,10 +43,9 @@ server <- function(input, output, session) {
     
     observeEvent(peak_list(), {
       x = peak_list() %>% slice(1)
-      updateNumericInput(session, "peak_id",
-                         label = "Peak ID",
-                         value = x$peak_id
-      )
+      selectInput(inputId = "peak_id",
+                  label = "Peak ID",
+                  choices = x$peak_id)
     })
     
     query_ilp_id = reactive({
@@ -155,7 +154,6 @@ server <- function(input, output, session) {
         
         if(input$biochemical_graph){
           g2_nodes = igraph::as_data_frame(g_child_met(), "vertices")
-          print(g2_nodes)
           g2_edges = igraph::as_data_frame(g_child_met(), "edges")
           merge_nodes = bind_rows(merge_nodes, g2_nodes)
           merge_edges = bind_rows(merge_edges, g2_edges)

@@ -53,6 +53,3 @@ filename = "20200620234748_output.rds"
   shiny::reactlogShow() # Run after closing the app
 }
 
-test = dt$ilp_nodes %>%
-  filter(node_id == 1802)
-  filter(category == "Library_MS2_fragment")

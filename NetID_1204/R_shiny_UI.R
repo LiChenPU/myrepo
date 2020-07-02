@@ -38,71 +38,90 @@ ui <- tagList(
       br(),
       hr(),
       
-      fluidRow(
-        column(2,
-               numericInput(inputId = "peak_id",
-                            label = "Peak ID",
-                            value = 1)),
-        column(2,
-               selectInput(inputId = "formula",
-                           label = "Formula",
-                           choices = character(0))),
-        column(2,
-               selectInput(inputId = "class",
-                           label = "Class",
-                           choices = character(0))),
-        column(2,
-               checkboxInput("optimized_only", "optimized_only",
-                             value = T))
-      ),
       
       fluidRow(
         ## Network plot and options ####
+        column(6, 
+               wellPanel(
+                 fluidRow(
+                 column(10, 
+                   column(3,
+                          selectInput(inputId = "peak_id",
+                                       label = "Peak ID",
+                                      choices = unique(ilp_nodes$node_id))),
+                   column(4,
+                          selectInput(inputId = "formula",
+                                      label = "Formula",
+                                      choices = character(0))),
+                   column(3,
+                          selectInput(inputId = "class",
+                                      label = "Class",
+                                      choices = character(0))),
+                   column(2,
+                          numericInput(inputId = "connect_degree", 
+                                       label = "Degree",
+                                       value = 1)),
+                   
+                   column(3,
+                          checkboxInput("biochemical_graph", "Biochemical graph",
+                                        value = T)),
+                   column(3,
+                          checkboxInput("abiotic_graph", "Abiotic graph",
+                                        value = F)),
+                   column(2,
+                          checkboxInput("node_labels", "Node labels",
+                                        value = T)),
+                   column(2,
+                          checkboxInput("edge_labels", "Edge labels",
+                                        value = T)),
+                   column(2,
+                          checkboxInput("optimized_only", "Optimized only",
+                                        value = T))
+                 ),
+                 column(2, 
+                        # column(6,
+                               actionButton("plot_network", label = h2("Plot"),
+                                            with = "400px")
+                               # )
+                        
+                        ),
+                 hr(),
+                 column(12,
+                        visNetworkOutput("Network_plot", width = "100%",  height = "750px")
+                 )
+               ))
+          
+          
+        ),
         
-        column(6,
-               column(2,
-                      checkboxInput("node_labels", "Node labels",
-                                    value = T)),
-               column(2,
-                      checkboxInput("edge_labels", "Edge labels",
-                                    value = T)),
-               column(2,
-                      checkboxInput("biochemical_graph", "Biochemical graph",
-                                    value = T)),
-               column(2,
-                      checkboxInput("abiotic_graph", "Abiotic graph",
-                                    value = F)),
-               numericInput(inputId = "connect_degree", 
-                            label = "Degree",
-                            value = 1),
-               column(2, offset = 1, 
-                      actionButton("plot_network", "Plot network")),
-               
-               visNetworkOutput("Network_plot", width = "100%",  height = "750px")
-               ),
+        
         
         ## Structure ####
         column(6,
-               plotOutput("structure", 
-                            dblclick = dblclickOpts(id = "struct_plot_dblclick")),
+               wellPanel(fluidRow(
+                 plotOutput("structure", 
+                              dblclick = dblclickOpts(id = "struct_plot_dblclick")),
+                   
+                 textOutput("struct_annotation"),
                  
-               textOutput("struct_annotation"),
-               
-               column(2, offset = 3, 
-                      actionButton("previous_struct", "<-")),
-               column(2, offset = 0, 
-                      actionButton("next_struct", "->")),
-               column(2, 
-                      selectInput(inputId = "struct_num",
-                                  label = NULL,
-                                  choices = numeric(0))),
-               
-               DT::dataTableOutput("structure_list")
+                 column(2, offset = 3, 
+                        actionButton("previous_struct", "<-")),
+                 column(2, offset = 0, 
+                        actionButton("next_struct", "->")),
+                 column(2, 
+                        selectInput(inputId = "struct_num",
+                                    label = NULL,
+                                    choices = numeric(0))),
+                 
+                 DT::dataTableOutput("structure_list")
+               ))
         )
-      )
-    )
-  )
-)
+      ) # End of lower graph
+    ) # End of tabPanel
+  ), # End of navbarPage
+  
+  tags$style(type='text/css', "#plot_network { width: 100%; color: #000000; margin-top: 25px;}")
+) 
       
     
       
