@@ -334,17 +334,19 @@ network_child_met = function(query_ilp_id,
                                 connect_degree = 1, 
                                 optimized_only = T){
   
-  # query_ilp_id = 51693
+  # query_ilp_id = 52577
   # g_annotation = g_met
+  # connect_degree = 1
+  # optimized_only = T
   
   query_ilp_id = as.character(query_ilp_id)
+  g_nodes = igraph::as_data_frame(g_annotation, "vertices")
+  g_edges = igraph::as_data_frame(g_annotation, "edges")
   
   if(optimized_only){
-    g_nodes = igraph::as_data_frame(g_annotation, "vertices") %>%
+    g_nodes = g_nodes %>%
       filter(ilp_result != 0)
-    # g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
-    #   filter(ilp_result != 0)
-    g_edges = igraph::as_data_frame(g_annotation, "edges") %>%
+    g_edges = g_edges %>%
       filter(from %in% g_nodes$name, to %in% g_nodes$name) %>%
       arrange(-ilp_result) %>%
       distinct(from, to, .keep_all=T)
@@ -353,6 +355,11 @@ network_child_met = function(query_ilp_id,
                                          directed = T, 
                                          vertices = g_nodes)
   }
+  
+  if(!as.numeric(query_ilp_id) %in% g_nodes$name){
+    return(NULL)
+  }
+  
   
   g_partner = make_ego_graph(g_annotation, 
                              connect_degree,
@@ -401,13 +408,16 @@ network_child_nonmet = function(query_ilp_id,
 }
 
 ## Plot_g_interest ####
-Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, show_edge_labels = T)
+Plot_g_interest = function(g_interest, query_ilp_node, 
+                           show_node_labels = T, show_edge_labels = T,
+                           log_inten_cutoff = 4.5)
 {
   
-  # query_ilp_node = 51693
+  # query_ilp_node = 1616
   # show_node_labels = T
   # show_edge_labels = T
-  # g_interest = network_child_met(query_ilp_node)
+  # log_inten_cutoff = 4
+  # g_interest = network_child_met(query_ilp_node, connect_degree=2)
   # temp_nodes = igraph::as_data_frame(g_interest2, "vertices")
   
   if(!is.igraph(g_interest)){return(NULL)}
@@ -415,9 +425,10 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, sho
   my_palette = brewer.pal(5, "Set3")
   nodes = igraph::as_data_frame(g_interest, "vertices") %>%
     dplyr::rename(id = name) %>%
+    filter(log10_inten > log_inten_cutoff) %>%
     mutate(size = log10_inten * 2) %>%
     mutate(label = "") %>%
-    mutate(color.border = "black") %>%
+    mutate(color.border = "black") %>% 
     mutate(color.background = case_when(
       # assigned to the first color, not overwitten by later assignment
       id == as.character(query_ilp_node) ~ my_palette[4],
@@ -443,6 +454,7 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, sho
   }
   
   edges = igraph::as_data_frame(g_interest, "edges") %>%
+    filter(from %in% nodes$id, to %in% nodes$id) %>%
     mutate(arrows = "") %>%
     # mutate(arrows = "to") %>%
     mutate(label = "") %>%
@@ -462,18 +474,20 @@ Plot_g_interest = function(g_interest, query_ilp_node, show_node_labels = T, sho
       ))
   }
   
-  visNetwork(nodes, edges) %>% 
-    visLegend() %>%
-    visOptions(manipulation = TRUE, 
-               highlightNearest = TRUE
-               # height = "100%", width = "100%"
-    ) %>%
-    visEvents(click = "function(nodes){
-                  Shiny.onInputChange('click', nodes.nodes[0]);
-              ;}") %>%
-    visInteraction(navigationButtons = TRUE) %>%
-    visIgraphLayout(layout = "layout_with_fr", 
-                    randomSeed = 123)
+  # test = visNetwork(nodes, edges) %>% 
+  #   visLegend() %>%
+  #   visOptions(manipulation = TRUE, 
+  #              highlightNearest = TRUE
+  #              # height = "100%", width = "100%"
+  #   ) %>%
+  #   visEvents(click = "function(nodes){
+  #                 Shiny.onInputChange('click', nodes.nodes[0]);
+  #             ;}") %>%
+  #   visInteraction(navigationButtons = TRUE) %>%
+  #   visIgraphLayout(layout = "layout_with_fr", 
+  #                   randomSeed = 1234)
+  # 
+  # visSave(test, "thiamine.html")
   
 }
 ## my_SMILES2structure ####
