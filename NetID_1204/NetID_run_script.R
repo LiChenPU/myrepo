@@ -6,12 +6,20 @@ printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 source("NetID_function.R")
 
-work_dir = "Xi_new_neg"
-ion_mode = -1
+# work_dir = "Unknown in IO RT"
+# filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
+# filename_wl = "pks_Io_pos__2020-06-12.xlsx"
+# filename_wl = "pks_Io_neg__2020-06-11.xlsx"
+# filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
+# filename_wl = "Lu-Table-S4-final_Sc_neg.xlsx"
+# filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
+work_dir = "WL_liver_pos"
+filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
+ion_mode = 1
+MS2_library_file = "./dependent/HMDB_pred_MS2_pos.rds"
+MS2_folder = "MS2_pos_200524"
 LC_method = "Hilic_25min_QE" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE"
-MS2_library_file = "./dependent/HMDB_pred_MS2_neg.rds"
 
-MS2_folder = "MS2"
 MS2_library = readRDS(MS2_library_file)
 mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
 Empirical_rules_file = "./dependent/Empirical_rules.csv"
@@ -23,7 +31,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
 {
   Mset = list()
   # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_formula_order.csv", stringsAsFactors = F)
+  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_library.csv", stringsAsFactors = F)
   Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
     filter(!is.na(.[,eval(LC_method)]))
   
@@ -41,21 +49,25 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
   
-  filename_wl = "Lu-Table-S4-final.xlsx"
   # WL = readxl::read_xlsx(filename_wl, sheet = "Positive mode") %>%
-  WL = readxl::read_xlsx(filename_wl, sheet = "Negative mode") %>%
+  WL = readxl::read_xlsx(filename_wl,
+                         sheet = "Sheet1",
+                         guess_max = 1e6
+                         ) %>%
     dplyr::rename(medRt = rt,
                   medMz = mz) %>%
-    dplyr::rename(Formula = Formula...34,
-                  Feature = Feature...35,
-                  Background = Background...27)
+    # dplyr::rename(Formula = Formula...32,
+    #               Feature = Feature...33,
+    #               Background = Background...25) %>%
+    filter(T)
 
+  
   raw_data_WL = Mset$Raw_data %>%
     merge(WL, all = T) %>%
     mutate(id = 1:nrow(.),
-           yeast = 10^sig,
-           yeast2 = 10^sig) %>%
-    # filter(is.na(Background)) %>%
+           liver = 10^sig,
+           liver2 = 10^sig) %>%
+    filter(is.na(Background)) %>%
     dplyr::select(colnames(Mset$Raw_data))
   Mset[["Raw_data"]] = raw_data_WL
 }
@@ -70,7 +82,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   
   #Clean-up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                mz_tol=1/10^6, 
+                                mz_tol=2/10^6, 
                                 rt_tol=0.1,
                                 inten_cutoff=0e4,
                                 high_blank_cutoff = 0,
@@ -89,7 +101,10 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   NodeSet = Initiate_nodeset(Mset)
   NodeSet = Add_MS2_nodeset(MS2_folder = MS2_folder, 
                             NodeSet)
- 
+  
+  test = sapply(NodeSet,"[[", "MS2")
+  sum(sapply(test, is.null))
+  
   LibrarySet = Initiate_libraryset(Mset)
   
   FormulaSet = Initilize_empty_formulaset(NodeSet)
@@ -137,8 +152,6 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, FormulaSet, MS2_library,
                                                                     inten_threshold = 1e5,
                                                                     ppm_tol = 10, abs_tol = 1e-4)
-  
-  
   
   EdgeSet_all_df = merge_edgeset(EdgeSet, 
                                  EdgeSet_ring_artifact, 
@@ -206,19 +219,25 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
                                             MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                                             MS2_score_experiment_fragment = 0.5)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 1,
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 0.2,
                                                                     MS2_score_experiment_fragment = 0.5)
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
+  CplexSet[["para_lp"]] = Initiate_cplexset_lp(CplexSet)
 }
   
 save.image(paste0(timestamp,".RData"))
 print(Sys.time()-printtime)
+print(paste("Complexity is", CplexSet$para$nc, "variables and", CplexSet$para$nr, "constraints."))
+print(paste("Complexity is", CplexSet$para_lp$nc, "variables and", CplexSet$para_lp$nr, "constraints."))
+sapply(CplexSet$para_lp, length)
 
 ## Run_cplex ####
 {
-  CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
+  CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
                                                relative_gap = 1e-3, total_run_time = 25000))
+  # CplexSet[["lp_solution"]] = list(Run_cplex_lp(CplexSet, obj_cplex = CplexSet$para_lp$obj,
+  #                                               total_run_time = 5000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
@@ -227,6 +246,7 @@ print(Sys.time()-printtime)
 ## Read out CPLEX results ####
 {
   CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
+  # CPLEX_all_x = Read_cplex_result(CplexSet$lp_solution)
   # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
@@ -243,13 +263,41 @@ print(Sys.time()-printtime)
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
   
-  saveRDS(list(ilp_nodes = ilp_nodes,
-               ilp_edges = ilp_edges, 
-               heterodimer_ilp_edges = heterodimer_ilp_edges,
-               FormulaSet_df = FormulaSet_df,
-               LibrarySet = LibrarySet),
-          paste(timestamp, "output.rds", sep="_"))
+  ilp_nodes_ilp = ilp_nodes %>%
+    filter(ilp_result > 1e-6) %>%
+    filter(ilp_result != 1)
+
 }
+
+# # Add comparison annotation
+# {
+#   
+#   CPLEX_all_x = Read_cplex_result(CplexSet$lp_solution)
+#   # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+#   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+#   
+#   ilp_nodes = ilp_nodes %>%
+#     mutate(lp_result = CPLEX_x[1:nrow(.)])
+#   
+#   ilp_edges = ilp_edges %>%
+#     mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes)]) %>%
+#     # filter(ilp_result == 1) %>%
+#     filter(T)
+#   
+#   heterodimer_ilp_edges = heterodimer_ilp_edges %>%
+#     mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
+#   
+#   test = ilp_nodes %>%
+#     arrange(-log10_inten, -lp_result) %>%
+#     # filter(lp_result > 1e-6)
+#     filter(ilp_result != 0 | lp_result != 0)
+#     # filter(ilp_result != lp_result)
+#   # hist(ilp_nodes$lp_result)
+#   
+#   
+#   
+#   # tabyl(test, lp_result)
+# }
 
 # Path annotation ####
 {
@@ -293,48 +341,26 @@ print(Sys.time()-printtime)
   }
   
   ilp_nodes_annotation = ilp_nodes %>%
-    mutate(path = path_annotation)
+    mutate(path = path_annotation) %>%
+    mutate(class = ifelse(class == "Metabolite" & (steps != 0 | transform != ""), "Putative Metabolite", class)) %>%
+    # filter(ilp_result != 0) %>%
+    filter(T)
+
+  test = ilp_nodes_annotation %>%
+    filter(ilp_result == 1) %>%
+    filter(class == "Putative Metabolite")
   
+  saveRDS(list(ilp_nodes = ilp_nodes_annotation,
+               ilp_edges = ilp_edges,
+               heterodimer_ilp_edges = heterodimer_ilp_edges,
+               FormulaSet_df = FormulaSet_df,
+               LibrarySet = LibrarySet),
+          paste(timestamp, "output.rds", sep="_"))
 }
 
 print("total run time")
 save.image()
 print(Sys.time()-printtime)
-
-# ## Maven output format ####
-# {
-# 
-#   test = ilp_nodes_annotation %>%
-#     filter(ilp_result > 0.01) %>%
-#     # filter(class == "Metabolite", steps != 0) %>%
-#     filter(T)
-# 
-#   test2 = Mset$Data %>%
-#     inner_join(test) %>%
-#     dplyr::select(colnames(Mset$Data), node_id, class, formula, path, ppm_error, -id) %>%
-#     arrange(Input_id) %>%
-#     filter(class == "Unknown")
-# 
-#   
-#   test3 = read_csv("Mcap_NetID.csv") %>%
-#     arrange(Input_id) %>%
-#     dplyr::select(Input_id, class, formula, path) %>%
-#     dplyr::rename(Class = class,
-#                   Formula = formula,
-#                   Path = path)
-#   
-#   test4 = test2 %>%
-#     inner_join(test3) %>%
-#     # filter(log10_inten > 5) %>%
-#     # filter(grepl("Br", formula))
-#     filter(Path == path)
-#   
-#   library(janitor)
-#   tabyl(test4, Class, class)
-#     
-#   # write_csv(test2, paste(work_dir, timestamp,"NetID.csv", sep="_"))
-# }
-
 
 
 ## View Results ####
@@ -344,32 +370,28 @@ print(Sys.time()-printtime)
   test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T, suffixes = c("",".y")) %>%
     dplyr::select(colnames(WL), node_id, class, path, formula, ppm_error, parent_id, parent_formula, transform, category, mass)
     
-  # write_csv(test2, "WL_neg_NetID.csv", na="")
-  
   test3 = test2 %>%
     # filter(is.na(Background)) %>%
-    filter(is.na(Background)) %>%
+    # filter(is.na(Background)) %>%
     mutate(Formula = ifelse(is.na(Formula), "", Formula)) %>%
     mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
   
+
+  
   test3_filter = test3 %>%
-    filter(sig > 5.7) %>%
-    filter(class == "Unknown") %>%
-    # filter(class == "Metabolite") %>%
-    # mutate(C_count = sapply(formula, elem_num_query, "C"),
-    #        N_count = sapply(formula, elem_num_query, "N")) %>%
+    # filter(grepl("Si", path)) %>%
+    # mutate(C_count = sapply(str_extract_all(formula, "(?<=C)([:digit:]|\\.)+"), 
+    #                         function(x){sum(as.numeric(x))}),
+    #        N_count = sapply(str_extract_all(formula, "(?<=N)([:digit:]|\\.)+"), 
+    #                         function(x){sum(as.numeric(x))})) %>%
     # mutate(CN_match = (N_count == N) & (C_count == C)) %>%
-    # filter(C!=0 | N!=0) %>%
-    # filter(!is.na(C)) %>%
-    # filter(!CN_match) %>%
     filter(T)
   
-  # table(test3_filter$CN_match)
+  write_csv(test3_filter, "liver_pos.csv", na="")
   
-  # write_csv(test3, paste(work_dir, timestamp,"NetID.csv", sep="_"))
-  # write_csv(crosstable2, paste(work_dir, timestamp,"crosstable2.csv", sep="_"))
+  
+  
   library(janitor)
-  crosstable = tabyl(test3, Feature, category, Feature...23)
   crosstable = tabyl(test3, Feature, category)
   crosstable2 = tabyl(test3, category, Feature)
   
@@ -408,31 +430,33 @@ print(Sys.time()-printtime)
   Input_id = 603
   Mset$Data$id[Mset$Data$Input_id == Input_id]
 
-  node_id_selected = 4640
+  node_id_selected = 7963
   ilp_nodes_selected = ilp_nodes %>%
     filter(node_id %in% node_id_selected)
   ilp_edges_node_related = ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)%>%
     # filter(ilp_nodes1 %in% c(11486, 11488) | ilp_nodes2 %in% c(11486, 11488)) %>%
     arrange(-cplex_score, category) %>%
+    filter(ilp_result != 0 | lp_result !=0 ) %>%
     filter(T)
   heterodimer_ilp_edges_node_related = heterodimer_ilp_edges %>%
     filter(node1 == node_id_selected | node2 == node_id_selected | linktype == node_id_selected) %>%
-    arrange(-cplex_score, category) %>%
+    arrange(-cplex_score, category, edge_id) %>%
     filter(T)
+  
+  sum(heterodimer_ilp_edges_node_related$lp_result)
+  
   edges_selected = EdgeSet_all_df %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
-   
-  test = test3 %>%
-    # filter(empirical_POratio_prior == 0) %>%
-    filter(grepl("Cr", formula))
-  tabyl(test, Feature)
   
   edge_related_to_node = EdgeSet_all_df %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
   ilp_nodes_related_to_edge = ilp_nodes_ilp %>%
     filter(node_id %in% c(edge_related_to_node$node1, edge_related_to_node$node2)) 
   
+  test_edge = ilp_edges %>%
+    filter(category == "Experiment")
+  tabyl(ilp_nodes_ilp$category)
   
 }
 
@@ -478,6 +502,42 @@ print(Sys.time()-printtime)
   plot(fitdist_mz_correct)
   print(fitdist_mz_correct)
 }
+# ## Maven output format ####
+# {
+# 
+#   test = ilp_nodes_annotation %>%
+#     filter(ilp_result > 0.01) %>%
+#     # filter(class == "Metabolite", steps != 0) %>%
+#     filter(T)
+# 
+#   test2 = Mset$Data %>%
+#     inner_join(test) %>%
+#     dplyr::select(colnames(Mset$Data), node_id, class, formula, path, ppm_error, -id) %>%
+#     arrange(Input_id) %>%
+#     filter(class == "Unknown")
+# 
+#   
+#   test3 = read_csv("Mcap_NetID.csv") %>%
+#     arrange(Input_id) %>%
+#     dplyr::select(Input_id, class, formula, path) %>%
+#     dplyr::rename(Class = class,
+#                   Formula = formula,
+#                   Path = path)
+#   
+#   test4 = test2 %>%
+#     inner_join(test3) %>%
+#     # filter(log10_inten > 5) %>%
+#     # filter(grepl("Br", formula))
+#     filter(Path == path)
+#   
+#   library(janitor)
+#   tabyl(test4, Class, class)
+#     
+#   # write_csv(test2, paste(work_dir, timestamp,"NetID.csv", sep="_"))
+# }
+
+
+
 ## Merge with ANOVA results ####
 # {
 #   temp = ilp_nodes %>%

@@ -18,7 +18,7 @@
   library(cplexAPI)
   library(readxl)
   library(stringr)
-
+  library(janitor)
   
   # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   options(scipen=999) # Turn off scientific expression
