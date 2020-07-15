@@ -42,10 +42,16 @@ server <- function(input, output, session) {
     })
     
     observeEvent(peak_list(), {
-      x = peak_list() %>% slice(1)
-      selectInput(inputId = "peak_id",
-                  label = "Peak ID",
-                  choices = x$peak_id)
+      print("enter update selected peak_id")
+      x = peak_list() 
+      # updateSelectInput(session, "formula_select",
+      #                   # label = paste("Formula", length(x)),
+      #                   choices = x,
+      #                   selected = head(x, 1)
+      updateSelectInput(session, "peak_id",
+                        # label = "Peak ID",
+                        # choices = as.character(x$peak_id),
+                        selected = as.character(x$peak_id[1]))
     })
     
     query_ilp_id = reactive({
@@ -138,31 +144,45 @@ server <- function(input, output, session) {
         merge_edges = NULL
         if(input$biochemical_graph & input$class %in% c("Metabolite", "Putative Metabolite")){
           # req(g_parent())
-          g_nodes = igraph::as_data_frame(g_parent(), "vertices")
-          g_edges = igraph::as_data_frame(g_parent(), "edges")
-          merge_nodes = bind_rows(merge_nodes, g_nodes)
-          merge_edges = bind_rows(merge_edges, g_edges)
+          if(!is.null(g_parent())){
+            g_nodes = igraph::as_data_frame(g_parent(), "vertices")
+            g_edges = igraph::as_data_frame(g_parent(), "edges")
+            merge_nodes = bind_rows(merge_nodes, g_nodes)
+            merge_edges = bind_rows(merge_edges, g_edges)
+          }
+          
         }
         
         if(input$abiotic_graph & input$class == "Artifact"){
           # req(g_parent())
-          g_nodes = igraph::as_data_frame(g_parent(), "vertices")
-          g_edges = igraph::as_data_frame(g_parent(), "edges")
-          merge_nodes = bind_rows(merge_nodes, g_nodes)
-          merge_edges = bind_rows(merge_edges, g_edges)
+          if(!is.null(g_parent())){
+            g_nodes = igraph::as_data_frame(g_parent(), "vertices")
+            g_edges = igraph::as_data_frame(g_parent(), "edges")
+            merge_nodes = bind_rows(merge_nodes, g_nodes)
+            merge_edges = bind_rows(merge_edges, g_edges)
+          }
+          
         }
         
         if(input$biochemical_graph){
-          g2_nodes = igraph::as_data_frame(g_child_met(), "vertices")
-          g2_edges = igraph::as_data_frame(g_child_met(), "edges")
-          merge_nodes = bind_rows(merge_nodes, g2_nodes)
-          merge_edges = bind_rows(merge_edges, g2_edges)
+          # req(g_child_met())
+          if(!is.null(g_child_met())){
+            g2_nodes = igraph::as_data_frame(g_child_met(), "vertices")
+            g2_edges = igraph::as_data_frame(g_child_met(), "edges")
+            merge_nodes = bind_rows(merge_nodes, g2_nodes)
+            merge_edges = bind_rows(merge_edges, g2_edges)
+          }
+          
         }
         if(input$abiotic_graph){
-          g2_nodes = igraph::as_data_frame(g_child_nonmet(), "vertices")
-          g2_edges = igraph::as_data_frame(g_child_nonmet(), "edges")
-          merge_nodes = bind_rows(merge_nodes, g2_nodes)
-          merge_edges = bind_rows(merge_edges, g2_edges)
+          # req(g_child_nonmet())
+          if(!is.null(g_child_nonmet())){
+            g2_nodes = igraph::as_data_frame(g_child_nonmet(), "vertices")
+            g2_edges = igraph::as_data_frame(g_child_nonmet(), "edges")
+            merge_nodes = bind_rows(merge_nodes, g2_nodes)
+            merge_edges = bind_rows(merge_edges, g2_edges)
+          }
+          
         }
         
         if(is.null(merge_edges)){
@@ -180,7 +200,8 @@ server <- function(input, output, session) {
       
       output$Network_plot <- renderVisNetwork({
         print("enter output$Network_plot renderVisNetwork")
-        Plot_g_interest(req(g_interest()), 
+        # req(g_interest())
+        Plot_g_interest(g_interest(), 
                         query_ilp_node = isolate(query_ilp_id()), 
                         show_node_labels = input$node_labels, 
                         show_edge_labels = input$edge_labels
