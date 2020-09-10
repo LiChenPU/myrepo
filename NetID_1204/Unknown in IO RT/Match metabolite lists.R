@@ -37,16 +37,19 @@
       my_calculate_formula(x["formula"], "H-1", sign = as.numeric(x["charge"]))
       })
     ) 
+  
+  write_csv(genome_met_valid, "genome_met_valid.csv", na="")
 }
 
 
 # Read NetID output files
 {
-  work_dir = "Io_pos"
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  work_dir = "Rt_pos"
   setwd(work_dir)
-  load("Io_pos.RData")
+  load(list.files()[1])
   
-  netid_dt = read.csv("Rt_neg.csv")
+  netid_dt = read.csv("Rt_pos.csv")
   
   HMDB_lib = Mset$Library_HMDB
   known_lib = Mset$Library_known
@@ -57,13 +60,49 @@
     mutate(Formula_in_genomodel = formula %in% genome_met_valid$formula_neutral) %>%
     mutate(Formula_in_known = formula %in% known_lib$formula)
   
-  writexl::write_xlsx(result, "Rt_neg.xlsx")
+  tabyl(result, class, Formula_in_HMDB)
+  test = result %>%
+    filter(!Formula_in_HMDB,Formula_in_known)
   
-    
+  writexl::write_xlsx(result, "Rt_pos.xlsx")
 
 }
 
 
+## find metabolites in yeast ####
+{
+  path = list.dirs()[-1]
+  parent_dir = getwd()
+  
+  raw_ls = list()
+  for(i in unique(path)){
+    setwd(parent_dir)
+    setwd(i)
+    file_names = list.files()
+    file_name = file_names[grepl(".xlsx", file_names)]
+    
+    raw_ls[[length(raw_ls)+1]] = read_xlsx(file_name) %>%
+      mutate(origin = sub(".xlsx", "", file_name))
+    
+  }
+  
+  raw_df = bind_rows(raw_ls)
+  # write_csv(raw_df, "all.csv", na="")
+  
+  target_formula = "C8H17N1O8S1"
+  target_formula = "C9H17N1O6S1"
+  target_mass = formula_mz(target_formula)
+  proton_mass = formula_mz("H1", 1)
+  
+  df_filter = raw_df %>%
+    # filter(abs(mass - target_mass) < target_mass * 3e-6)
+    mutate(search_ppm_error = abs(abs(medMz - target_mass)-proton_mass) / target_mass * 1e6) %>%
+    mutate(adjust_search_ppm_error = abs(mass - target_mass) / target_mass * 1e6) %>%
+    filter(search_ppm_error < 5)
+  
+  
+  
+}
 
 
 

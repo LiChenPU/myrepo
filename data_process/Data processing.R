@@ -17,6 +17,7 @@
   hmdb_df = read_csv("hmdb_unique.csv")
   # put the peak table file directory here
   setwd("./sample files") 
+  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/NetID_1204/matt")
 
   # Filename
   filename = "raw_data.csv"
@@ -27,7 +28,7 @@
   # sample_cohort = c(rep("MS_pos_mp",30),rep("MS_neg", 32), rep("MS_neg_mp", 32))
   
   # Other parameters
-  mode = -1 # ionization mode
+  mode = 1 # ionization mode
   ms_dif_ppm=5 # Define mass error tolerance for HMDB matching
   rt_dif_min=0.2 # When two peaks have same mass and  RT < 0.2 min, the smaller one will be deleted
   High_blank_ratio = 2 # filter peaks that are 2x less than blanks
