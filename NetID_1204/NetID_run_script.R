@@ -6,19 +6,20 @@ printtime = Sys.time()
 timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 source("NetID_function.R")
 
-# work_dir = "Unknown in IO RT"
+work_dir = "Unknown in IO RT"
+work_dir = "matt"
 # filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
 # filename_wl = "pks_Io_pos__2020-06-12.xlsx"
 # filename_wl = "pks_Io_neg__2020-06-11.xlsx"
 # filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
 # filename_wl = "Lu-Table-S4-final_Sc_neg.xlsx"
 # filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
-work_dir = "WL_liver_pos"
-filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
+# work_dir = "WL_liver_pos"
+# filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
 ion_mode = 1
 MS2_library_file = "./dependent/HMDB_pred_MS2_pos.rds"
 MS2_folder = "MS2_pos_200524"
-LC_method = "Hilic_25min_QE" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE"
+LC_method = "lipids" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE", lipids is empty
 
 MS2_library = readRDS(MS2_library_file)
 mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
@@ -32,6 +33,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   Mset = list()
   # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
   Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_library.csv", stringsAsFactors = F)
+  
   Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
     filter(!is.na(.[,eval(LC_method)]))
   
@@ -45,31 +47,34 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
 ## WL data format ####
 {
   setwd(work_dir)
-  
+
   filename = "raw_data.csv"
   Mset[["Raw_data"]] <- read_raw_data(filename)
-  
-  # WL = readxl::read_xlsx(filename_wl, sheet = "Positive mode") %>%
-  WL = readxl::read_xlsx(filename_wl,
-                         sheet = "Sheet1",
-                         guess_max = 1e6
-                         ) %>%
-    dplyr::rename(medRt = rt,
-                  medMz = mz) %>%
-    # dplyr::rename(Formula = Formula...32,
-    #               Feature = Feature...33,
-    #               Background = Background...25) %>%
-    filter(T)
 
-  
-  raw_data_WL = Mset$Raw_data %>%
-    merge(WL, all = T) %>%
-    mutate(id = 1:nrow(.),
-           liver = 10^sig,
-           liver2 = 10^sig) %>%
-    filter(is.na(Background)) %>%
-    dplyr::select(colnames(Mset$Raw_data))
-  Mset[["Raw_data"]] = raw_data_WL
+  # WL = readxl::read_xlsx(filename_wl) %>%
+  # # WL = readxl::read_xlsx(filename_wl,
+  # #                        sheet = "Sheet1",
+  # #                        guess_max = 1e6
+  # #                        ) %>%
+  #   dplyr::rename(medRt = rt,
+  #                 medMz = mz) %>%
+  #   dplyr::rename(Formula = Formula...32,
+  #                 Feature = Feature...33,
+  #                 Background = Background...25) %>%
+  #   filter(T)
+  # 
+  # 
+  # raw_data_WL = Mset$Raw_data %>%
+  #   merge(WL, all = T) %>%
+  #   # mutate(id = 1:nrow(.),
+  #   #        liver = 10^sig,
+  #   #        liver2 = 10^sig) %>%
+  #   mutate(id = 1:nrow(.),
+  #          yeast = 10^sig,
+  #          yeast2 = 10^sig) %>%
+  #   filter(is.na(Background)) %>%
+  #   dplyr::select(colnames(Mset$Raw_data))
+  # Mset[["Raw_data"]] = raw_data_WL
 }
 
 ## Initialise ####
@@ -112,7 +117,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   FormulaSet = Match_library_formulaset(FormulaSet, 
                                         Mset, NodeSet, 
                                         LibrarySet,
-                                        expand = T,
+                                        expand = F,
                                         ppm_tol = 5e-6)
   
   Sys_msr_error = Check_sys_error(NodeSet, FormulaSet, LibrarySet, 
@@ -130,7 +135,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
     FormulaSet = Match_library_formulaset(FormulaSet, 
                                           Mset, NodeSet, 
                                           LibrarySet,
-                                          expand = T,
+                                          expand = F,
                                           ppm_tol = 5e-6)
   }
   
@@ -219,7 +224,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
                                             MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
                                             MS2_score_experiment_fragment = 0.5)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 0.2,
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 0,
                                                                     MS2_score_experiment_fragment = 0.5)
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
@@ -235,7 +240,7 @@ sapply(CplexSet$para_lp, length)
 ## Run_cplex ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
-                                               relative_gap = 1e-3, total_run_time = 25000))
+                                               relative_gap = 1e-3, total_run_time = 2500))
   # CplexSet[["lp_solution"]] = list(Run_cplex_lp(CplexSet, obj_cplex = CplexSet$para_lp$obj,
   #                                               total_run_time = 5000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
@@ -264,8 +269,7 @@ sapply(CplexSet$para_lp, length)
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
   
   ilp_nodes_ilp = ilp_nodes %>%
-    filter(ilp_result > 1e-6) %>%
-    filter(ilp_result != 1)
+    filter(ilp_result > 1e-6) 
 
 }
 
@@ -326,6 +330,9 @@ sapply(CplexSet$para_lp, length)
   
   for(i in 1:nrow(ilp_nodes)){
     if(i %% 1000 == 0)print(i)
+    # skip ilp_nodes not as 1
+    if(ilp_nodes$ilp_result[i] < 0.01){next}
+    
     temp_ilp_node_id = ilp_nodes$ilp_node_id[i]
     if(ilp_nodes$class[i] == "Artifact"){
       path_annotation[i] = track_annotation_nonmet(temp_ilp_node_id, ilp_edges_annotate = ilp_edges_annotate_nonmet,
@@ -387,7 +394,7 @@ print(Sys.time()-printtime)
     # mutate(CN_match = (N_count == N) & (C_count == C)) %>%
     filter(T)
   
-  write_csv(test3_filter, "liver_pos.csv", na="")
+  # write_csv(test3_filter, "liver_pos.csv", na="")
   
   
   
@@ -553,4 +560,25 @@ print(Sys.time()-printtime)
 #   # save.image()
 # }
 
+## Get publishable numbers ####
+{
+  # Seed step
+  {
+    seed_nodes = ilp_nodes %>%
+      filter(steps == 0) %>%
+      filter(class != "Unknown")
+    table(seed_nodes$class)
+    nrow(seed_nodes)
+    # number of nodes that are seeds
+    length(table(seed_nodes$node_id))
+    
+  }
+  # Propagation step
+  {
+    ilp_nodes %>% filter(class != "Unknown") %>% nrow()
+    length(table(ilp_nodes %>% filter(class != "Unknown") %>% pull(node_id)))
+  }
+  
+  
+}
 # Deprecated ####

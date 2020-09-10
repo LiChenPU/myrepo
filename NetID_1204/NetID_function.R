@@ -960,7 +960,7 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
 Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
                            RT_match = T){
   Library_known = LibrarySet %>%
-    filter(origin == "Library_known")
+    filter(origin %in% c("Library_known","Manual_library"))
   
   node_RT = sapply(NodeSet, "[[", "RT")
   library_RT = LibrarySet$rt
@@ -1919,7 +1919,7 @@ initiate_ilp_edges = function(EdgeSet_all_df, CplexSet, Exclude = "Biotransform"
   match_matrix_index_ls = list()
   
   for(i in 1:nrow(EdgeSet_df)){
-    # print(i)
+    if(i %% 1000 == 0)print(i)
     edge_id = EdgeSet_df$edge_id[i]
     category = EdgeSet_df$category[i]
     
@@ -2417,7 +2417,7 @@ score_heterodimer_ilp_edges = function(CplexSet, rule_score_heterodimer = 1,
   return(heterodimer_ilp_edges)
 }
 
-## Prepare_CPLEX parameter ####
+## Initiate_cplexset  ####
 Initiate_cplexset = function(CplexSet){
   
   ilp_nodes = CplexSet$ilp_nodes %>%
