@@ -10,7 +10,6 @@
   library(tidyr)
   # library(fitdistrplus)
   library(slam)
-  # library(cplexAPI)
   library(readr)
   library(stringi)
   library(pracma)
@@ -25,81 +24,168 @@
 }
 
 # Fucntions ####
-# Function for parsing#### 
-## read_raw_data for reading ElMAVEN output ####
-read_raw_data = function(filename){
-  raw_data = read_csv(filename) 
-  if("groupId" %in% colnames(raw_data)){
-    raw_data = raw_data %>%
-      dplyr::rename(id = groupId)
+# read_files - Function for parsing data #### 
+read_files = function(
+  filename = "raw_data.csv",
+  MS2_folder = "MS2_neg_200524",
+  LC_method = "Hilic_25min_QE",
+  ion_mode = -1,
+  neg_MS2_library_file = "../dependent/HMDB_pred_MS2_neg.rds",
+  pos_MS2_library_file = "../dependent/HMDB_pred_MS2_pos.rds",
+  HMDB_library_file = "../dependent/hmdb_library.csv",
+  known_library_file = "../dependent/known_library.csv",
+  empirical_rule_file = "../dependent/empirical_rules.csv",
+  propagation_rule_file = "../dependent/propagation_rule.csv",
+  manual_library_file = "manual_library.csv"
+){
+  
+  
+  Mset = list()
+  
+  Mset[["HMDB_library"]] = read.csv(HMDB_library_file, stringsAsFactors = F)
+  
+  # known_library contains RT information of documented metabolites
+  {
+    Mset[["known_library"]] = read.csv(known_library_file, stringsAsFactors = F)
+    if(LC_method %in% colnames(Mset[["known_library"]])){
+      Mset[["known_library"]] = Mset[["known_library"]] %>%
+        filter(!is.na(.[,eval(LC_method)]))
+    } else {
+      Mset[["known_library"]] = Mset[["known_library"]] %>%
+        filter(F)
+    }
   }
-  return(raw_data)
-}
-
-
-## read_manual library ####
-read_manual_library = function(manual_library_file){
-  if(!file.exists(manual_library_file)){
-    # warning("No manual library file found in data folder.")
-    return(NULL)
+  # Read in manual_library, which is data dependent, unlike known_library is global applicable.
+  # manual_library provides a more flexible way to temporarily add annotations
+  {
+    if(!file.exists(manual_library_file)){
+      # warning("No manual library file found in data folder.")
+      return(NULL)
+    }
+    data("isotopes")
+    manual_library = read.csv(manual_library_file, stringsAsFactors = F)
+    check_formula = check_chemform(isotopes, manual_library$formula) 
+    if(any(check_formula$warning)){
+      stop(paste("Check manual library for formula error:", 
+                 paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
+    }
+    manual_library = manual_library %>%
+      mutate(formula = check_formula$new_formula) %>%
+      mutate(formula = my_calculate_formula(formula, "C1"),
+             formula = my_calculate_formula(formula, "C-1")) %>%
+      mutate(mass = formula_mz(formula),
+             rdbe = formula_rdbe(formula)) %>%
+      mutate(note = as.character(note))
+    
+    Mset[["manual_library"]] = manual_library
   }
-  data("isotopes")
-  manual_library = read.csv(manual_library_file, stringsAsFactors = F)
-  check_formula = check_chemform(isotopes, manual_library$formula) 
-  if(any(check_formula$warning)){
-    stop(paste("Check manual library for formula error:", 
-               paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
-  }
-  manual_library = manual_library %>%
-    mutate(formula = check_formula$new_formula) %>%
-    mutate(formula = my_calculate_formula(formula, "C1"),
-           formula = my_calculate_formula(formula, "C-1")) %>%
-    mutate(mass = formula_mz(formula),
-           rdbe = formula_rdbe(formula)) %>%
-    mutate(note = as.character(note))
-  return(manual_library)
-}
-## Read_rule_table - for Connect_rules ####
-Read_rule_table = function(rule_table_file, extend_rule = F){
-  data("isotopes")
-  Connect_rules = read.csv(rule_table_file,stringsAsFactors = F)
-  if(nrow(Connect_rules) == 0){return(Connect_rules)}
-  for(i in 1: nrow(Connect_rules)){
-    Connect_rules$formula[i] = check_chemform(isotopes,Connect_rules$formula[i])$new_formula
-    Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1")
-    Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1", -1)
-    Connect_rules$mass[i] = formula_mz(Connect_rules$formula[i])
+ 
+  # Read empirical_rules
+  {
+    data("isotopes")
+    Connect_rules = read.csv(empirical_rule_file,stringsAsFactors = F)
+    if(nrow(Connect_rules) == 0){return(Connect_rules)}
+    for(i in 1: nrow(Connect_rules)){
+      Connect_rules$formula[i] = check_chemform(isotopes,Connect_rules$formula[i])$new_formula
+      Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1")
+      Connect_rules$formula[i] = my_calculate_formula(Connect_rules$formula[i], "C1", -1)
+      Connect_rules$mass[i] = formula_mz(Connect_rules$formula[i])
+    }
+    Mset[["empirical_rules"]] = Connect_rules
   }
   
-  # if(extend_rule){
-  #   extend_rules = list()
-  #   i=3
-  #   for(i in 1: nrow(Connect_rules)){
-  #     if(Connect_rules$allow_rep[i] <= 1){next}
-  #     for(j in 2:Connect_rules$allow_rep[i]){
-  #       temp_rule = Connect_rules[i,]
-  #       temp_rule$name = paste(temp_rule$name, "x", j, sep="")
-  #       temp_rule$formula = my_calculate_formula(temp_rule$formula, temp_rule$formula, 
-  #                                                sign = j-1)
-  #       temp_rule$mass = temp_rule$mass * j
-  #       temp_rule$rdbe = temp_rule$rdbe * j
-  #       
-  #       extend_rules[[length(extend_rules)+1]] = temp_rule
-  #     }
-  #   }
-  #   
-  #   Connect_rules = rbind(Connect_rules, bind_rows(extend_rules))
-  #   Connect_rules = Connect_rules %>%
-  #     arrange(mass) %>%
-  #     dplyr::select(-allow_rep)
-  # }
-  return(Connect_rules)
+  # Read global_parameter
+  {
+    propagation_rule = read.csv(propagation_rule_file, row.names = 1)
+    Mset[["global_parameter"]] = list(mode = ion_mode,
+                                      LC_method = LC_method,
+                                      propagation_rule = propagation_rule)
+  }
+  
+  # Read raw_data 
+  {
+    raw_data = read_csv(filename) 
+    if("groupId" %in% colnames(raw_data)){
+      raw_data = raw_data %>%
+        dplyr::rename(id = groupId)
+    }
+    Mset[["raw_data"]] = raw_data
+  }
+  
+  # Read MS2_library
+  {
+    if(ion_mode == -1){
+      Mset[["MS2_library"]] = readRDS(neg_MS2_library_file)
+    } else if(ion_mode == 1){
+      Mset[["MS2_library"]] = readRDS(pos_MS2_library_file)
+    } else {
+      stop(paste("Allowed ion_mode = -1 (negative ionization) or 1 (positive ionization)"))
+    }
+  }
+  
+  
+  return(Mset)
+}
+
+# read_MS2data ####
+read_MS2data = function(Mset, MS2_folder){
+  
+  if(!any(list.files()==MS2_folder)){
+    Mset[["MS2_ls"]] = NULL
+    return(Mset)
+  }
+  
+  old_path = getwd()
+  setwd(MS2_folder)
+  
+  MS2_filenames = list.files(pattern = ".xlsx")
+  MS2_filenames = MS2_filenames[!grepl("\\~", MS2_filenames)]
+  
+  MS2_ls = list()
+
+  for(i_filename in 1:length(MS2_filenames)){
+    # print(i_filename)
+    MS2_filename = MS2_filenames[i_filename]
+    
+    ## Sensitive to format changes in MS2 input files
+    WL_MS2 = read_xlsx(MS2_filename)
+    IDs = WL_MS2$Comment %>%
+      str_sub(start = 4) %>%
+      as.numeric()
+    
+    sheetnames = excel_sheets(MS2_filename)[-c(1,2,3)]
+    
+    if(length(sheetnames)!=length(IDs)){
+      warning(paste("Inconsistent number of peaks and spectra.", MS2_filename))
+      next
+    }
+    
+    temp_MS2_ls = lapply(sheetnames, function(sheetname){
+      df = read_xlsx(path=MS2_filename, sheet = sheetname, col_names = F, .name_repair = "minimal")
+      if(ncol(df) == 1){
+        return(NULL)
+      }
+      colnames(df) = c("mz", "inten")
+      df = as.data.frame(df)
+    })
+    
+    valid_MS2 = !sapply(temp_MS2_ls, is.null)
+    
+    temp_MS2_ls = temp_MS2_ls[valid_MS2]
+    names(temp_MS2_ls) = IDs[valid_MS2]
+    MS2_ls = c(MS2_ls, temp_MS2_ls)
+  }
+  
+  setwd(old_path)
+  
+  Mset[["MS2_ls"]] = MS2_ls
+  return(Mset)
 }
 
 ## Cohort_Info - Data name and cohorts ####
 Cohort_Info = function(Mset, first_sample_col_num = 15)
 {
-  raw = Mset$Raw_data
+  raw = Mset$raw_data
   all_names=colnames(raw)[first_sample_col_num:ncol(raw)]
   
   if(length(grep("blank|blk", all_names, ignore.case = T))!=0){
@@ -127,14 +213,15 @@ Peak_cleanup = function(Mset,
   
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  ion_mode = Mset$Global_parameter$mode
-  raw = Mset$Raw_data %>%
+  ion_mode = Mset$global_parameter$mode
+  raw = Mset$raw_data %>%
     mutate(medMz = medMz - (H_mass-e_mass)*ion_mode)
   
   
   ##Group MS groups
   {
-    s = raw[with(raw, order(medMz, medRt)),]
+    s = raw %>%
+      arrange(medMz, medRt)
     
     mzs = s$medMz
     count = 1
@@ -146,7 +233,8 @@ Peak_cleanup = function(Mset,
       MZ_group[i]=count
     }
     s["MZ_group"]=MZ_group
-    }
+    
+  }
   
   ##Group RT similar groups based on MS groups
   {
@@ -227,8 +315,8 @@ Peak_cleanup = function(Mset,
     }
   }
   
-  duplicated = s4 %>%
-    filter(MZRT_group %in% unique(.[["MZRT_group"]][duplicated(.[["MZRT_group"]])]))
+  # duplicated = s4 %>%
+  #   filter(MZRT_group %in% unique(.[["MZRT_group"]][duplicated(.[["MZRT_group"]])]))
   
   s6 = s5 %>%
     distinct(MZRT_group, .keep_all=T) %>%
@@ -242,7 +330,7 @@ Peak_cleanup = function(Mset,
   return(s6)
 }
 
-## New_function 1204 ####
+
 ## Initiate_nodeset ####
 Initiate_nodeset = function(Mset){
   NodeSet = apply(Mset$Data, 1, function(x){
@@ -259,6 +347,32 @@ Initiate_nodeset = function(Mset){
   names(NodeSet) = 1:nrow(Mset$Data)
   return(NodeSet)
 }
+
+## Map MS2 in nodeset ####
+map_MS2_nodeset = function(Mset, NodeSet){
+  id_map = Mset$Data$id
+  names(id_map) = as.character(Mset$Data$Input_id)
+  
+  MS2_ls = Mset$MS2_ls
+  MS2_ls_names = names(MS2_ls)
+  
+  for(i in 1:length(MS2_ls_names)){
+    node_id = id_map[MS2_ls_names[i]]
+    if(is.na(node_id)){next}
+    NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+  }
+  
+  test = sapply(NodeSet,"[[", "MS2")
+  # show how many nodes get MS2
+  length(NodeSet)-sum(sapply(test, is.null))
+  
+  return(NodeSet)
+}
+#* Below is old functions *#*#####
+
+
+
+
 ## Initiate_edgeset ####
 Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10, 
                             rt_tol_bio = Inf, rt_tol_nonbio = 0.2){
@@ -269,11 +383,11 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10,
   temp_id_list = names(temp_mz_list)
   merge_nrow = length(temp_mz_list)
   
-  temp_rules = Mset$Empirical_rules %>% arrange(mass)
+  temp_rules = Mset$empirical_rules %>% arrange(mass)
   timer=Sys.time()
   {
     edge_ls = list()
-    for (k in 1:nrow(Mset$Empirical_rules)){
+    for (k in 1:nrow(Mset$empirical_rules)){
       temp_fg=temp_rules$mass[k]
       temp_deltaRT = ifelse(temp_rules$category[k] == "Biotransform", rt_tol_bio, rt_tol_nonbio)
       
@@ -343,30 +457,29 @@ Initiate_edgeset = function(Mset, NodeSet, mz_tol_abs = 0, mz_tol_ppm = 10,
 }
 ## Initiate_libraryset ####
 Initiate_libraryset = function(Mset){
-  Metabolites_HMDB = Mset$Library_HMDB %>%
-    # mutate(category = "Metabolite") %>%
+  Metabolites_HMDB = Mset$HMDB_library %>%
     dplyr::rename(note = accession) %>%
-    mutate(origin = "Library_HMDB")
+    mutate(origin = "HMDB_library")
   
-  Metabolites_known = Mset$Library_known %>%
+  Metabolites_known = Mset$known_library %>%
     mutate(category = "Metabolite") %>%
     dplyr::rename(note = HMDB) %>%
-    mutate(origin = "Library_known") %>%
-    mutate(rt = .[,eval(Mset$Global_parameter$LC_method)])
+    mutate(origin = "known_library") %>%
+    mutate(rt = .[,eval(Mset$global_parameter$LC_method)])
 
-  Adducts = Mset$Empirical_rules %>%
+  Adducts = Mset$empirical_rules %>%
     filter(category == "Adduct") %>%
     # mutate(category = "Artifact") %>%
     dplyr::select(-direction) %>%
-    mutate(origin = "Empirical_rules")
+    mutate(origin = "empirical_rules")
   
-  Manual = NULL
-  if(!is.null(Mset$Manual_library)){
-    Manual = Mset$Manual_library %>%
-      mutate(origin = "Manual_library")
+  if(!is.null(Mset$manual_library)){
+    Manual = Mset$manual_library %>%
+      mutate(origin = "manual_library")
+  } else {
+    Manual = NULL
   }
 
-  
   # Remove entries in HMDB that are adducts 
   Metabolites_HMDB = Metabolites_HMDB %>%
     filter(!formula %in% Adducts$formula)
@@ -579,7 +692,7 @@ Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10,
   
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  ion_mode = Mset$Global_parameter$mode
+  ion_mode = Mset$global_parameter$mode
   
   peak_group_MS2 = peak_group %>%
     filter(node2 %in% node_MS2 & inten2 > log10(inten_threshold),
@@ -636,19 +749,19 @@ Experiment_MS2_fragment_connection = function(peak_group, NodeSet, ppm_tol = 10,
   return(EdgeSet_experiment_MS2_fragment)
 }
 ## Library_MS2_fragment_connection ####
-Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
+Library_MS2_fragment_connection = function(peak_group, StructureSet, MS2_library,
                                            inten_threshold = 1e5,
                                            ppm_tol = 10, abs_tol = 1e-4){
   # It only requires the parent node has potential database MS2
   
-  FormulaSet_df = bind_rows(FormulaSet)
+  StructureSet_df = bind_rows(StructureSet)
   MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
   
   H_mass = 1.00782503224
   e_mass = 0.00054857990943
-  ion_mode = Mset$Global_parameter$mode
+  ion_mode = Mset$global_parameter$mode
   
-  FormulaSet_df_MS2 = FormulaSet_df %>%
+  StructureSet_df_MS2 = StructureSet_df %>%
     # filter(steps == 0) %>%
     filter(steps == 0, transform == "") %>%
     merge(LibrarySet %>%
@@ -659,7 +772,7 @@ Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
     filter(contain_lib_MS2)
   
   peak_group_MS2 = peak_group %>%
-    filter(node2 %in% FormulaSet_df_MS2$node_id & inten2 > log10(inten_threshold), #Only look at high-inten peaks
+    filter(node2 %in% StructureSet_df_MS2$node_id & inten2 > log10(inten_threshold), #Only look at high-inten peaks
            inten2 > inten1, # Fragment should have lower inten comparaed to parent
            mass2 > mass1) %>%
     split(.$node2)
@@ -670,14 +783,14 @@ Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
     mz_node1 = sapply(id_node1, function(x){NodeSet[[x]]$mz + (H_mass-e_mass)*ion_mode})
     
     id_node2 = peak_group_MS2[[i]]$node2[1]
-    FormulaSet_df_MS2_filter = FormulaSet_df_MS2 %>%
+    StructureSet_df_MS2_filter = StructureSet_df_MS2 %>%
       filter(node_id == id_node2)
     
     node2 = as.numeric(names(peak_group_MS2)[i])
     mz_parent = NodeSet[[node2]]$mz + (H_mass-e_mass)*ion_mode
     
-      for(j in 1:nrow(FormulaSet_df_MS2_filter)){
-        match_MS2_IDs = which(FormulaSet_df_MS2_filter$note[j] == MS2_library_external_id)
+      for(j in 1:nrow(StructureSet_df_MS2_filter)){
+        match_MS2_IDs = which(StructureSet_df_MS2_filter$note[j] == MS2_library_external_id)
         if(length(match_MS2_IDs) == 0){next}
         match_MS2 = bind_rows(lapply(MS2_library[match_MS2_IDs], "[[","spectrum"))
         
@@ -692,7 +805,7 @@ Library_MS2_fragment_connection = function(peak_group, FormulaSet, MS2_library,
         
         length_formula_node1 = length(formula_node1)
         
-        formula_node2 = FormulaSet_df_MS2_filter$formula[j]
+        formula_node2 = StructureSet_df_MS2_filter$formula[j]
         
         temp_node1 = id_node1[temp_index[,1]]
         
@@ -850,7 +963,7 @@ match_library_propagation = function(lib, sf, record_ppm_tol, record_RT_tol, cur
   
 }
 ## Initialize formula pool ####
-Initilize_empty_formulaset = function(NodeSet){
+Initilize_empty_structureset = function(NodeSet){
   # sf_str = data.frame(
   #   formula = as.character(),
   #   mass = as.numeric(), 
@@ -881,8 +994,8 @@ Initilize_empty_formulaset = function(NodeSet){
   return(sf)
 }
 
-## Match_library_formulaset ####
-Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet, 
+## Match_library_structureset ####
+Match_library_structureset = function(StructureSet, Mset, NodeSet, LibrarySet, 
                                     expand = T,
                                     ppm_tol = 5e-6){
   ## initialize
@@ -908,14 +1021,14 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
     filter(category == "Manual")
   ## Expansion of starting formula/structures ####
   if(expand){
-    initial_rule = Mset$Empirical_rules %>%
+    initial_rule = Mset$empirical_rules %>%
       filter(category %in% c("Biotransform", "Adduct"))
 
     rule_1 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,1))
     rule_2 = initial_rule %>% filter(category == "Biotransform") %>% filter(direction %in% c(0,-1))
 
     lib_known_id = LibrarySet %>%
-      filter(origin == "Library_known") %>%
+      filter(origin == "known_library") %>%
       pull(library_id)
     lib_known = seed_library %>%
       filter(node_id %in% lib_known_id) %>%
@@ -944,7 +1057,7 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
   initial_lib = bind_rows(initial_lib1, initial_lib2) %>%
     arrange(mass)
   
-  sf = FormulaSet
+  sf = StructureSet
   sf = match_library(lib = initial_lib, sf, 
                      record_ppm_tol = ppm_tol, 
                      record_RT_tol = Inf, 
@@ -957,18 +1070,18 @@ Match_library_formulaset = function(FormulaSet, Mset, NodeSet, LibrarySet,
 
 
 ## Check_sys_error ####
-Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
+Check_sys_error = function(NodeSet, StructureSet, LibrarySet,
                            RT_match = T){
-  Library_known = LibrarySet %>%
-    filter(origin %in% c("Library_known","Manual_library"))
+  known_library = LibrarySet %>%
+    filter(origin %in% c("known_library","manual_library"))
   
   node_RT = sapply(NodeSet, "[[", "RT")
   library_RT = LibrarySet$rt
   names(library_RT) = LibrarySet$library_id
   
   node_mass = sapply(NodeSet, "[[", "mz")
-  Library_known_msr = bind_rows(FormulaSet) %>% 
-    filter(parent_id %in% Library_known$library_id & transform == "") %>%
+  known_library_msr = bind_rows(StructureSet) %>% 
+    filter(parent_id %in% known_library$library_id & transform == "") %>%
     mutate(msr_mass = node_mass[node_id], 
            mass_dif = mass - msr_mass,
            ppm_mass_dif = mass_dif/mass * 1e6) %>%
@@ -982,12 +1095,12 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
     # distinct(formula, .keep_all = T) %>%
     filter(T)
   
-  lsq_result = lm(Library_known_msr$mass_dif~Library_known_msr$msr_mass)
+  lsq_result = lm(known_library_msr$mass_dif~known_library_msr$msr_mass)
     
   if(RT_match){
-    Library_known_msr = Library_known_msr %>%
+    known_library_msr = known_library_msr %>%
       filter(rt_match)
-    lsq_result = lm(Library_known_msr$mass_dif~Library_known_msr$msr_mass)
+    lsq_result = lm(known_library_msr$mass_dif~known_library_msr$msr_mass)
   }
   
   
@@ -996,11 +1109,11 @@ Check_sys_error = function(NodeSet, FormulaSet, LibrarySet,
   
   
   #
-  # plot(Library_known_msr$msr_mass, Library_known_msr$mass_dif)
+  # plot(known_library_msr$msr_mass, known_library_msr$mass_dif)
   ## Normal test 
-  # shapiro.test(Library_known_msr$mass_dif)
-  # shapiro.test(Library_known_msr$ppm_mass_dif)
-  fitdistData = fitdistrplus::fitdist(Library_known_msr$ppm_mass_dif, "norm")
+  # shapiro.test(known_library_msr$mass_dif)
+  # shapiro.test(known_library_msr$ppm_mass_dif)
+  fitdistData = fitdistrplus::fitdist(known_library_msr$ppm_mass_dif, "norm")
   # if(fitdistData$estimate["mean"] > 10*fitdistData$sd["mean"]){
     plot(fitdistData)
     print(fitdistData)
@@ -1222,10 +1335,10 @@ propagate_library_MS2_fragment = function(new_nodes_df, sf, EdgeSet_library_MS2_
   
   return(new_nodes_df_library_MS2_fragment)
 }
-## Propagate_formulaset ####
-Propagate_formulaset = function(Mset, 
+## Propagate_structureset ####
+Propagate_structureset = function(Mset, 
                                 NodeSet,
-                                FormulaSet,
+                                StructureSet,
                                 EdgeSet_all_df,
                                 biotransform_step = 5,
                                 artifact_step = 5,
@@ -1241,14 +1354,14 @@ Propagate_formulaset = function(Mset,
   # record_RT_tol = 0.1
   # record_ppm_tol = 5e-6
 
-  sf = FormulaSet
-  empirical_rules = Mset$Empirical_rules
+  sf = StructureSet
+  empirical_rules = Mset$empirical_rules
   node_mass = sapply(NodeSet, "[[", "mz") %>% sort()
   node_RT = sapply(NodeSet, "[[", "RT")[names(node_mass)]
   temp_id = as.numeric(names(node_mass)) # numeric
 
   
-  propagation_rule = Mset$Global_parameter$propagation_rule
+  propagation_rule = Mset$global_parameter$propagation_rule
   propagation_rule_ls = list()
   for(i in colnames(propagation_rule)){
     propagation_rule_ls[[i]] = colnames(propagation_rule)[propagation_rule[,i]]
@@ -1497,8 +1610,8 @@ Propagate_formulaset = function(Mset,
   return(sf)
 }
 
-## Score_formulaset ####
-Score_formulaset = function(FormulaSet,
+## Score_structureset ####
+Score_structureset = function(StructureSet,
                             database_match = 0.5, 
                             MS2_match = 1,
                             MS2_match_cutoff = 0.8,
@@ -1521,12 +1634,12 @@ Score_formulaset = function(FormulaSet,
   # bio_decay = 1
   # artifact_decay = -0.5
   
-  FormulaSet_df = bind_rows(FormulaSet) %>%
+  StructureSet_df = bind_rows(StructureSet) %>%
     mutate(formula_set_id = 1:nrow(.))
   
   # Score HMDB and known adduct match
   {
-    FormulaSet_df = FormulaSet_df %>%
+    StructureSet_df = StructureSet_df %>%
       mutate(database_prior = case_when(
         category == "Manual" ~ manual_match,
         category == "Unknown" ~ 0,
@@ -1546,7 +1659,7 @@ Score_formulaset = function(FormulaSet,
     
     MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
  
-    FormulaSet_df_MS2 = FormulaSet_df %>%
+    StructureSet_df_MS2 = StructureSet_df %>%
       filter(steps == 0) %>%
       # filter(steps == 0, transform == "") %>%
       merge(LibrarySet %>%
@@ -1557,24 +1670,24 @@ Score_formulaset = function(FormulaSet,
       mutate(contain_lib_MS2 = note %in% MS2_library_external_id) %>%
       filter(contain_msr_MS2, contain_lib_MS2)
     
-    fwd_dp = rev_dp = rep(0, nrow(FormulaSet_df_MS2))
+    fwd_dp = rev_dp = rep(0, nrow(StructureSet_df_MS2))
     
-    for(i in 1:nrow(FormulaSet_df_MS2)){
+    for(i in 1:nrow(StructureSet_df_MS2)){
       
       H_mass = 1.007825032
       e_mass = 0.000548579
-      ion_mode = Mset$Global_parameter$mode
+      ion_mode = Mset$global_parameter$mode
       
-      node_id = FormulaSet_df_MS2$node_id[i]
-      mz1 = FormulaSet_df_MS2$mass.x[i] + (H_mass-e_mass) * ion_mode
+      node_id = StructureSet_df_MS2$node_id[i]
+      mz1 = StructureSet_df_MS2$mass.x[i] + (H_mass-e_mass) * ion_mode
       MS2_msr = NodeSet[[node_id]]$MS2
       colnames(MS2_msr)=c("mz", "inten")
       if(nrow(MS2_msr)==1){
         next
       }
       
-      HMDB_id = FormulaSet_df_MS2$note[i]
-      mz2 = FormulaSet_df_MS2$mass.y[i] + (H_mass-e_mass) * ion_mode
+      HMDB_id = StructureSet_df_MS2$note[i]
+      mz2 = StructureSet_df_MS2$mass.y[i] + (H_mass-e_mass) * ion_mode
       lib_MS2_id = which(MS2_library_external_id == HMDB_id)
       MS2_lib = MS2_library[lib_MS2_id]
    
@@ -1642,7 +1755,7 @@ Score_formulaset = function(FormulaSet,
     # How to combine fwd score and rev score into a MS2 score
     # For exact matched MS2, it takes only fwd spectrum score
     # For transformed MS2, it takes the higher one of the fwd and rev spectrum score
-    FormulaSet_df_MS2_ = FormulaSet_df_MS2 %>%
+    StructureSet_df_MS2_ = StructureSet_df_MS2 %>%
       mutate(fwd_score = fwd_dp,
              rev_score = rev_dp,
              higher_fwd_rev = pmax(fwd_score, rev_score)) %>%
@@ -1653,8 +1766,8 @@ Score_formulaset = function(FormulaSet,
         ))%>%
       dplyr::select(formula_set_id, MS2score_prior)
     
-    FormulaSet_df = FormulaSet_df %>%
-      merge(FormulaSet_df_MS2_, all.x = T) %>%
+    StructureSet_df = StructureSet_df %>%
+      merge(StructureSet_df_MS2_, all.x = T) %>%
       mutate(MS2score_prior = ifelse(is.na(MS2score_prior), 0, MS2score_prior))
   }
   
@@ -1664,7 +1777,7 @@ Score_formulaset = function(FormulaSet,
     library_RT = LibrarySet$rt
     names(library_RT) = LibrarySet$library_id
     
-    FormulaSet_df = FormulaSet_df %>%
+    StructureSet_df = StructureSet_df %>%
       mutate(node_rt = node_RT[node_id], 
              library_rt = library_RT[as.character(parent_id)]) %>%
       mutate(known_rt_prior = ifelse(abs(node_rt - library_rt) < known_rt_tol & 
@@ -1675,7 +1788,7 @@ Score_formulaset = function(FormulaSet,
   
   # Penalize formula based on PO ratio
   {
-    temp_formula = FormulaSet_df$formula
+    temp_formula = StructureSet_df$formula
     
     formula_O = str_extract_all(temp_formula, "(?<=O)([:digit:]|\\.)+")
     formula_O = sapply(formula_O, function(x){sum(as.numeric(x))})
@@ -1684,39 +1797,39 @@ Score_formulaset = function(FormulaSet,
     formula_Si = str_extract_all(temp_formula, "(?<=Si)([:digit:]|\\.)+")
     formula_Si = sapply(formula_Si, function(x){sum(as.numeric(x))})
     
-    FormulaSet_df = FormulaSet_df %>%
+    StructureSet_df = StructureSet_df %>%
       mutate(empirical_POratio_prior = ifelse(formula_O >= 3*formula_P & 
                                                 formula_O >= 1.01*formula_Si, 0, -10)) # make sure when no O and no Si, it is true
   }
   
   # Penalize formula based on RDBE rule
   {
-    FormulaSet_df = FormulaSet_df %>%
+    StructureSet_df = StructureSet_df %>%
       mutate(empirical_RDBE_prior = ifelse(rdbe >= 0 | category != "Metabolite", 0, -10))
   }
   
   
   # Prior formula scores 
   {
-    prior_formula_score = FormulaSet_df %>% 
+    prior_formula_score = StructureSet_df %>% 
       dplyr::select(ends_with("_prior")) %>% 
       rowSums(na.rm = T)
     
-    FormulaSet_df = FormulaSet_df %>%
+    StructureSet_df = StructureSet_df %>%
       mutate(prior_score = prior_formula_score)
   }
   
-  return(FormulaSet_df)
+  return(StructureSet_df)
 }
 
 
 ## initiate_ilp_nodes ####
-initiate_ilp_nodes = function(FormulaSet_df,
+initiate_ilp_nodes = function(StructureSet_df,
                               artifact_decay = 1){
 
   # artifact_decay = 1
   
-  ilp_nodes = FormulaSet_df %>%
+  ilp_nodes = StructureSet_df %>%
     mutate(class = ifelse(category %in% c("Metabolite", "Unknown"), category, "Artifact")) %>%
     distinct(node_id, formula, class, .keep_all=T) %>%
     arrange(node_id) %>%
@@ -1726,21 +1839,21 @@ initiate_ilp_nodes = function(FormulaSet_df,
   
   # Unknowns 
   {
-    FormulaSet_unknowns = FormulaSet_df %>% 
+    StructureSet_unknowns = StructureSet_df %>% 
       filter(category == "Unknown")
     ilp_nodes_unknowns = ilp_nodes %>%
       filter(class == "Unknown") %>%
-      merge(FormulaSet_unknowns) %>%
+      merge(StructureSet_unknowns) %>%
       mutate(score_prior_propagation = prior_score)
   }
   
   # Metabolites
   {
-    FormulaSet_metabolites = FormulaSet_df %>% 
+    StructureSet_metabolites = StructureSet_df %>% 
       filter(category == "Metabolite")
     ilp_nodes_metabolites = ilp_nodes %>%
       filter(class == "Metabolite") %>%
-      merge(FormulaSet_metabolites) %>%
+      merge(StructureSet_metabolites) %>%
       mutate(score_prior_propagation = prior_score) %>%
       arrange(-score_prior_propagation, steps) %>%
       distinct(node_id, formula, .keep_all = T)
@@ -1748,12 +1861,12 @@ initiate_ilp_nodes = function(FormulaSet_df,
   
   # Artifact steps 0
   {
-    FormulaSet_artifacts0 = FormulaSet_df %>% 
+    StructureSet_artifacts0 = StructureSet_df %>% 
       filter(!category %in% c("Metabolite", "Unknown", "Heterodimer")) %>%
       filter(steps == 0)
     ilp_nodes_artifacts0 = ilp_nodes %>%
       filter(class == "Artifact") %>%
-      merge(FormulaSet_artifacts0, all.y = T) %>%
+      merge(StructureSet_artifacts0, all.y = T) %>%
       mutate(score_prior_propagation = prior_score) %>%
       arrange(-score_prior_propagation, steps) %>%
       distinct(node_id, formula, .keep_all = T)
@@ -1764,15 +1877,15 @@ initiate_ilp_nodes = function(FormulaSet_df,
   # Artifacts
   {
     
-    FormulaSet_artifacts = FormulaSet_df %>% 
+    StructureSet_artifacts = StructureSet_df %>% 
       # filter(!category %in% c("Metabolite", "Unknown", "Heterodimer"))
       filter(!category %in% c("Metabolite", "Unknown")) %>%
       filter(steps != 0)
     
     floating_error = 1e-6
     ilp_nodes_artifacts = ilp_nodes2
-    unique_step = unique(FormulaSet_artifacts$steps)[1]
-    for(unique_step in sort(unique(FormulaSet_artifacts$steps))){
+    unique_step = unique(StructureSet_artifacts$steps)[1]
+    for(unique_step in sort(unique(StructureSet_artifacts$steps))){
       temp_ilp_nodes = ilp_nodes_artifacts %>%
         filter(abs(steps - (unique_step - 0.01)) < floating_error) %>%
         arrange(-score_prior_propagation, category) %>%
@@ -1782,7 +1895,7 @@ initiate_ilp_nodes = function(FormulaSet_df,
                       parent_formula = formula)
         
       
-      temp = FormulaSet_artifacts %>%
+      temp = StructureSet_artifacts %>%
         filter(steps == unique_step) %>%
         merge(temp_ilp_nodes) %>%
         mutate(score_prior_propagation = case_when(
@@ -2280,7 +2393,7 @@ score_ilp_edges = function(CplexSet, NodeSet,
       
       H_mass = 1.007825032
       e_mass = 0.000548579
-      ion_mode = Mset$Global_parameter$mode
+      ion_mode = Mset$global_parameter$mode
 
       node1 = ilp_edges_MS2_similarity$node1[i]
       node2 = ilp_edges_MS2_similarity$node2[i]
@@ -3380,18 +3493,18 @@ Read_cplex_result = function(solution){
 
 # Annotation functions -------- ####
 ## core_annotate ####
-core_annotate = function(ilp_nodes, FormulaSet_df, LibrarySet){
+core_annotate = function(ilp_nodes, StructureSet_df, LibrarySet){
   # Make annotation to core peaks (where steps == 0)
   
-  core_rank = FormulaSet_df %>%
+  core_rank = StructureSet_df %>%
     # filter(category == "Metabolite") %>%
     filter(steps == 0) %>%
     merge(LibrarySet %>%
             dplyr::select(library_id, name, note, origin, SMILES, status) %>% 
             dplyr::rename(parent_id = library_id)) %>%
     mutate(score_source = case_when(
-      origin == "Manual_library" ~ 0.5,
-      origin == "Library_known" ~ 0.5,
+      origin == "manual_library" ~ 0.5,
+      origin == "known_library" ~ 0.5,
       status == "quantified" ~ 0.6,
       status == "detected" ~ 0.3,
       status == "expected" ~ 0,
@@ -3942,18 +4055,18 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 #   return(hmdb_lib)
 # }
 ## Special_fragment_connection ####
-# Special_fragment_connection = function(NodeSet, FormulaSet, EdgeSet_MS2_fragment, MS2_library,
+# Special_fragment_connection = function(NodeSet, StructureSet, EdgeSet_MS2_fragment, MS2_library,
 #                                        ppm_tol = 10, abs_tol = 1e-4){
 #   # It requires the parent node has both msr MS2 and database MS2
 #   # See comparison to General_fragment_connection
 #   
 #   parent_nodes = sapply(EdgeSet_MS2_fragment, "[[", "node2")
 #   
-#   FormulaSet_df = bind_rows(FormulaSet)
+#   StructureSet_df = bind_rows(StructureSet)
 #   
 #   MS2_library_external_id = sapply(MS2_library, "[[", 'external_id')
 #   
-#   FormulaSet_df_MS2 = FormulaSet_df %>%
+#   StructureSet_df_MS2 = StructureSet_df %>%
 #     filter(steps == 0) %>%
 #     # filter(steps == 0, transform == "") %>%
 #     merge(LibrarySet %>%
@@ -3970,7 +4083,7 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 #   
 #   H_mass = 1.00782503224
 #   e_mass = 0.00054857990943
-#   ion_mode = Mset$Global_parameter$mode
+#   ion_mode = Mset$global_parameter$mode
 #   
 #   Special_fragment = list()
 #   for(i in 1:nrow(EdgeSet_MS2_fragment_df)){
@@ -3979,12 +4092,12 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 #     
 #     id_node2 = EdgeSet_MS2_fragment_df$node2[i]
 #     
-#     FormulaSet_df_MS2_filter = FormulaSet_df_MS2 %>%
+#     StructureSet_df_MS2_filter = StructureSet_df_MS2 %>%
 #       filter(node_id == id_node2)
-#     if(nrow(FormulaSet_df_MS2_filter) == 0){next}
+#     if(nrow(StructureSet_df_MS2_filter) == 0){next}
 #     
-#     for(j in 1:nrow(FormulaSet_df_MS2_filter)){
-#       match_MS2_IDs = which(FormulaSet_df_MS2_filter$note[j] == MS2_library_external_id)
+#     for(j in 1:nrow(StructureSet_df_MS2_filter)){
+#       match_MS2_IDs = which(StructureSet_df_MS2_filter$note[j] == MS2_library_external_id)
 #       if(length(match_MS2_IDs) == 0){next}
 #       match_MS2 = bind_rows(lapply(MS2_library[match_MS2_IDs], "[[","spectrum"))
 #       
@@ -3997,7 +4110,7 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 #       length_formula_node1 = length(formula_node1)
 #       if(length_formula_node1==0){next}
 #       
-#       formula_node2 = FormulaSet_df_MS2_filter$formula[j]
+#       formula_node2 = StructureSet_df_MS2_filter$formula[j]
 #       
 #       Special_fragment[[length(Special_fragment)+1]] = list(node1 = rep(id_node1,length_formula_node1),
 #                                                             node2 = rep(id_node2,length_formula_node1),

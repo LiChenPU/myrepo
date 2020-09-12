@@ -1,126 +1,71 @@
 # Main Codes ####
-## Read files ####
-
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-printtime = Sys.time()
-timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
-source("NetID_function.R")
-
-work_dir = "Unknown in IO RT"
-work_dir = "matt"
-# filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
-# filename_wl = "pks_Io_pos__2020-06-12.xlsx"
-# filename_wl = "pks_Io_neg__2020-06-11.xlsx"
-# filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
-# filename_wl = "Lu-Table-S4-final_Sc_neg.xlsx"
-# filename_wl = "pks_Rt_pos__2020-06-12.xlsx"
-# work_dir = "WL_liver_pos"
-# filename_wl = "pks_liver_pos_buff_2020-02-21.xlsx"
-ion_mode = 1
-MS2_library_file = "./dependent/HMDB_pred_MS2_pos.rds"
-MS2_folder = "MS2_pos_200524"
-LC_method = "lipids" # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE", lipids is empty
-
-MS2_library = readRDS(MS2_library_file)
-mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
-Empirical_rules_file = "./dependent/Empirical_rules.csv"
-propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
-
-# sink(paste(timestamp,"log.txt"))
-# sink()
-
 {
-  Mset = list()
-  # Mset[["Library"]] = read.csv("./dependent/HMDB_CHNOPS_clean.csv", stringsAsFactors = F)
-  Mset[["Library_HMDB"]] = read.csv("./dependent/hmdb_library.csv", stringsAsFactors = F)
-  
-  Mset[["Library_known"]] = read.csv("./dependent/known_library.csv", stringsAsFactors = F) %>%
-    filter(!is.na(.[,eval(LC_method)]))
-  
-  Mset[["Empirical_rules"]]=Read_rule_table(rule_table_file = Empirical_rules_file)
-  
-  Mset[["Global_parameter"]]=list(mode = ion_mode,
-                                  LC_method = LC_method,
-                                  propagation_rule = propagation_rule)
+  printtime = Sys.time()
+  timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 }
 
-## WL data format ####
+## Read data and files ####
 {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  source("NetID_function.R")
+  
+  work_dir = "WL_liver_neg"
   setwd(work_dir)
-
-  filename = "raw_data.csv"
-  Mset[["Raw_data"]] <- read_raw_data(filename)
-
-  # WL = readxl::read_xlsx(filename_wl) %>%
-  # # WL = readxl::read_xlsx(filename_wl,
-  # #                        sheet = "Sheet1",
-  # #                        guess_max = 1e6
-  # #                        ) %>%
-  #   dplyr::rename(medRt = rt,
-  #                 medMz = mz) %>%
-  #   dplyr::rename(Formula = Formula...32,
-  #                 Feature = Feature...33,
-  #                 Background = Background...25) %>%
-  #   filter(T)
-  # 
-  # 
-  # raw_data_WL = Mset$Raw_data %>%
-  #   merge(WL, all = T) %>%
-  #   # mutate(id = 1:nrow(.),
-  #   #        liver = 10^sig,
-  #   #        liver2 = 10^sig) %>%
-  #   mutate(id = 1:nrow(.),
-  #          yeast = 10^sig,
-  #          yeast2 = 10^sig) %>%
-  #   filter(is.na(Background)) %>%
-  #   dplyr::select(colnames(Mset$Raw_data))
-  # Mset[["Raw_data"]] = raw_data_WL
+  
+  Mset = list()
+  # Read in files 
+  Mset = read_files(filename = "raw_data.csv",
+                    LC_method = "Hilic_25min_QE", # "Hilic_Rutgers_QEPlus" "Hilic_25min_QE", lipids is empty
+                    ion_mode = -1 # 1 for pos mode and -1 for neg mode
+                    )
+  Mset = read_MS2data(Mset,
+                      MS2_folder = "MS2_neg_200524_test")
 }
 
-## Initialise ####
+# Data cleaning ####
 {
-  manual_library_file = "manual_library.csv"
-  Mset[["Manual_library"]] = read_manual_library(manual_library_file)
-
+  # Analyze cohort info, identify blank samples
   Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 15)
   print(Mset$Cohort)
   
-  #Clean-up duplicate peaks 
+  # Clean up duplicate peaks 
   Mset[["Data"]] = Peak_cleanup(Mset,
-                                mz_tol=2/10^6, 
-                                rt_tol=0.1,
+                                mz_tol=2/10^6, rt_tol=0.1, # merge peaks within mz_tol and rt_tol
                                 inten_cutoff=0e4,
                                 high_blank_cutoff = 0,
                                 first_sample_col_num = 15)
   
-  print(c(nrow(Mset$Raw_data), nrow(Mset$Data)))
+  print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
   
-  manual_library_file = "manual_library.csv"
-  Mset[["Manual_library"]] = read_manual_library(manual_library_file)
+  # Parameter settings
+  mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
 }
 
-
-
-## NodeSet and FormulaSet ####
+# Initialize NodeSet and StructureSet
 {
   NodeSet = Initiate_nodeset(Mset)
-  NodeSet = Add_MS2_nodeset(MS2_folder = MS2_folder, 
-                            NodeSet)
   
-  test = sapply(NodeSet,"[[", "MS2")
-  sum(sapply(test, is.null))
+  # Associate MS2 data to MS1 peaks
+  NodeSet = map_MS2_nodeset(Mset, NodeSet)
+  
   
   LibrarySet = Initiate_libraryset(Mset)
+}
+
+## NodeSet and StructureSet ####
+{
   
-  FormulaSet = Initilize_empty_formulaset(NodeSet)
   
-  FormulaSet = Match_library_formulaset(FormulaSet, 
+  
+  StructureSet = Initilize_empty_structureset(NodeSet)
+  
+  StructureSet = Match_library_structureset(StructureSet, 
                                         Mset, NodeSet, 
                                         LibrarySet,
                                         expand = F,
                                         ppm_tol = 5e-6)
   
-  Sys_msr_error = Check_sys_error(NodeSet, FormulaSet, LibrarySet, 
+  Sys_msr_error = Check_sys_error(NodeSet, StructureSet, LibrarySet, 
                                   RT_match = F)
   
   mass_adjustment = abs(Sys_msr_error$ppm_adjust + Sys_msr_error$abs_adjust/250*1e6) > 0.2
@@ -131,8 +76,8 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
       Node$mz = Node$mz * (Sys_msr_error$ppm_adjust * 1e-6 + 1) + Sys_msr_error$abs_adjust
       return(Node)
     })
-    FormulaSet = Initilize_empty_formulaset(NodeSet)
-    FormulaSet = Match_library_formulaset(FormulaSet, 
+    StructureSet = Initilize_empty_structureset(NodeSet)
+    StructureSet = Match_library_structureset(StructureSet, 
                                           Mset, NodeSet, 
                                           LibrarySet,
                                           expand = F,
@@ -154,7 +99,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
   EdgeSet_multicharge_isotope = Multicharge_isotope_connection(EdgeSet, EdgeSet_oligomer_multicharge)
   EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
   EdgeSet_experiment_MS2_fragment = Experiment_MS2_fragment_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5)
-  EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, FormulaSet, MS2_library,
+  EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, StructureSet, MS2_library,
                                                                     inten_threshold = 1e5,
                                                                     ppm_tol = 10, abs_tol = 1e-4)
   
@@ -171,9 +116,9 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
 
 ## Candidate formula pool ####
 {
-  FormulaSet = Propagate_formulaset(Mset, 
+  StructureSet = Propagate_structureset(Mset, 
                                     NodeSet,
-                                    FormulaSet,
+                                    StructureSet,
                                     EdgeSet_all_df,
                                     biotransform_step = 2,
                                     artifact_step = 3,
@@ -182,7 +127,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
                                     record_RT_tol = 0.15,
                                     record_ppm_tol = 5e-6)
   
-  all_formulas = bind_rows(FormulaSet) %>%
+  all_formulas = bind_rows(StructureSet) %>%
     distinct(node_id, formula, category, .keep_all = T) %>%
     filter(T)
   
@@ -191,7 +136,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
 ## CplexSet & Scoring ####
 {
   CplexSet = list()
-  FormulaSet_df = Score_formulaset(FormulaSet,
+  StructureSet_df = Score_structureset(StructureSet,
                                    database_match = 0.5,
                                    MS2_match = 1,
                                    MS2_match_cutoff = 0.8,
@@ -203,7 +148,7 @@ propagation_rule = read.csv("./dependent/propagation_rule.csv", row.names = 1)
                                    bio_decay = -1,
                                    artifact_decay = -0.5)
   # Initialize
-  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(FormulaSet_df, artifact_decay = 1) 
+  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(StructureSet_df, artifact_decay = 1) 
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet, 
                                                Exclude = "")
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
@@ -305,7 +250,7 @@ sapply(CplexSet$para_lp, length)
 
 # Path annotation ####
 {
-  core_annotation = core_annotate(ilp_nodes, FormulaSet_df, LibrarySet)
+  core_annotation = core_annotate(ilp_nodes, StructureSet_df, LibrarySet)
   core_annotation_unique = core_annotate_unique(core_annotation)
   g_met = initiate_g_met(ilp_nodes, ilp_edges)
   
@@ -360,7 +305,7 @@ sapply(CplexSet$para_lp, length)
   saveRDS(list(ilp_nodes = ilp_nodes_annotation,
                ilp_edges = ilp_edges,
                heterodimer_ilp_edges = heterodimer_ilp_edges,
-               FormulaSet_df = FormulaSet_df,
+               StructureSet_df = StructureSet_df,
                LibrarySet = LibrarySet),
           paste(timestamp, "output.rds", sep="_"))
 }
