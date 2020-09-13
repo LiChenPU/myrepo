@@ -4,6 +4,8 @@
   timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 }
 
+
+## Parameters ####
 ## Read data and files ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -22,6 +24,12 @@
                       MS2_folder = "MS2_neg_200524_test")
 }
 
+# Parameter settings ####
+{
+  mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
+  measured_mz_adjust = T # adjust measured mass by matching to known metabolites
+}
+
 # Data cleaning ####
 {
   # Analyze cohort info, identify blank samples
@@ -37,81 +45,65 @@
   
   print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
   
-  # Parameter settings
-  mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
+
 }
 
-# Initialize NodeSet and StructureSet
+# Setting up NodeSet, LibrarySet and StructureSet ####
 {
+  
   NodeSet = Initiate_nodeset(Mset)
   
-  # Associate MS2 data to MS1 peaks
-  NodeSet = map_MS2_nodeset(Mset, NodeSet)
-  
-  
   LibrarySet = Initiate_libraryset(Mset)
-}
-
-## NodeSet and StructureSet ####
-{
-  
-  
+  LibrarySet_expand = Expand_libraryset(LibrarySet)
   
   StructureSet = Initilize_empty_structureset(NodeSet)
-  
-  StructureSet = Match_library_structureset(StructureSet, 
-                                        Mset, NodeSet, 
-                                        LibrarySet,
-                                        expand = F,
-                                        ppm_tol = 5e-6)
-  
-  Sys_msr_error = Check_sys_error(NodeSet, StructureSet, LibrarySet, 
-                                  RT_match = F)
-  
-  mass_adjustment = abs(Sys_msr_error$ppm_adjust + Sys_msr_error$abs_adjust/250*1e6) > 0.2
-  # mass_adjustment = Sys_msr_error$fitdistData$estimate["mean"] > 10*Sys_msr_error$fitdistData$sd["mean"]
-  
-  if(mass_adjustment){
-    NodeSet = lapply(NodeSet, function(Node){
-      Node$mz = Node$mz * (Sys_msr_error$ppm_adjust * 1e-6 + 1) + Sys_msr_error$abs_adjust
-      return(Node)
-    })
-    StructureSet = Initilize_empty_structureset(NodeSet)
-    StructureSet = Match_library_structureset(StructureSet, 
-                                          Mset, NodeSet, 
-                                          LibrarySet,
-                                          expand = F,
-                                          ppm_tol = 5e-6)
-  }
-  
+  StructureSet = Match_library_structureset(LibrarySet,
+                                            LibrarySet_expand,
+                                            StructureSet, 
+                                            NodeSet,
+                                            ppm_tol = 5e-6)
+  test = bind_rows(StructureSet)
 }
 
-## EdgeSet ####
+## Adjust measured mass by matching to known metabolites ####
+{
+  if(measured_mz_adjust){
+    Sys_msr_error = Check_sys_error(NodeSet, StructureSet, LibrarySet, 
+                                    RT_match = F)
+    
+    mass_adjustment = abs(Sys_msr_error$ppm_adjust + Sys_msr_error$abs_adjust/250*1e6) > 0.2
+    
+    if(mass_adjustment){
+      NodeSet = lapply(NodeSet, function(Node){
+        Node$mz = Node$mz * (Sys_msr_error$ppm_adjust * 1e-6 + 1) + Sys_msr_error$abs_adjust
+        return(Node)
+      })
+      StructureSet = Initilize_empty_structureset(NodeSet)
+      StructureSet = Match_library_structureset(LibrarySet,
+                                                LibrarySet_expand,
+                                                StructureSet, 
+                                                NodeSet,
+                                                ppm_tol = 5e-6)
+    }
+  }
+}
+
+## Setting up EdgeSet ####
 {
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
                              mz_tol_abs = 0, mz_tol_ppm = 10, 
                              rt_tol_bio = Inf, rt_tol_nonbio = 0.2)
   
-  # Extension edgeset
-  peak_group = Peak_grouping(NodeSet, RT_cutoff = 0.2, inten_cutoff = 1e4)
-  EdgeSet_ring_artifact = Ring_artifact_connection(peak_group, ppm_range_lb = 50, ppm_range_ub = 1000, ring_fold = 50, inten_threshold = 1e6)
-  EdgeSet_oligomer_multicharge = Oligomer_multicharge_connection(peak_group, ppm_tol = 10)
-  EdgeSet_multicharge_isotope = Multicharge_isotope_connection(EdgeSet, EdgeSet_oligomer_multicharge)
-  EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
-  EdgeSet_experiment_MS2_fragment = Experiment_MS2_fragment_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e5)
-  EdgeSet_library_MS2_fragment_df = Library_MS2_fragment_connection(peak_group, StructureSet, MS2_library,
-                                                                    inten_threshold = 1e5,
-                                                                    ppm_tol = 10, abs_tol = 1e-4)
+  EdgeSet_expand = Expand_edgeset(EdgeSet,
+                                  RT_cutoff = 0.2, inten_cutoff = 1e4,
+                                  types = c("ring_artifact",
+                                            "oligomer_multicharge",
+                                            "heterodimer",
+                                            "experiment_MS2_fragment",
+                                            "library_MS2_fragment"
+                                  ))
   
-  EdgeSet_all_df = merge_edgeset(EdgeSet, 
-                                 EdgeSet_ring_artifact, 
-                                 EdgeSet_oligomer_multicharge, 
-                                 EdgeSet_multicharge_isotope,
-                                 EdgeSet_heterodimer,
-                                 EdgeSet_experiment_MS2_fragment,
-                                 EdgeSet_library_MS2_fragment_df)
-  
-  
+  EdgeSet_all = merge_edgeset(EdgeSet, EdgeSet_expand)
 }
 
 ## Candidate formula pool ####
@@ -119,7 +111,7 @@
   StructureSet = Propagate_structureset(Mset, 
                                     NodeSet,
                                     StructureSet,
-                                    EdgeSet_all_df,
+                                    EdgeSet_all,
                                     biotransform_step = 2,
                                     artifact_step = 3,
                                     propagation_ppm_threshold = 5e-6,
@@ -149,9 +141,9 @@
                                    artifact_decay = -0.5)
   # Initialize
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(StructureSet_df, artifact_decay = 1) 
-  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all_df, CplexSet, 
+  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all, CplexSet, 
                                                Exclude = "")
-  CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all_df, CplexSet, NodeSet)
+  CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all, CplexSet, NodeSet)
   
   # Score
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate, 
@@ -398,10 +390,10 @@ print(Sys.time()-printtime)
   
   sum(heterodimer_ilp_edges_node_related$lp_result)
   
-  edges_selected = EdgeSet_all_df %>%
+  edges_selected = EdgeSet_all %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
   
-  edge_related_to_node = EdgeSet_all_df %>%
+  edge_related_to_node = EdgeSet_all %>%
     filter(node1 == node_id_selected | node2 == node_id_selected)
   ilp_nodes_related_to_edge = ilp_nodes_ilp %>%
     filter(node_id %in% c(edge_related_to_node$node1, edge_related_to_node$node2)) 
