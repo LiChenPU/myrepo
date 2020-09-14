@@ -1,19 +1,15 @@
 # Main Codes ####
 {
-  printtime = Sys.time()
-  timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
-}
-
-
-## Parameters ####
-## Read data and files ####
-{
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   source("NetID_function.R")
   
   work_dir = "WL_liver_neg"
   setwd(work_dir)
-  
+  printtime = Sys.time()
+  timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
+}
+## Read data and files ####
+{
   Mset = list()
   # Read in files 
   Mset = read_files(filename = "raw_data.csv",
@@ -44,8 +40,6 @@
                                 first_sample_col_num = 15)
   
   print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
-  
-
 }
 
 # Setting up NodeSet, LibrarySet and StructureSet ####
@@ -96,11 +90,11 @@
   
   EdgeSet_expand = Expand_edgeset(EdgeSet,
                                   RT_cutoff = 0.2, inten_cutoff = 1e4,
-                                  types = c("ring_artifact",
-                                            "oligomer_multicharge",
-                                            "heterodimer",
-                                            "experiment_MS2_fragment",
-                                            "library_MS2_fragment"
+                                  types = c(#"ring_artifact",
+                                            #"oligomer_multicharge",
+                                            #"heterodimer",
+                                            #"experiment_MS2_fragment",
+                                            #"library_MS2_fragment"
                                   ))
   
   EdgeSet_all = merge_edgeset(EdgeSet, EdgeSet_expand)
@@ -109,15 +103,15 @@
 ## Candidate formula pool ####
 {
   StructureSet = Propagate_structureset(Mset, 
-                                    NodeSet,
-                                    StructureSet,
-                                    EdgeSet_all,
-                                    biotransform_step = 2,
-                                    artifact_step = 3,
-                                    propagation_ppm_threshold = 5e-6,
-                                    propagation_abs_threshold = 2e-4,
-                                    record_RT_tol = 0.15,
-                                    record_ppm_tol = 5e-6)
+                                        NodeSet,
+                                        StructureSet,
+                                        EdgeSet_all,
+                                        biotransform_step = 2,
+                                        artifact_step = 3,
+                                        propagation_ppm_threshold = 5e-6,
+                                        propagation_abs_threshold = 2e-4,
+                                        record_RT_tol = 0.15,
+                                        record_ppm_tol = 5e-6)
   
   all_formulas = bind_rows(StructureSet) %>%
     distinct(node_id, formula, category, .keep_all = T) %>%
@@ -125,20 +119,25 @@
   
 }
 
+print(Sys.time()-printtime)
+save.image()
+load(".RData")
+
 ## CplexSet & Scoring ####
 {
+  
   CplexSet = list()
   StructureSet_df = Score_structureset(StructureSet,
-                                   database_match = 0.5,
-                                   MS2_match = 1,
-                                   MS2_match_cutoff = 0.8,
-                                   MS2_similarity = 0.5,
-                                   MS2_similarity_cutoff = 0.5,
-                                   manual_match = 0.5,
-                                   rt_match = 1, 
-                                   known_rt_tol = 0.5,
-                                   bio_decay = -1,
-                                   artifact_decay = -0.5)
+                                       database_match = 0.5,
+                                       MS2_match = 1,
+                                       MS2_match_cutoff = 0.8,
+                                       MS2_similarity = 0.5,
+                                       MS2_similarity_cutoff = 0.5,
+                                       manual_match = 0.5,
+                                       rt_match = 1, 
+                                       known_rt_tol = 0.5,
+                                       bio_decay = -1,
+                                       artifact_decay = -0.5)
   # Initialize
   CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(StructureSet_df, artifact_decay = 1) 
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all, CplexSet, 
