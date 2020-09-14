@@ -1203,7 +1203,11 @@ fancy_scientific <- function(l) {
                          breaks = c(0, 0.25, 0.5, 0.75, 1)
       ) +
       coord_cartesian(ylim = c(0.5, 1.05)) + # Zoom in without discarding data
-      scale_x_discrete(limits = c("serum\nglucose", "liver\nglucosyl-taurine")) +
+      scale_x_discrete(limits = c("serum\nglucose", 
+                                  "liver\nglucose",
+                                  "liver\nG6P",
+                                  "liver\nglucosyl-taurine"
+                                  )) +
       scale_fill_manual(values = c(my_palette2)) + 
       scale_color_manual(values = "grey") + 
       # facet_wrap(~cohort) +
@@ -1227,7 +1231,7 @@ fancy_scientific <- function(l) {
       # align = "hv",
       nrow = 1, ncol = 1
     ) %>%
-      ggexport(filename = "plot_5_3_zoom.pdf", width = 3.5, height = 2.5)
+      ggexport(filename = "plot_5_3_zoom.pdf", width = 4.5, height = 2.5)
   }
   
 }
