@@ -8,7 +8,7 @@
   printtime = Sys.time()
   timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
 }
-## Read data and files ####
+# Read data and files ####
 {
   Mset = list()
   # Read in files 
@@ -41,10 +41,8 @@
   
   print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
 }
-
 # Setting up NodeSet, LibrarySet and StructureSet ####
 {
-  
   NodeSet = Initiate_nodeset(Mset)
   
   LibrarySet = Initiate_libraryset(Mset)
@@ -90,11 +88,11 @@
   
   EdgeSet_expand = Expand_edgeset(EdgeSet,
                                   RT_cutoff = 0.2, inten_cutoff = 1e4,
-                                  types = c(#"ring_artifact",
-                                            #"oligomer_multicharge",
-                                            #"heterodimer",
-                                            #"experiment_MS2_fragment",
-                                            #"library_MS2_fragment"
+                                  types = c("ring_artifact",
+                                            "oligomer_multicharge",
+                                            "heterodimer",
+                                            "experiment_MS2_fragment",
+                                            "library_MS2_fragment"
                                   ))
   
   EdgeSet_all = merge_edgeset(EdgeSet, EdgeSet_expand)
@@ -119,76 +117,61 @@
   
 }
 
-print(Sys.time()-printtime)
-save.image()
-load(".RData")
-
-## CplexSet & Scoring ####
+## Scoring StructureSet ####
 {
-  
+  StructureSet_df = Score_structureset(StructureSet)
+  StructureSet_df_expand = Score_structure_propagation(StructureSet_df, artifact_decay = -0.5)                         
+}
+
+## CplexSet and ilp_nodes and ilp_edges #### 
+{
   CplexSet = list()
-  StructureSet_df = Score_structureset(StructureSet,
-                                       database_match = 0.5,
-                                       MS2_match = 1,
-                                       MS2_match_cutoff = 0.8,
-                                       MS2_similarity = 0.5,
-                                       MS2_similarity_cutoff = 0.5,
-                                       manual_match = 0.5,
-                                       rt_match = 1, 
-                                       known_rt_tol = 0.5,
-                                       bio_decay = -1,
-                                       artifact_decay = -0.5)
+  
   # Initialize
-  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(StructureSet_df, artifact_decay = 1) 
-  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all, CplexSet, 
-                                               Exclude = "")
+  CplexSet[["ilp_nodes"]] = initiate_ilp_nodes(StructureSet_df_expand)
+  CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all, CplexSet, Exclude = "")
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all, CplexSet, NodeSet)
-  
+  print("Finish CplexSet initialization")
   # Score
-  CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet, mass_dist_gamma_rate = mass_dist_gamma_rate, 
-                                            formula_score = 0, metabolite_score = 0, 
-                                            isotope_Cl_penalty = -1, unassigned_penalty = -0.5)
-  CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet,
-                                            rule_score_biotransform = 0, rule_score_adduct = 0.5, 
-                                            rule_score_oligomer = 0.5, rule_score_natural_abundance = 1,
-                                            rule_score_fragment = 0.3, rule_score_ring_artifact = 2,
-                                            rule_score_radical = 0.2, rule_score_multicharge = 0.5, 
-                                            rule_score_multicharge_isotope = 1, 
-                                            rule_score_experiment_MS2_fragment = 1, rule_score_library_MS2_fragment = 0.3,
-                                            rt_penalty_artifact_cutoff = 0.05, rt_penalty_artifact_ratio = 5,
-                                            inten_score_isotope = 1, 
-                                            MS2_score_similarity = 1, MS2_similarity_cutoff = 0.3,
-                                            MS2_score_experiment_fragment = 0.5)
+  CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet, 
+                                            metabolite_score = 0.1,
+                                            putative_metabolite_score = 0, 
+                                            artifact_score = 0, 
+                                            unknown_score = -0.5)
   
+  CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet)
   CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 0,
                                                                     MS2_score_experiment_fragment = 0.5)
+  print("Finish CplexSet scoring")
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
   CplexSet[["para_lp"]] = Initiate_cplexset_lp(CplexSet)
 }
-  
-save.image(paste0(timestamp,".RData"))
+
+save.image()
 print(Sys.time()-printtime)
 print(paste("Complexity is", CplexSet$para$nc, "variables and", CplexSet$para$nr, "constraints."))
 print(paste("Complexity is", CplexSet$para_lp$nc, "variables and", CplexSet$para_lp$nr, "constraints."))
 sapply(CplexSet$para_lp, length)
 
-## Run_cplex ####
+## Run optimization ####
 {
   CplexSet[["init_solution"]] = list(Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
-                                               relative_gap = 1e-3, total_run_time = 2500))
-  # CplexSet[["lp_solution"]] = list(Run_cplex_lp(CplexSet, obj_cplex = CplexSet$para_lp$obj,
-  #                                               total_run_time = 5000))
+                                               relative_gap = 1e-3, total_run_time = 5000))
+  CplexSet[["lp_solution"]] = list(Run_cplex_lp(CplexSet, obj_cplex = CplexSet$para_lp$obj,
+                                                total_run_time = 5000))
   # Test_para_CPLEX(CplexSet, obj_cplex = CplexSet$para$obj, 
   #                 para = c(0), para2 = NA, 
   #                 relative_gap = 1e-1, total_run_time = 3000)
 }
 
+print(Sys.time()-printtime)
+save.image(paste0(timestamp,".RData"))
+
 ## Read out CPLEX results ####
 {
   CPLEX_all_x = Read_cplex_result(CplexSet$init_solution)
   # CPLEX_all_x = Read_cplex_result(CplexSet$lp_solution)
-  # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
   
   ilp_nodes = CplexSet$ilp_nodes %>%
@@ -206,38 +189,37 @@ sapply(CplexSet$para_lp, length)
   
   ilp_nodes_ilp = ilp_nodes %>%
     filter(ilp_result > 1e-6) 
-
 }
 
-# # Add comparison annotation
-# {
-#   
-#   CPLEX_all_x = Read_cplex_result(CplexSet$lp_solution)
-#   # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
-#   CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
-#   
-#   ilp_nodes = ilp_nodes %>%
-#     mutate(lp_result = CPLEX_x[1:nrow(.)])
-#   
-#   ilp_edges = ilp_edges %>%
-#     mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes)]) %>%
-#     # filter(ilp_result == 1) %>%
-#     filter(T)
-#   
-#   heterodimer_ilp_edges = heterodimer_ilp_edges %>%
-#     mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
-#   
-#   test = ilp_nodes %>%
-#     arrange(-log10_inten, -lp_result) %>%
-#     # filter(lp_result > 1e-6)
-#     filter(ilp_result != 0 | lp_result != 0)
-#     # filter(ilp_result != lp_result)
-#   # hist(ilp_nodes$lp_result)
-#   
-#   
-#   
-#   # tabyl(test, lp_result)
-# }
+# Add comparison annotation
+{
+
+  CPLEX_all_x = Read_cplex_result(CplexSet$lp_solution)
+  # CPLEX_all_x = Read_CPLEX_result(CPLEXset$Pmt_solution)
+  CPLEX_x = rowMeans(CPLEX_all_x,na.rm=T)
+
+  ilp_nodes = ilp_nodes %>%
+    mutate(lp_result = CPLEX_x[1:nrow(.)])
+
+  ilp_edges = ilp_edges %>%
+    mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes)]) %>%
+    # filter(ilp_result == 1) %>%
+    filter(T)
+
+  heterodimer_ilp_edges = heterodimer_ilp_edges %>%
+    mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(ilp_nodes) + nrow(ilp_edges)])
+
+  test = ilp_nodes %>%
+    arrange(-log10_inten, -lp_result) %>%
+    # filter(lp_result > 1e-6)
+    filter(ilp_result != 0 | lp_result != 0)
+    # filter(ilp_result != lp_result)
+  # hist(ilp_nodes$lp_result)
+
+
+
+  # tabyl(test, lp_result)
+}
 
 # Path annotation ####
 {
