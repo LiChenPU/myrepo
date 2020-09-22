@@ -483,6 +483,174 @@ fancy_scientific <- function(l) {
   
 
 }
+## plot_2_sup2 - predicted MS2 for thiamine ####
+{
+  setwd(rel_path)
+  setwd("plot_2_sup2_predicte MS2")
+  ## Function ####
+  plot_MS2_spectra = function(df_ggplot){
+    colnames(df_ggplot) = c("mz", "Intensity")
+    
+    df_ggplot = df_ggplot %>%
+      mutate(Intensity = Intensity / max(Intensity)*100)
+    ms2_plot = ggplot(df_ggplot,aes(x=mz, y=Intensity)) +
+      geom_linerange(aes(ymin = 0, ymax = Intensity)) +
+      # labs(x = "m/z",
+      #      # title = "U13C-glucose + 12C-thiamine",
+      #      y = expr(paste("Intensity (x ", 10^!!plot_exponent, ")", sep=""))) +
+      expand_limits(x = c(0,320),
+                    y = c(0,105)) +
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 4)
+      ) +
+      scale_x_continuous(expand = c(0,0)) +
+      theme_classic(base_size = 12 # edit font size for all non-data text
+      ) + 
+      theme(plot.title = element_text(size = 12, hjust = 0.5),
+            plot.margin = margin(0.2,0.2,0.2,0.2,"inch"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7)
+            # axis.ticks.x = element_blank()
+      )
+    print(ms2_plot)
+    return(ms2_plot)
+  }
+  ## Data ####
+  {
+    filename = "C14H19N4O2S+.xlsx"
+    raw_data_0 = read_xlsx(filename, sheet = "energy0") %>%
+      mutate(...2 = ...2 / max(...2)*100)
+    raw_data_1 = read_xlsx(filename, sheet = "energy1") %>%
+      mutate(...2 = ...2 / max(...2)*100) #20V
+    raw_data_2 = read_xlsx(filename, sheet = "energy2") %>%
+      mutate(...2 = ...2 / max(...2)*100) #40V
+    
+    filename2 = "C14H21N4O2S+.xlsx"
+    raw_data2_0 = read_xlsx(filename, sheet = "energy0") %>%
+      mutate(...2 = ...2 / max(...2)*100) #10V
+    raw_data2_1 = read_xlsx(filename, sheet = "energy1") %>%
+      mutate(...2 = ...2 / max(...2)*100) #20V
+    raw_data2_2 = read_xlsx(filename, sheet = "energy2") %>%
+      mutate(...2 = ...2 / max(...2)*100) #40V
+    
+    measured = read.csv("measured_C14H18N4O2S.csv") %>%
+      filter(complete.cases(.))
+    measured[,2] = measured[,2]/max(measured[,2])*100
+    measured2 = read.csv("measured_C14H20N4O2S.csv") %>%
+      filter(complete.cases(.))
+    measured2[,2] = measured2[,2]/max(measured2[,2])*100
+    
+    colnames(raw_data_0) = c("mz", "Intensity")
+    colnames(raw_data_1) = c("mz", "Intensity")
+    colnames(raw_data_2) = c("mz", "Intensity")
+    colnames(raw_data2_0) = c("mz", "Intensity")
+    colnames(raw_data2_1) = c("mz", "Intensity")
+    colnames(raw_data2_2) = c("mz", "Intensity")
+    colnames(measured) = c("mz", "Intensity")
+    colnames(measured2) = c("mz", "Intensity")
+  }
+  
+  ## Plot ####
+  # individual plot ####
+  {
+    plot_0 = plot_MS2_spectra(raw_data_0) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot_1 = plot_MS2_spectra(raw_data_1) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot_2 = plot_MS2_spectra(raw_data_2) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot_measured = plot_MS2_spectra(measured) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    
+    plot2_0 = plot_MS2_spectra(raw_data2_0) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot2_1 = plot_MS2_spectra(raw_data2_1) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot2_2 = plot_MS2_spectra(raw_data2_2) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+    plot_measured2 = plot_MS2_spectra(measured2) + 
+      labs(x = "m/z",
+           y = "Normalized intensity (%)")
+  }
+  
+  # merge plot ####
+  {
+    plot_merge = ggplot(measured, aes(x=mz, y= Intensity)) +
+      geom_linerange(aes(ymin = 0, ymax = Intensity),
+                     color=my_palette3[1]) +
+      geom_linerange(data = raw_data_1, 
+                     aes(ymin = -Intensity, ymax = 0),
+                     color=my_palette3[2]) +
+      geom_hline(yintercept=0
+                 # linetype="dashed", color = "red", size=2
+      ) + 
+      labs(x = "m/z",
+           # title = "U13C-glucose + 12C-thiamine",
+           y = "Relative intensity") + 
+      expand_limits(x = c(0,320),
+                    y = c(0,100)) + 
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 4),
+                         labels = c(100, 50, 0, 50, 100)
+      ) +
+      scale_x_continuous(expand = c(0,0)) +
+      theme_classic(base_size = 12 # edit font size for all non-data text
+      ) + 
+      theme(plot.title = element_text(size = 12, hjust = 0.5),
+            plot.margin = margin(0.2,0.2,0.2,0.2,"inch"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7)
+            # axis.ticks.x = element_blank()
+      )
+    print(plot_merge)
+    
+    plot_merge2 = ggplot(measured2, aes(x=mz, y= Intensity)) +
+      geom_linerange(aes(ymin = 0, ymax = Intensity),
+                     color=my_palette3[1]) +
+      geom_linerange(data = raw_data2_1, 
+                     aes(ymin = -Intensity, ymax = 0),
+                     color=my_palette3[2]) +
+      geom_hline(yintercept=0
+                 # linetype="dashed", color = "red", size=2
+      ) + 
+      labs(x = "m/z",
+           # title = "U13C-glucose + 12C-thiamine",
+           y = "Relative intensity") + 
+      expand_limits(x = c(0,320),
+                    y = c(0,100)) + 
+      scale_y_continuous(expand = c(0,0),
+                         breaks = scales::pretty_breaks(n = 4),
+                         labels = c(100, 50, 0, 50, 100)
+      ) +
+      scale_x_continuous(expand = c(0,0)) +
+      theme_classic(base_size = 12 # edit font size for all non-data text
+      ) + 
+      theme(plot.title = element_text(size = 12, hjust = 0.5),
+            plot.margin = margin(0.2,0.2,0.2,0.2,"inch"),
+            axis.text.x = element_text(angle = 0, hjust = .5, vjust = .7)
+            # axis.ticks.x = element_blank()
+      )
+    print(plot_merge2)
+  }
+  ## Output ####
+  
+  {
+    ggpubr::ggarrange(
+      plot_merge,
+      plot_merge2,
+      common.legend = T, legend = "none",
+      align = "hv",
+      nrow = 1, ncol = 2
+    ) %>%
+      ggexport(filename = "plot_2_sup2.pdf", width = 8, height = 2.4)
+  }
+  
+}
 ## plot_3 - overview newtork plot for yeast neg data ####
 {
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
@@ -1617,6 +1785,7 @@ fancy_scientific <- function(l) {
   
   
 }
+
 ## Merge graphs ####
 {
   
