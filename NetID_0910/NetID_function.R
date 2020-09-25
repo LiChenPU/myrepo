@@ -37,6 +37,14 @@ read_files = function(
   propagation_rule_file = "../dependent/propagation_rule.csv"
 ){
   
+  # neg_MS2_library_file = "../dependent/HMDB_pred_MS2_neg.rds"
+  # pos_MS2_library_file = "../dependent/HMDB_pred_MS2_pos.rds"
+  # HMDB_library_file = "../dependent/hmdb_library.csv"
+  # known_library_file = "../dependent/known_library.csv"
+  # LC_method = "Hilic_25min_QE"
+  # manual_library_file = "manual_library.csv"
+  # empirical_rule_file = "../dependent/empirical_rules.csv"
+  # propagation_rule_file = "../dependent/propagation_rule.csv"
   
   Mset = list()
   
@@ -58,22 +66,24 @@ read_files = function(
   {
     if(!file.exists(manual_library_file)){
       # warning("No manual library file found in data folder.")
-      return(NULL)
+      manual_library = NULL
+    } else {
+      data("isotopes")
+      manual_library = read.csv(manual_library_file, stringsAsFactors = F)
+      check_formula = check_chemform(isotopes, manual_library$formula) 
+      if(any(check_formula$warning)){
+        stop(paste("Check manual library for formula error:", 
+                   paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
+      }
+      manual_library = manual_library %>%
+        mutate(formula = check_formula$new_formula) %>%
+        mutate(formula = my_calculate_formula(formula, "C1"),
+               formula = my_calculate_formula(formula, "C-1")) %>%
+        mutate(mass = formula_mz(formula),
+               rdbe = formula_rdbe(formula)) %>%
+        mutate(note = as.character(note))
     }
-    data("isotopes")
-    manual_library = read.csv(manual_library_file, stringsAsFactors = F)
-    check_formula = check_chemform(isotopes, manual_library$formula) 
-    if(any(check_formula$warning)){
-      stop(paste("Check manual library for formula error:", 
-                 paste(check_formula$new_formula[check_formula$warning], collapse = ", ")))
-    }
-    manual_library = manual_library %>%
-      mutate(formula = check_formula$new_formula) %>%
-      mutate(formula = my_calculate_formula(formula, "C1"),
-             formula = my_calculate_formula(formula, "C-1")) %>%
-      mutate(mass = formula_mz(formula),
-             rdbe = formula_rdbe(formula)) %>%
-      mutate(note = as.character(note))
+    
     
     Mset[["manual_library"]] = manual_library
   }
@@ -352,22 +362,17 @@ Initiate_nodeset = function(Mset){
   
   # map MS2 in nodeset
   {
-    id_map = Mset$Data$id
-    names(id_map) = as.character(Mset$Data$Input_id)
-    id_map["1961"]
-    
     MS2_ls = Mset$MS2_ls
     MS2_ls_names = names(MS2_ls)
-    
-    for(i in 1:length(MS2_ls_names)){
-      node_id = id_map[MS2_ls_names[i]]
-      if(is.na(node_id)){next}
-      NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+    if(!is.null(MS2_ls)){
+      id_map = Mset$Data$id
+      names(id_map) = as.character(Mset$Data$Input_id)
+      for(i in 1:length(MS2_ls_names)){
+        node_id = id_map[MS2_ls_names[i]]
+        if(is.na(node_id)){next}
+        NodeSet[[node_id]]$MS2 = MS2_ls[[i]]
+      }
     }
-    
-    test = sapply(NodeSet,"[[", "MS2")
-    # show how many nodes get MS2
-    length(NodeSet)-sum(sapply(test, is.null))
   }
   return(NodeSet)
 }
@@ -2077,17 +2082,20 @@ Score_structureset = function(StructureSet){
   structureset_missing_isotope = Score_structureset_missing_isotope(StructureSet_df, NodeSet, EdgeSet_all,
                                                                     isotope = c("Cl"), isotope_penalty = c(-1), isotope_inten_cutoff = 5e4)
   
-  StructureSet_df2 = suppressMessages(
-    Reduce(left_join, list(StructureSet_df, 
+  structureset_list = list(StructureSet_df,
                            structureset_database_origin,
                            structureset_mz, 
                            structureset_RT,
                            structureset_MS2,
                            structureset_rdbe,
                            structureset_element_ratio,
-                           structureset_missing_isotope)))
-                                            
+                           structureset_missing_isotope)
   
+  structureset_list = structureset_list[!sapply(structureset_list, is.null)]
+  
+  StructureSet_df2 = suppressMessages(
+    Reduce(left_join, structureset_list))
+                                            
 }
 
 # Score_structure_propagation ####
@@ -2536,14 +2544,17 @@ score_ilp_edges = function(CplexSet, NodeSet){
   ilp_edges_MS2_abiotic_mz_appearance = Score_MS2_abiotic_mz_appearance(ilp_edges, NodeSet, 
                                                                         MS2_score_abiotic_mz_appearance = 0.3)
   
+  ilp_edges_list = list(ilp_edges, 
+                        ilp_edges_rule_category,
+                        ilp_edges_rt_penalty,
+                        ilp_edges_inten_isotope,
+                        ilp_edges_MS2_library_fragment,
+                        ilp_edges_MS2_abiotic_mz_appearance)
+  
+  ilp_edges_list = ilp_edges_list[!sapply(ilp_edges_list, is.null)]
   
   ilp_edges2 = suppressMessages(
-    Reduce(left_join, list(ilp_edges, 
-                           ilp_edges_rule_category,
-                           ilp_edges_rt_penalty,
-                           ilp_edges_inten_isotope,
-                           ilp_edges_MS2_library_fragment,
-                           ilp_edges_MS2_abiotic_mz_appearance)))
+    Reduce(left_join, ilp_edges_list))
   
 
   cplex_score_edge = ilp_edges2 %>% 
@@ -2820,174 +2831,607 @@ Initiate_cplexset = function(CplexSet){
     }
   }
   
-  # Extended constraint ####
   triplet_extended = triplet_basic
-  ## triplet_isotope ####
-  ## constrain an isotope formula must come with an isotope edge
+  # Extended constraint ####
   {
-    ilp_edges_isotope = ilp_edges %>%
-      filter(category == "Natural_abundance") %>%
-      group_by(edge_id, ilp_nodes1) %>%
-      mutate(n1 = n()) %>%
-      ungroup() %>%
-      group_by(edge_id, ilp_nodes2) %>%
-      mutate(n2 = n()) %>%
-      ungroup()
-
-    ## Simple case - one parent ilp_node comes with one isotope ilp_node
+    # triplet_isotope ####
+    ## constrain an isotope formula must come with an isotope edge
     {
-      ilp_edges_isotope_1 = ilp_edges_isotope %>%
-        filter(n1 == 1, n2 == 1)
-
-      triplet_isotope_edge_1 = ilp_edges_isotope_1 %>%
-        transmute(i = 1:nrow(.) + max(triplet_extended$i),
-                  j = ilp_edge_id + max(triplet_node$j), # locate to the isotope edge in triplet_edge
-                  v = 1)
-      triplet_isotope_node_1 = ilp_edges_isotope_1 %>%
-        transmute(i = 1:nrow(.) + max(triplet_extended$i),
-                  j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
-                  v = -1)
-      }
-
-    ## When two ilp_node1 point to same isotope ilp_node2, two lines needs to be combined
-    {
-      ilp_edges_isotope_2 = ilp_edges_isotope %>%
-        filter((n1 == 1 & n2 != 1 & direction == 1) |
-                 (n2 == 1 & n1 != 1 & direction == -1))
-
-      ## Try catching bug here
-      # If ilp_edges_isotope_1 + ilp_edges_isotope_2 does not represent all ilp_edges_isotope
-      if((nrow(ilp_edges_isotope_1) + nrow(ilp_edges_isotope_2)) != nrow(ilp_edges_isotope)){
-        stop("Bugs in isotope triplex.")
-      }
-        
-
-      ilp_edges_isotope_2.1 = ilp_edges_isotope %>%
-        filter(n1 != 1) %>%
+      ilp_edges_isotope = ilp_edges %>%
+        filter(category == "Natural_abundance") %>%
         group_by(edge_id, ilp_nodes1) %>%
-        group_split()
-      ilp_edges_isotope_2.2 = ilp_edges_isotope %>%
-        filter(n2 != 1) %>%
+        mutate(n1 = n()) %>%
+        ungroup() %>%
         group_by(edge_id, ilp_nodes2) %>%
-        group_split()
+        mutate(n2 = n()) %>%
+        ungroup()
 
-      # It is assumed that isotope_id is counting the number of list
-      ilp_edges_isotope_2 = bind_rows(ilp_edges_isotope_2.1,
-                                      ilp_edges_isotope_2.2,
-                                      .id = "isotope_id") %>%
-        mutate(isotope_id = as.numeric(isotope_id))
+      ## Simple case - one parent ilp_node comes with one isotope ilp_node
+      {
+        ilp_edges_isotope_1 = ilp_edges_isotope %>%
+          filter(n1 == 1, n2 == 1)
 
-      # isotope_id specify which row the triplex should be in
-      triplet_isotope_edge_2 = ilp_edges_isotope_2 %>%
-        transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
-                  j = ilp_edge_id + max(triplet_node$j),
-                  v = 1)
-      triplet_isotope_node_2 = ilp_edges_isotope_2 %>%
-        transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
-                  j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
-                  v = -1) %>%
-        distinct()
+        triplet_isotope_edge_1 = ilp_edges_isotope_1 %>%
+          transmute(i = 1:nrow(.) + max(triplet_extended$i),
+                    j = ilp_edge_id + max(triplet_node$j), # locate to the isotope edge in triplet_edge
+                    v = 1)
+        triplet_isotope_node_1 = ilp_edges_isotope_1 %>%
+          transmute(i = 1:nrow(.) + max(triplet_extended$i),
+                    j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                    v = -1)
+        }
+
+      ## When two ilp_node1 point to same isotope ilp_node2, two lines needs to be combined
+      {
+        ilp_edges_isotope_2 = ilp_edges_isotope %>%
+          filter((n1 == 1 & n2 != 1 & direction == 1) |
+                   (n2 == 1 & n1 != 1 & direction == -1))
+
+        ## Try catching bug here
+        # If ilp_edges_isotope_1 + ilp_edges_isotope_2 does not represent all ilp_edges_isotope
+        if((nrow(ilp_edges_isotope_1) + nrow(ilp_edges_isotope_2)) != nrow(ilp_edges_isotope)){
+          stop("Bugs in isotope triplex.")
+        }
+
+
+        ilp_edges_isotope_2.1 = ilp_edges_isotope %>%
+          filter(n1 != 1) %>%
+          group_by(edge_id, ilp_nodes1) %>%
+          group_split()
+        ilp_edges_isotope_2.2 = ilp_edges_isotope %>%
+          filter(n2 != 1) %>%
+          group_by(edge_id, ilp_nodes2) %>%
+          group_split()
+
+        # It is assumed that isotope_id is counting the number of list
+        ilp_edges_isotope_2 = bind_rows(ilp_edges_isotope_2.1,
+                                        ilp_edges_isotope_2.2,
+                                        .id = "isotope_id") %>%
+          mutate(isotope_id = as.numeric(isotope_id))
+
+        # isotope_id specify which row the triplex should be in
+        triplet_isotope_edge_2 = ilp_edges_isotope_2 %>%
+          transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                    j = ilp_edge_id + max(triplet_node$j),
+                    v = 1)
+        triplet_isotope_node_2 = ilp_edges_isotope_2 %>%
+          transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                    j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                    v = -1) %>%
+          distinct()
+      }
+
+      ## Output
+      {
+        triplet_isotope = bind_rows(triplet_isotope_edge_1,
+                                    triplet_isotope_node_1,
+                                    triplet_isotope_edge_2,
+                                    triplet_isotope_node_2)
+
+        # Sanity check #
+        nrow_triplet_isotope_1 = nrow(ilp_edges_isotope_1)
+        nrow_triplet_isotope_2 = max(ilp_edges_isotope_2$isotope_id)
+        nrow_triplet_isotope = nrow_triplet_isotope_1 + nrow_triplet_isotope_2
+        if(nrow_triplet_isotope != length(unique(triplet_isotope$i))){
+          stop("error in triplet_isotope")
+        }
+
+        triplet_extended = bind_rows(triplet_extended, triplet_isotope)
+
+      }
     }
 
-    ## Output
+    # triplet double_edges ####
+    ## triplet that force only one edge exist between two ilp_nodes
+    ## E.g. adduct vs fragment of NH3, H3PO4 adduct and heterodimer, etc
+    ## e12 + e12' + ... <= n1, e12 + e12' +... <= n2
     {
-      triplet_isotope = bind_rows(triplet_isotope_edge_1,
-                                  triplet_isotope_node_1,
-                                  triplet_isotope_edge_2,
-                                  triplet_isotope_node_2)
-
-      # Sanity check #
-      nrow_triplet_isotope_1 = nrow(ilp_edges_isotope_1)
-      nrow_triplet_isotope_2 = max(ilp_edges_isotope_2$isotope_id)
-      nrow_triplet_isotope = nrow_triplet_isotope_1 + nrow_triplet_isotope_2
-      if(nrow_triplet_isotope != length(unique(triplet_isotope$i))){
-        stop("error in triplet_isotope")
+      if(exist_heterodimer){
+        double_edges = bind_rows(ilp_edges, heterodimer_ilp_edges %>% mutate(linktype = as.character(linktype)))
+      } else {
+        double_edges = ilp_edges
       }
 
-      triplet_extended = bind_rows(triplet_extended, triplet_isotope)
+      double_edges = double_edges %>%
+        filter(category != "Library_MS2_fragment") %>% # allow Library_MS2_fragment to form double edge
+        group_by(ilp_nodes1, ilp_nodes2) %>%
+        mutate(n_twonodes = n()) %>%
+        filter(n_twonodes > 1) %>%
+        arrange(ilp_nodes1, ilp_nodes2) %>%
+        group_split() %>%
+        bind_rows(.id = "double_edges_id") %>%
+        mutate(double_edges_id = as.numeric(double_edges_id))
 
+
+      triplet_edge_edge1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+
+      triplet_edge_edge2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+
+      triplet_edge_node1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                  j = ilp_nodes1,
+                  v = -1)
+
+      triplet_edge_node2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                  j = ilp_nodes2,
+                  v = -1)
+
+
+      triplet_double_edges_regular_edge1 = double_edges %>%
+        filter(category != "Heterodimer") %>%
+        transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+
+      triplet_double_edges_node1 = double_edges %>%
+        transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
+                  j = ilp_nodes1,
+                  v = -1) %>%
+        distinct() # Duplicate entries
+
+      triplet_double_edges_regular_edge2 = double_edges %>%
+        filter(category != "Heterodimer") %>%
+        transmute(i = double_edges_id * 2 + max(triplet_extended$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+
+      triplet_double_edges_node2 = double_edges %>%
+        transmute(i = double_edges_id * 2 + max(triplet_extended$i),
+                  j = ilp_nodes2,
+                  v = -1) %>%
+        distinct() # Duplicate entries
+      # Aviod duplicated triplet is important. Otherwise, a bomb is given by Rstudio.
+
+      triplet_edge_double_edges = bind_rows(triplet_double_edges_regular_edge1,
+                                            triplet_double_edges_node1,
+                                            triplet_double_edges_regular_edge2,
+                                            triplet_double_edges_node2)
+      if(exist_heterodimer){
+        triplet_double_edges_heterodimer_edge1 = double_edges %>%
+          filter(category == "Heterodimer") %>%
+          transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
+                    j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                    v = 1)
+
+        triplet_double_edges_heterodimer_edge2 = double_edges %>%
+          filter(category == "Heterodimer") %>%
+          transmute(i = double_edges_id * 2 + max(triplet_extended$i),
+                    j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                    v = 1)
+
+        triplet_edge_double_edges = bind_rows(triplet_edge_double_edges,
+                                              triplet_double_edges_heterodimer_edge1,
+                                              triplet_double_edges_heterodimer_edge2)
+      }
+
+
+
+      nrow_triplet_double_edges = max(double_edges$double_edges_id)
+
+      # Sanity check #
+      if(nrow_triplet_double_edges * 2 != length(unique(triplet_edge_double_edges$i))){
+        stop("error in triplet_double_edges")
+      }
+
+      triplet_extended = bind_rows(triplet_extended,
+                                   triplet_edge_double_edges)
+    }
+
+  }
+
+  # CPLEX solver parameter ####
+  {
+    # Generate sparse matrix on left hand side
+    triplet_df = triplet_extended %>% distinct()
+    if(nrow(triplet_df)!=nrow(triplet_extended)){
+      stop("Duplicates in triplet_df")
+    }
+    
+    # converts the triplet into matrix
+    mat = slam::simple_triplet_matrix(i=triplet_df$i,
+                                      j=triplet_df$j,
+                                      v=triplet_df$v)
+    
+    # CPLEX parameter
+    # Make sure disk space is enough (>16GB?), otherwise R will crash RANDOMLY!!!!
+    
+    nc <- max(mat$j)
+    obj <- c(ilp_nodes$cplex_score, 
+             ilp_edges$cplex_score,
+             heterodimer_ilp_edges$cplex_score)
+    # Sanity check
+    if(nc != length(obj)){
+      stop("objective length does not match number of column")
+    }
+    lb <- rep(0, nc)
+    ub <- rep(1, nc)
+    ctype <- rep("B",nc)
+    
+    nr <- max(mat$i)
+    # nrow_triplet_isotope = 0
+    # nrow_triplet_double_edges = 0
+    rhs = c(rep(1, max(ilp_rows)), # sum(ilp_node_id)=1
+            rep(0, nrow(ilp_edges) * 2), # e12-n1<=0;e12-n2<=0
+            rep(0, nrow_heterodimer_ilp_edges * 3), # e123-n1<=0;e123-n2<=0;e123-n3<=0
+            rep(0, nrow_triplet_isotope), # e12-n_isotope=0
+            rep(0, nrow_triplet_double_edges * 2) # e12+e12'+...-n1<=0;e12+e12'+...-n2<=0
+    )
+    sense <- c(rep("E", max(ilp_rows)), 
+               rep("L", nrow(ilp_edges) * 2),
+               rep("L", nrow_heterodimer_ilp_edges * 3),
+               rep("E", nrow_triplet_isotope),
+               rep("L", nrow_triplet_double_edges * 2))
+    
+    test = c(rep("E", 2), rep("L",0))
+    # Sanity check
+    if(nr != length(rhs) | nr != length(sense)){
+      stop("constraint length does not match number of row")
+    }
+    
+    triplet_df = triplet_df %>% arrange(j)
+    cnt=as.vector(table(triplet_df$j))
+    beg=vector()
+    beg[1]=0
+    for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
+    ind=triplet_df$i-1
+    val = triplet_df$v
+  
+    CPX_MAX = -1
+    CPLEX_para = list(nc = nc,
+                      nr = nr,
+                      CPX_MAX = CPX_MAX,
+                      obj = obj,
+                      rhs = rhs,
+                      sense = sense,
+                      beg = beg,
+                      cnt = cnt,
+                      ind = ind, 
+                      val = val,
+                      lb = lb,
+                      ub = ub
+    )
+  }
+  
+  return(CPLEX_para)
+}
+
+
+# Initiate_cplexset_reduce ####
+Initiate_cplexset_reduce = function(CplexSet){
+  
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    arrange(ilp_node_id)
+  ilp_edges = CplexSet$ilp_edges %>%
+    arrange(ilp_edge_id)
+  
+  heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges
+  exist_heterodimer = T
+  
+  if(is.null(heterodimer_ilp_edges)){
+    exist_heterodimer = F
+    heterodimer_ilp_edges = NULL
+    nrow_heterodimer_ilp_edges = 0
+  } else {
+    heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+      arrange(ilp_edge_id) %>%
+      mutate(heterodimer_ilp_edge_id = 1:nrow(.))
+    nrow_heterodimer_ilp_edges = nrow(heterodimer_ilp_edges)
+  }
+  
+  # Basic constraint ####
+  {
+    # triplet_nodes
+    # for one node_id, sum(ilp_node_id) = 1
+    {
+      ilp_rows = rep(1,length = nrow(ilp_nodes))
+      ilp_nodes.node_id = ilp_nodes$node_id
+      for(i in 2:length(ilp_nodes.node_id)){
+        if(ilp_nodes.node_id[i] == ilp_nodes.node_id[i-1]){
+          ilp_rows[i] = ilp_rows[i-1]
+        } else{
+          ilp_rows[i] = ilp_rows[i-1] + 1
+        }
+      }
+      
+      triplet_node = ilp_nodes %>%
+        mutate(ilp_row_id = ilp_rows) %>%
+        dplyr::select(ilp_row_id, ilp_node_id) %>%
+        transmute(i = ilp_row_id,  
+                  j = ilp_node_id, 
+                  v = 1)
+      
+      if(length(unique(triplet_node$i))!=max(ilp_rows)){
+        stop("Error in triplet_node")
+      }
+    }
+    
+    # triplet_edges
+    # e12 - n1 <= 0, e12 - n2 <= 0
+    # Because triplet_node take max(triplet_node$i) rows, and max(triplet_node$j) columns
+    {
+      triplet_edge_edge1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i), 
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+      
+      triplet_edge_edge2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i), 
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+      
+      triplet_edge_node1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                  j = ilp_nodes1,
+                  v = -1)
+      
+      triplet_edge_node2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                  j = ilp_nodes2,
+                  v = -1)
+      
+      triplet_edge = bind_rows(triplet_edge_edge1, 
+                               triplet_edge_edge2,
+                               triplet_edge_node1,
+                               triplet_edge_node2)
+      
+      if(length(unique(triplet_edge$i))!=nrow(ilp_edges) * 2){
+        stop("Error in triplet_edge")
+      }
+    }
+    
+    triplet_basic = bind_rows(triplet_node, 
+                              triplet_edge)
+    
+    # triplet_heterodimer
+    # e123 <= n1, e123 <= n2, e123 <= n3
+    # Because triplet_edge take max(triplet_edge$i) rows, and max(triplet_edge$j) columns
+    if(exist_heterodimer){
+      triplet_edge_edge1 = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 - 2 + max(triplet_edge$i), 
+                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                  v = 1)
+      
+      triplet_edge_edge2 = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 - 1 + max(triplet_edge$i), 
+                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                  v = 1)
+      
+      triplet_edge_edge3 = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 + max(triplet_edge$i), 
+                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                  v = 1)
+      
+      triplet_edge_node1 = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 - 2 + max(triplet_edge$i),
+                  j = ilp_nodes1,
+                  v = -1)
+      
+      triplet_edge_node2 = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 - 1 + max(triplet_edge$i),
+                  j = ilp_nodes2,
+                  v = -1)
+      
+      triplet_edge_node_link = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id * 3 + max(triplet_edge$i),
+                  j = ilp_nodes_link,
+                  v = -1)
+      
+      triplet_edge_heterodimer = bind_rows(triplet_edge_edge1, 
+                                           triplet_edge_edge2,
+                                           triplet_edge_edge3,
+                                           triplet_edge_node1,
+                                           triplet_edge_node2,
+                                           triplet_edge_node_link) 
+      
+      if(length(unique(triplet_edge_heterodimer$i))!=nrow_heterodimer_ilp_edges * 3){
+        stop("Error in triplet_edge_heterodimer")
+      }
+      
+      triplet_basic = bind_rows(triplet_basic,
+                                triplet_edge_heterodimer)
     }
   }
   
-  ## triplet double_edges ####
-  # triplet that force only one edge exist between two ilp_nodes
-  # E.g. adduct vs fragment of NH3, H3PO4 adduct and heterodimer, etc
-  # e12 + e12' + ... <= n1, e12 + e12' +... <= n2
+  triplet_extended = triplet_basic
+  # Extended constraint ####
   {
-    if(exist_heterodimer){
-      double_edges = bind_rows(ilp_edges, heterodimer_ilp_edges %>% mutate(linktype = as.character(linktype)))
-    } else {
-      double_edges = ilp_edges
+    # triplet_isotope ####
+    ## constrain an isotope formula must come with an isotope edge
+    {
+      ilp_edges_isotope = ilp_edges %>%
+        filter(category == "Natural_abundance") %>%
+        group_by(edge_id, ilp_nodes1) %>%
+        mutate(n1 = n()) %>%
+        ungroup() %>%
+        group_by(edge_id, ilp_nodes2) %>%
+        mutate(n2 = n()) %>%
+        ungroup()
+      
+      ## Simple case - one parent ilp_node comes with one isotope ilp_node
+      {
+        ilp_edges_isotope_1 = ilp_edges_isotope %>%
+          filter(n1 == 1, n2 == 1)
+        
+        triplet_isotope_edge_1 = ilp_edges_isotope_1 %>%
+          transmute(i = 1:nrow(.) + max(triplet_extended$i),
+                    j = ilp_edge_id + max(triplet_node$j), # locate to the isotope edge in triplet_edge
+                    v = 1)
+        triplet_isotope_node_1 = ilp_edges_isotope_1 %>%
+          transmute(i = 1:nrow(.) + max(triplet_extended$i),
+                    j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                    v = -1)
+        }
+      
+      ## When two ilp_node1 point to same isotope ilp_node2, two lines needs to be combined
+      {
+        ilp_edges_isotope_2 = ilp_edges_isotope %>%
+          filter((n1 == 1 & n2 != 1 & direction == 1) |
+                   (n2 == 1 & n1 != 1 & direction == -1))
+        
+        ## Try catching bug here
+        # If ilp_edges_isotope_1 + ilp_edges_isotope_2 does not represent all ilp_edges_isotope
+        if((nrow(ilp_edges_isotope_1) + nrow(ilp_edges_isotope_2)) != nrow(ilp_edges_isotope)){
+          stop("Bugs in isotope triplex.")
+        }
+        
+        
+        ilp_edges_isotope_2.1 = ilp_edges_isotope %>%
+          filter(n1 != 1) %>%
+          group_by(edge_id, ilp_nodes1) %>%
+          group_split()
+        ilp_edges_isotope_2.2 = ilp_edges_isotope %>%
+          filter(n2 != 1) %>%
+          group_by(edge_id, ilp_nodes2) %>%
+          group_split()
+        
+        # It is assumed that isotope_id is counting the number of list
+        ilp_edges_isotope_2 = bind_rows(ilp_edges_isotope_2.1,
+                                        ilp_edges_isotope_2.2,
+                                        .id = "isotope_id") %>%
+          mutate(isotope_id = as.numeric(isotope_id))
+        
+        # isotope_id specify which row the triplex should be in
+        triplet_isotope_edge_2 = ilp_edges_isotope_2 %>%
+          transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                    j = ilp_edge_id + max(triplet_node$j),
+                    v = 1)
+        triplet_isotope_node_2 = ilp_edges_isotope_2 %>%
+          transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                    j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                    v = -1) %>%
+          distinct()
+      }
+      
+      ## Output
+      {
+        triplet_isotope = bind_rows(triplet_isotope_edge_1,
+                                    triplet_isotope_node_1,
+                                    triplet_isotope_edge_2,
+                                    triplet_isotope_node_2)
+        
+        # Sanity check #
+        nrow_triplet_isotope_1 = nrow(ilp_edges_isotope_1)
+        nrow_triplet_isotope_2 = max(ilp_edges_isotope_2$isotope_id)
+        nrow_triplet_isotope = nrow_triplet_isotope_1 + nrow_triplet_isotope_2
+        if(nrow_triplet_isotope != length(unique(triplet_isotope$i))){
+          stop("error in triplet_isotope")
+        }
+        
+        triplet_extended = bind_rows(triplet_extended, triplet_isotope)
+        
+      }
     }
-
-    double_edges = double_edges %>%
-      filter(category != "Library_MS2_fragment") %>% # allow Library_MS2_fragment to form double edge
-      group_by(ilp_nodes1, ilp_nodes2) %>%
-      mutate(n_twonodes = n()) %>%
-      filter(n_twonodes > 1) %>%
-      arrange(ilp_nodes1, ilp_nodes2) %>%
-      group_split() %>%
-      bind_rows(.id = "double_edges_id") %>%
-      mutate(double_edges_id = as.numeric(double_edges_id))
-
-    triplet_double_edges_regular_edge1 = double_edges %>%
-      filter(category != "Heterodimer") %>%
-      transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
-                j = ilp_edge_id + max(triplet_node$j),
-                v = 1)
-
-    triplet_double_edges_node1 = double_edges %>%
-      transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
-                j = ilp_nodes1,
-                v = -1) %>%
-      distinct() # Duplicate entries
-
-    triplet_double_edges_regular_edge2 = double_edges %>%
-      filter(category != "Heterodimer") %>%
-      transmute(i = double_edges_id * 2 + max(triplet_extended$i),
-                j = ilp_edge_id + max(triplet_node$j),
-                v = 1)
-
-    triplet_double_edges_node2 = double_edges %>%
-      transmute(i = double_edges_id * 2 + max(triplet_extended$i),
-                j = ilp_nodes2,
-                v = -1) %>%
-      distinct() # Duplicate entries
-    # Aviod duplicated triplet is important. Otherwise, a bomb is given by Rstudio.
-
-    triplet_edge_double_edges = bind_rows(triplet_double_edges_regular_edge1,
-                                          triplet_double_edges_node1,
-                                          triplet_double_edges_regular_edge2,
-                                          triplet_double_edges_node2)
-    if(exist_heterodimer){
-      triplet_double_edges_heterodimer_edge1 = double_edges %>%
-        filter(category == "Heterodimer") %>%
+    
+    # triplet double_edges ####
+    ## triplet that force only one edge exist between two ilp_nodes
+    ## E.g. adduct vs fragment of NH3, H3PO4 adduct and heterodimer, etc
+    ## e12 + e12' + ... <= n1, e12 + e12' +... <= n2
+    {
+      if(exist_heterodimer){
+        double_edges = bind_rows(ilp_edges, heterodimer_ilp_edges %>% mutate(linktype = as.character(linktype)))
+      } else {
+        double_edges = ilp_edges
+      }
+      
+      double_edges = double_edges %>%
+        filter(category != "Library_MS2_fragment") %>% # allow Library_MS2_fragment to form double edge
+        group_by(ilp_nodes1, ilp_nodes2) %>%
+        mutate(n_twonodes = n()) %>%
+        filter(n_twonodes > 1) %>%
+        arrange(ilp_nodes1, ilp_nodes2) %>%
+        group_split() %>%
+        bind_rows(.id = "double_edges_id") %>%
+        mutate(double_edges_id = as.numeric(double_edges_id))
+      
+      
+      triplet_edge_edge1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+      
+      triplet_edge_edge2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                  j = ilp_edge_id + max(triplet_node$j),
+                  v = 1)
+      
+      triplet_edge_node1 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                  j = ilp_nodes1,
+                  v = -1)
+      
+      triplet_edge_node2 = ilp_edges %>%
+        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                  j = ilp_nodes2,
+                  v = -1)
+      
+      
+      triplet_double_edges_regular_edge1 = double_edges %>%
+        filter(category != "Heterodimer") %>%
         transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
-                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                  j = ilp_edge_id + max(triplet_node$j),
                   v = 1)
-
-      triplet_double_edges_heterodimer_edge2 = double_edges %>%
-        filter(category == "Heterodimer") %>%
+      
+      triplet_double_edges_node1 = double_edges %>%
+        transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
+                  j = ilp_nodes1,
+                  v = -1) %>%
+        distinct() # Duplicate entries
+      
+      triplet_double_edges_regular_edge2 = double_edges %>%
+        filter(category != "Heterodimer") %>%
         transmute(i = double_edges_id * 2 + max(triplet_extended$i),
-                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                  j = ilp_edge_id + max(triplet_node$j),
                   v = 1)
-
-      triplet_edge_double_edges = bind_rows(triplet_edge_double_edges,
-                                            triplet_double_edges_heterodimer_edge1,
-                                            triplet_double_edges_heterodimer_edge2)
+      
+      triplet_double_edges_node2 = double_edges %>%
+        transmute(i = double_edges_id * 2 + max(triplet_extended$i),
+                  j = ilp_nodes2,
+                  v = -1) %>%
+        distinct() # Duplicate entries
+      # Aviod duplicated triplet is important. Otherwise, a bomb is given by Rstudio.
+      
+      triplet_edge_double_edges = bind_rows(triplet_double_edges_regular_edge1,
+                                            triplet_double_edges_node1,
+                                            triplet_double_edges_regular_edge2,
+                                            triplet_double_edges_node2)
+      if(exist_heterodimer){
+        triplet_double_edges_heterodimer_edge1 = double_edges %>%
+          filter(category == "Heterodimer") %>%
+          transmute(i = double_edges_id * 2 - 1 + max(triplet_extended$i),
+                    j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                    v = 1)
+        
+        triplet_double_edges_heterodimer_edge2 = double_edges %>%
+          filter(category == "Heterodimer") %>%
+          transmute(i = double_edges_id * 2 + max(triplet_extended$i),
+                    j = heterodimer_ilp_edge_id + max(triplet_edge$j),
+                    v = 1)
+        
+        triplet_edge_double_edges = bind_rows(triplet_edge_double_edges,
+                                              triplet_double_edges_heterodimer_edge1,
+                                              triplet_double_edges_heterodimer_edge2)
+      }
+      
+      
+      
+      nrow_triplet_double_edges = max(double_edges$double_edges_id)
+      
+      # Sanity check #
+      if(nrow_triplet_double_edges * 2 != length(unique(triplet_edge_double_edges$i))){
+        stop("error in triplet_double_edges")
+      }
+      
+      triplet_extended = bind_rows(triplet_extended,
+                                   triplet_edge_double_edges)
     }
-
-
-
-    nrow_triplet_double_edges = max(double_edges$double_edges_id)
-
-    # Sanity check #
-    if(nrow_triplet_double_edges * 2 != length(unique(triplet_edge_double_edges$i))){
-      stop("error in triplet_double_edges")
-    }
-
-    triplet_extended = bind_rows(triplet_extended,
-                                 triplet_edge_double_edges)
+    
   }
   
   # CPLEX solver parameter ####
@@ -3004,10 +3448,16 @@ Initiate_cplexset = function(CplexSet){
                                       v=triplet_df$v)
     
     # CPLEX parameter
+    # Make sure disk space is enough (>16GB?), otherwise R will crash RANDOMLY!!!!
+    
     nc <- max(mat$j)
     obj <- c(ilp_nodes$cplex_score, 
              ilp_edges$cplex_score,
              heterodimer_ilp_edges$cplex_score)
+    # Sanity check
+    if(nc != length(obj)){
+      stop("objective length does not match number of column")
+    }
     lb <- rep(0, nc)
     ub <- rep(1, nc)
     ctype <- rep("B",nc)
@@ -3015,17 +3465,23 @@ Initiate_cplexset = function(CplexSet){
     nr <- max(mat$i)
     # nrow_triplet_isotope = 0
     # nrow_triplet_double_edges = 0
-    rhs = c(rep(1, max(ilp_rows)),
-            rep(0, nrow(ilp_edges) * 2), 
-            rep(0, nrow_heterodimer_ilp_edges * 3),
-            rep(0, nrow_triplet_isotope),
-            rep(1, nrow_triplet_double_edges * 2)
+    rhs = c(rep(1, max(ilp_rows)), # sum(ilp_node_id)=1
+            rep(0, nrow(ilp_edges) * 2), # e12-n1<=0;e12-n2<=0
+            rep(0, nrow_heterodimer_ilp_edges * 3), # e123-n1<=0;e123-n2<=0;e123-n3<=0
+            rep(0, nrow_triplet_isotope), # e12-n_isotope=0
+            rep(0, nrow_triplet_double_edges * 2) # e12+e12'+...-n1<=0;e12+e12'+...-n2<=0
     )
     sense <- c(rep("E", max(ilp_rows)), 
                rep("L", nrow(ilp_edges) * 2),
                rep("L", nrow_heterodimer_ilp_edges * 3),
                rep("E", nrow_triplet_isotope),
                rep("L", nrow_triplet_double_edges * 2))
+    
+    test = c(rep("E", 2), rep("L",0))
+    # Sanity check
+    if(nr != length(rhs) | nr != length(sense)){
+      stop("constraint length does not match number of row")
+    }
     
     triplet_df = triplet_df %>% arrange(j)
     cnt=as.vector(table(triplet_df$j))
@@ -3034,7 +3490,7 @@ Initiate_cplexset = function(CplexSet){
     for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
     ind=triplet_df$i-1
     val = triplet_df$v
-  
+    
     CPX_MAX = -1
     CPLEX_para = list(nc = nc,
                       nr = nr,
@@ -3336,6 +3792,375 @@ Initiate_cplexset_old = function(CplexSet){
   
   return(CPLEX_para)
 }
+## Initiate_cplexset_lp ####
+Initiate_cplexset_lp = function(CplexSet){
+  
+  ilp_nodes = CplexSet$ilp_nodes %>%
+    arrange(ilp_node_id)
+  ilp_edges = CplexSet$ilp_edges %>%
+    arrange(ilp_edge_id)
+  heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+    arrange(ilp_edge_id)
+  
+  ## Core codes
+  # Construct constraint matrix 
+  # for one node_id, sum(ilp_node_id) = 1
+  # triplet_nodes
+  {
+    ilp_rows = rep(1,length = nrow(ilp_nodes))
+    ilp_nodes.node_id = ilp_nodes$node_id
+    for(i in 2:length(ilp_nodes.node_id)){
+      if(ilp_nodes.node_id[i] == ilp_nodes.node_id[i-1]){
+        ilp_rows[i] = ilp_rows[i-1]
+      } else{
+        ilp_rows[i] = ilp_rows[i-1] + 1
+      }
+    }
+    
+    triplet_node = ilp_nodes %>%
+      mutate(ilp_row_id = ilp_rows) %>%
+      dplyr::select(ilp_row_id, ilp_node_id) %>%
+      transmute(i = ilp_row_id,  ## Caution: row number is discontinous as not all node_id exist
+                j = ilp_node_id, 
+                v = 1)
+    }
+  
+  # triplet_edges
+  # e12 <= n1, e12 <= n2
+  # Because triplet_node take max(triplet_node$i) rows, and max(triplet_node$j) columns
+  {
+    triplet_edge_edge1 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i), 
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    
+    triplet_edge_edge2 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 + max(triplet_node$i), 
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    
+    triplet_edge_node1 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+                j = ilp_nodes1,
+                v = -1)
+    
+    triplet_edge_node2 = ilp_edges %>%
+      transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+                j = ilp_nodes2,
+                v = -1)
+    
+    triplet_edge = bind_rows(triplet_edge_edge1, 
+                             triplet_edge_edge2,
+                             triplet_edge_node1,
+                             triplet_edge_node2)
+  }
+  
+  
+  # triplet_heterodimer
+  # e123 <= n1, e123 <= n2, e123 <= n3
+  {
+    heterodimer_ilp_edges = heterodimer_ilp_edges %>%
+      mutate(ilp_edge_id = 1:nrow(.))
+    
+    triplet_edge_edge1 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 2 + max(triplet_edge$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_edge_edge2 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 1 + max(triplet_edge$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_edge_edge3 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 + max(triplet_edge$i), 
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_edge_node1 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 2 + max(triplet_edge$i),
+                j = ilp_nodes1,
+                v = -1)
+    
+    triplet_edge_node2 = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 - 1 + max(triplet_edge$i),
+                j = ilp_nodes2,
+                v = -1)
+    
+    triplet_edge_node_link = heterodimer_ilp_edges %>%
+      transmute(i = ilp_edge_id * 3 + max(triplet_edge$i),
+                j = ilp_nodes_link,
+                v = -1)
+    
+    triplet_edge_heterodimer = bind_rows(triplet_edge_edge1, 
+                                         triplet_edge_edge2,
+                                         triplet_edge_edge3,
+                                         triplet_edge_node1,
+                                         triplet_edge_node2,
+                                         triplet_edge_node_link) 
+  }
+  
+  # triplet that force only one edge exist between two ilp_nodes
+  # E.g. adduct vs fragment of NH3, HPO3 adduct and heterodimer, etc
+  {
+    double_edges = bind_rows(ilp_edges, heterodimer_ilp_edges %>% mutate(linktype = as.character(linktype))) %>%
+      filter(category != "Library_MS2_fragment") %>% # allow Library_MS2_fragment to form double edge
+      group_by(ilp_nodes1, ilp_nodes2) %>%
+      mutate(n_twonodes = n()) %>%
+      group_by(ilp_nodes1, ilp_nodes2, category) %>%
+      mutate(n_category = n()) %>%
+      filter(n_twonodes != n_category) %>% # Mainly to remove heterodimer when ilp_nodes1/2 are the same, but link different
+      arrange(ilp_nodes1, ilp_nodes2) %>%
+      group_by(ilp_nodes1, ilp_nodes2) %>%
+      group_split() %>%
+      bind_rows(.id = "double_edges_id") %>%
+      mutate(double_edges_id = as.numeric(double_edges_id))
+    
+    triplet_double_edges_regular_edge1 = double_edges %>%
+      filter(category != "Heterodimer") %>%
+      transmute(i = double_edges_id * 2 - 1 + max(triplet_edge_heterodimer$i),
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    
+    triplet_double_edges_heterodimer_edge1 = double_edges %>%
+      filter(category == "Heterodimer") %>%
+      transmute(i = double_edges_id * 2 - 1 + max(triplet_edge_heterodimer$i),
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_double_edges_node1 = double_edges %>%
+      transmute(i = double_edges_id * 2 - 1 + max(triplet_edge_heterodimer$i),
+                j = ilp_nodes1,
+                v = -1)
+    
+    triplet_double_edges_regular_edge2 = double_edges %>%
+      filter(category != "Heterodimer") %>%
+      transmute(i = double_edges_id * 2 + max(triplet_edge_heterodimer$i),
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    
+    triplet_double_edges_heterodimer_edge2 = double_edges %>%
+      filter(category == "Heterodimer") %>%
+      transmute(i = double_edges_id * 2 + max(triplet_edge_heterodimer$i),
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_double_edges_node2 = double_edges %>%
+      transmute(i = double_edges_id * 2 + max(triplet_edge_heterodimer$i),
+                j = ilp_nodes2,
+                v = -1)
+    
+    triplet_edge_double_edges = bind_rows(triplet_double_edges_regular_edge1,
+                                          triplet_double_edges_heterodimer_edge1,
+                                          triplet_double_edges_node1,
+                                          triplet_double_edges_regular_edge2,
+                                          triplet_double_edges_heterodimer_edge2,
+                                          triplet_double_edges_node2) %>%
+      distinct() # Aviod duplicated triplet is important. Otherwise, a bomb is given by Rstudio.
+    
+    
+    nrow_triplet_double_edges = max(double_edges$double_edges_id)
+  }
+  
+  
+  # triplet_isotope
+  # constrain an isotope formula must come with an isotope edge
+  {
+    ilp_edges_isotope = ilp_edges %>%
+      filter(category == "Natural_abundance") %>%
+      group_by(edge_id, ilp_nodes1) %>%
+      mutate(n1 = n()) %>%
+      ungroup() %>%
+      group_by(edge_id, ilp_nodes2) %>%
+      mutate(n2 = n()) %>%
+      ungroup()
+    
+    ilp_edges_isotope_1 = ilp_edges_isotope %>%
+      filter(n1 == 1, n2 == 1)
+    
+    triplet_isotope_edge_1 = ilp_edges_isotope_1 %>%
+      transmute(i = 1:nrow(.) + max(triplet_edge_double_edges$i),
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    triplet_isotope_node_1 = ilp_edges_isotope_1 %>%
+      transmute(i = 1:nrow(.) + max(triplet_edge_double_edges$i),
+                j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                v = -1)
+    
+    ## When two ilp_node1 point to same isotope ilp_node2, two lines needs to be combined
+    
+    ## Try catching bug here
+    {
+      # test = ilp_nodes %>%
+      #   group_by(node_id, formula) %>%
+      #   filter(n()>2)
+      # Bug1: one edge contains two same ilp_nodes
+      ilp_edges_isotope_bug1 = ilp_edges_isotope %>%
+        filter(n1 != 1 & n2 != 1)
+      # Bug2: the direction of isotope edge causes problem
+      ilp_edges_isotope_bug2.1 = ilp_edges_isotope %>%
+        filter(n1 == 1 & n2 != 1 & direction != 1)
+      ilp_edges_isotope_bug2.2 = ilp_edges_isotope %>%
+        filter(n2 == 1 & n1 != 1 & direction != -1)
+      if(nrow(ilp_edges_isotope_bug1) != 0 |
+         nrow(ilp_edges_isotope_bug2.1) != 0 |
+         nrow(ilp_edges_isotope_bug2.2) != 0){
+        stop("Bugs in isotope triplex.")
+      }
+      }
+    
+    ilp_edges_isotope_2 = ilp_edges_isotope %>%
+      filter(n1 != 1 | n2 != 1)
+    
+    ilp_edges_isotope_2.1 = ilp_edges_isotope %>%
+      filter(n1 != 1) %>%
+      group_by(edge_id, ilp_nodes1) %>%
+      group_split()
+    ilp_edges_isotope_2.2 = ilp_edges_isotope %>%
+      filter(n2 != 1) %>%
+      group_by(edge_id, ilp_nodes2) %>%
+      group_split()
+    
+    # It is assumed that isotope_id is counting the number of list
+    ilp_edges_isotope_2 = bind_rows(ilp_edges_isotope_2.1,
+                                    ilp_edges_isotope_2.2,
+                                    .id = "isotope_id") %>%
+      mutate(isotope_id = as.numeric(isotope_id))
+    
+    # isotope_id specify which row the triplex should be in
+    
+    triplet_isotope_edge_2 = ilp_edges_isotope_2 %>%
+      transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                j = ilp_edge_id + max(triplet_node$j),
+                v = 1)
+    triplet_isotope_node_2 = ilp_edges_isotope_2 %>%
+      transmute(i = isotope_id + max(triplet_isotope_edge_1$i),
+                j = ifelse(direction == 1, ilp_nodes2, ilp_nodes1),
+                v = -1) %>%
+      distinct()
+    
+    nrow_triplet_isotope_1 = nrow(ilp_edges_isotope_1)
+    nrow_triplet_isotope_2 = max(ilp_edges_isotope_2$isotope_id)
+    
+    triplet_isotope = bind_rows(triplet_isotope_edge_1,
+                                triplet_isotope_node_1,
+                                triplet_isotope_edge_2,
+                                triplet_isotope_node_2)
+  }
+  
+  # triplet heterodimer constraint
+  {
+    heterodimer_constraint = heterodimer_ilp_edges %>%
+      mutate(ilp_edge_id = 1:nrow(.)) %>%
+      group_by(node1, node2) %>%
+      mutate(n_group = n()) %>%
+      filter(n_group > 1) %>%
+      group_split() %>%
+      bind_rows(.id = "heterodimer_constraint_id") %>%
+      mutate(heterodimer_constraint_id = as.numeric(heterodimer_constraint_id))
+    
+    triplet_heterodimer_constraint_edge = heterodimer_constraint %>%
+      transmute(i = heterodimer_constraint_id + max(triplet_isotope$i),
+                j = ilp_edge_id + max(triplet_edge$j),
+                v = 1)
+    
+    triplet_heterodimer_constraint = triplet_heterodimer_constraint_edge
+    
+    nrow_heterodimer_constraint = max(heterodimer_constraint$heterodimer_constraint_id)
+    
+  }
+  
+  
+  # Generate sparse matrix on left hand side
+  triplet_df = rbind(
+    triplet_node,
+    triplet_edge,
+    triplet_edge_heterodimer,
+    triplet_edge_double_edges,
+    triplet_isotope,
+    triplet_heterodimer_constraint
+  )
+  # nrow_triplet_double_edges = 0
+  # nrow_triplet_isotope_1 = 0
+  # nrow_triplet_isotope_2 = 0
+  
+  # converts the triplet into matrix
+  mat = slam::simple_triplet_matrix(i=triplet_df$i,
+                                    j=triplet_df$j,
+                                    v=triplet_df$v)
+  
+  
+  #CPLEX solver parameter
+  {
+    nc <- max(mat$j)
+    obj <- c(ilp_nodes$cplex_score, 
+             ilp_edges$cplex_score,
+             heterodimer_ilp_edges$cplex_score)
+    lb <- rep(0, nc)
+    ub <- rep(1, nc)
+    # ctype <- rep("B",nc)
+    
+    nr <- max(mat$i)
+    ## Three parts of constraints:
+    ## 1. For each peak, binary sum of formula = 1. Each peak chooses unknown formula or 1 formula from potential formulas for the peak
+    ## for node_id, sum(ilp_node) = 1
+    ## 2. For each edge, an edge exists only both formula it connects exists
+    ## for edge12 connects node1 and node2, n1 + n2 >= 2*e12
+    ## 3. For isotopic peak, an isotopic formula is given only if the isotope edge is chosen.
+    ## n_iso = e_iso + (e_iso2) 
+    ### An isotopic peak can be derived from two ilp_nodes (same formula different class)
+    ## 4. For heterodimer edge, an edge exists only when both formula and the linktype connection exist
+    ## n1+n2+n_link >= 3*e12_link
+    ## 5. For double edges, where two ilp_nodes are connected by more than 1 edge, force to choose at most 1 edge
+    
+    node_id_count = as.numeric(table(ilp_nodes$node_id))
+    rhs = c(rep(1, max(ilp_rows)),
+            rep(0, nrow(ilp_edges) * 2), 
+            rep(0, nrow(heterodimer_ilp_edges) * 3),
+            rep(0, nrow_triplet_double_edges * 2),
+            rep(0, nrow_triplet_isotope_1), 
+            rep(0, nrow_triplet_isotope_2),
+            rep(1, nrow_heterodimer_constraint)
+    )
+    sense <- c(rep("E", max(ilp_rows)), 
+               rep("L", nrow(ilp_edges) * 2),
+               rep("L", nrow(heterodimer_ilp_edges) * 3),
+               rep("L", nrow_triplet_double_edges * 2),
+               rep("E", nrow_triplet_isotope_1 + nrow_triplet_isotope_2),
+               rep("L", nrow_heterodimer_constraint)
+    )
+    
+    triplet_df = triplet_df %>% arrange(j)
+    cnt=as.vector(table(triplet_df$j))
+    beg=vector()
+    beg[1]=0
+    for(i in 2:length(cnt)){beg[i]=beg[i-1]+cnt[i-1]}
+    ind=triplet_df$i-1
+    val = triplet_df$v
+  }
+  CPX_MAX = -1
+  CPLEX_para = list(nc = nc,
+                    nr = nr,
+                    CPX_MAX = CPX_MAX,
+                    obj = obj,
+                    rhs = rhs,
+                    sense = sense,
+                    beg = beg,
+                    cnt = cnt,
+                    ind = ind, 
+                    val = val,
+                    lb = lb,
+                    ub = ub
+  )
+  # ilp_nodes = CplexSet$ilp_nodes %>%
+  #   arrange(node_id)
+  # node_id_count = as.numeric(table(ilp_nodes$node_id))
+  # node_id_ilp = 2 - node_id_count + (node_id_count - 1) * 0.1
+  # rhs[1:length(node_id_ilp)] = node_id_ilp
+  # lb[1:nrow(ilp_nodes)] = -1
+  
+  return(CPLEX_para)
+}
 ## Test_para_CPLEX ####
 Test_para_CPLEX = function(CplexSet, obj_cplex,  para = 0, para2 = 0, 
                            relative_gap=1e-4, total_run_time = 3000){
@@ -3499,24 +4324,26 @@ Add_constraint_CPLEX = function(CplexSet, obj){
   return(list(obj = obj, result_solution = result_solution))
 }
 # Run_cplex ####
-Run_cplex = function(CplexSet, obj_cplex, 
+Run_cplex = function(CplexSet, obj_cplex, para_option = "para",
                      optimization = c("ilp","lp"), # "ilp" enforces integer in assignment, "lp" does not.
                      relative_gap = 1e-4, total_run_time = 3000){
   # obj_cplex = CplexSet$para$obj
   env <- openEnvCPLEX()
   prob <- initProbCPLEX(env)
-  nc = CplexSet$para$nc
-  nr = CplexSet$para$nr
-  CPX_MAX = CplexSet$para$CPX_MAX
-  rhs = CplexSet$para$rhs
-  sense = CplexSet$para$sense
-  beg = CplexSet$para$beg
-  cnt = CplexSet$para$cnt
-  ind = CplexSet$para$ind
-  val = CplexSet$para$val
-  lb = CplexSet$para$lb
-  ub = CplexSet$para$ub
-  ctype = CplexSet$para$ctype
+  
+  para = CplexSet[[para_option]]
+  nc = para$nc
+  nr = para$nr
+  CPX_MAX = para$CPX_MAX
+  rhs = para$rhs
+  sense = para$sense
+  beg = para$beg
+  cnt = para$cnt
+  ind = para$ind
+  val = para$val
+  lb = para$lb
+  ub = para$ub
+  ctype = para$ctype
   
   copyLpwNamesCPLEX(env, prob, nc, nr, CPX_MAX, obj = obj_cplex, rhs, sense,
                     beg, cnt, ind, val, lb, ub, NULL, NULL, NULL)
@@ -3583,7 +4410,7 @@ add_ilp_solution = function(CplexSet, Mset){
   
   CPLEX_x = CplexSet$ilp_solution$result_solution$x
   if(is.null(CPLEX_x)){
-    warning(paste("No",optimization, "solution exists."))
+    warning(paste("No solution exists."))
     return(CplexSet)
   }
   
@@ -3597,17 +4424,18 @@ add_ilp_solution = function(CplexSet, Mset){
   CplexSet$ilp_edges = CplexSet$ilp_edges %>%
     mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes)]) 
   
-  CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
-    mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
-  
+  if(!is.null(CplexSet$heterodimer_ilp_edges)){
+    CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+      mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
+  }
   return(CplexSet)
 }
-# Add ilp_solution to CplexSet ####
+# Add lp_solution to CplexSet ####
 add_lp_solution = function(CplexSet, Mset){
   
   CPLEX_x = CplexSet$lp_solution$result_solution$x
   if(is.null(CPLEX_x)){
-    warning(paste("No",optimization, "solution exists."))
+    warning(paste("No solution exists."))
     return(CplexSet)
   }
   
@@ -3621,8 +4449,10 @@ add_lp_solution = function(CplexSet, Mset){
     mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes)]) %>%
     dplyr::select(ilp_nodes1, ilp_nodes2, everything())
   
-  CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
-    mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
+  if(!is.null(CplexSet$heterodimer_ilp_edges)){
+    CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
+      mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
+  }
   
   return(CplexSet)
 }
@@ -3793,8 +4623,6 @@ track_annotation_nonmet = function(query_ilp_id,
   # dist_mat = nonmet_dist_mat
   # query_ilp_id = 246
   
-
-  
   if(!any(as.character(query_ilp_id) == colnames(dist_mat))){
     return("Not existed in distance matrix")
   }
@@ -3866,7 +4694,7 @@ track_annotation_met = function(query_ilp_id,
                                 g_annotation = g_met, 
                                 graph_path_mode = "all", 
                                 dist_mat = met_dist_mat, 
-                                core_annotation){
+                                core_annotation_unique){
   
   # g_annotation = g_met
   # dist_mat = met_dist_mat
@@ -3965,7 +4793,7 @@ path_annotation = function(CplexSet, StructureSet_df, LibrarySet){
   # Roughly 10s ~ 1000 entries(including skipped ones)
   ilp_nodes = CplexSet$ilp_nodes
   path_annotation = rep("", nrow(ilp_nodes))
-  profvis::profvis({
+  # profvis::profvis({
   for(i in 1:nrow(ilp_nodes)){
     # if(i %% 1000 == 0) print(i)
     # skip ilp_nodes if not selected by ilp
@@ -3984,7 +4812,7 @@ path_annotation = function(CplexSet, StructureSet_df, LibrarySet){
       path_annotation[i] = "Unknown"
     }
   }
-  })
+  # })
   CplexSet$ilp_nodes = ilp_nodes %>%
     mutate(path = path_annotation) %>%
     # filter(ilp_result != 0) %>%
