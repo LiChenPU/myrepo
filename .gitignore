@@ -19,5 +19,6 @@
 *.gz
 *.html
 *.sdf
+*.docx
 .Rproj.user
 prob.lp
