@@ -3,7 +3,7 @@
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   source("NetID_function.R")
   
-  work_dir = "WL_liver_neg"
+  work_dir = "matt"
   setwd(work_dir)
   printtime = Sys.time()
   timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
@@ -17,19 +17,13 @@
                     ion_mode = -1 # 1 for pos mode and -1 for neg mode
                     )
   Mset = read_MS2data(Mset,
-                      MS2_folder = "MS2_neg_200524_test") # MS2_neg_200524_test
-}
-
-# Parameter settings ####
-{
-  mass_dist_gamma_rate = 1 # smaller means more penalty on mass error, similar to sd
-  measured_mz_adjust = T # adjust measured mass by matching to known metabolites
+                      MS2_folder = "MS2_neg_200524") # MS2_neg_200524_test
 }
 
 # Data cleaning ####
 {
   # Analyze cohort info, identify blank samples
-  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 15)
+  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 16)
   print(Mset$Cohort)
   
   # Clean up duplicate peaks 
@@ -37,7 +31,7 @@
                                 mz_tol=2/10^6, rt_tol=0.1, # merge peaks within mz_tol and rt_tol
                                 inten_cutoff=0e4,
                                 high_blank_cutoff = 0,
-                                first_sample_col_num = 15)
+                                first_sample_col_num = 16)
   
   print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
 }
@@ -58,6 +52,7 @@
 
 ## Adjust measured mass by matching to known metabolites ####
 {
+  measured_mz_adjust = T 
   if(measured_mz_adjust){
     Sys_msr_error = Check_sys_error(NodeSet, StructureSet, LibrarySet, 
                                     RT_match = F)
@@ -110,6 +105,7 @@
                                         record_RT_tol = 0.15,
                                         record_ppm_tol = 5e-6)
   
+  
   StructureSet_df = Score_structureset(StructureSet)
   StructureSet_df = Score_structure_propagation(StructureSet_df, artifact_decay = -0.5)                         
 }
@@ -123,6 +119,7 @@
   CplexSet[["ilp_edges"]] = initiate_ilp_edges(EdgeSet_all, CplexSet, Exclude = "")
   CplexSet[["heterodimer_ilp_edges"]] = initiate_heterodimer_ilp_edges(EdgeSet_all, CplexSet, NodeSet)
   print("Finish CplexSet initialization")
+  
   # Score
   CplexSet[["ilp_nodes"]] = score_ilp_nodes(CplexSet, 
                                             metabolite_score = 0.1,
@@ -137,34 +134,33 @@
   print("Finish CplexSet scoring")
   
   CplexSet[["para"]] = Initiate_cplexset(CplexSet)
-  # CplexSet[["para"]] = Initiate_cplexset_old(CplexSet)
+  CplexSet[["para_reduce"]] = Initiate_cplexset_reduce(CplexSet)
   
   print(paste("Complexity is", CplexSet$para$nc, "variables and", CplexSet$para$nr, "constraints."))
+  print(sapply(CplexSet$para, length))
 }
-sapply(CplexSet$para, length)
 print(Sys.time()-printtime)
 save.image(paste0(timestamp,".RData"))
 
 ## Run optimization ####
 {
-  for(i in 1:10){
-    CplexSet[["ilp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
-                                           optimization = c("ilp"),
-                                           relative_gap = 1e-3, total_run_time = 5000)
-  }
-  
+  CplexSet[["ilp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
+                                         optimization = c("ilp"),
+                                         relative_gap = 1e-3, total_run_time = 5000)
   CplexSet[["lp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
                                         optimization = c("lp"),
                                         total_run_time = 5000)
   
-  CplexSet = add_ilp_solution(CplexSet, Mset)
-  CplexSet = add_lp_solution(CplexSet, Mset)
+  CplexSet = add_CPLEX_solution(CplexSet, Mset, 
+                                solution = "ilp_solution")
+  CplexSet = add_CPLEX_solution(CplexSet, Mset, 
+                                solution = "lp_solution")
 }
-
 
 # Path annotation ####
 {
-  CplexSet = path_annotation(CplexSet, StructureSet_df, LibrarySet)
+  CplexSet = path_annotation(CplexSet, StructureSet_df, LibrarySet, 
+                             solution = c("ilp_solution"))
   
   saveRDS(list(CplexSet = CplexSet,
                StructureSet_df = StructureSet_df,
@@ -175,5 +171,4 @@ save.image(paste0(timestamp,".RData"))
 print("total run time")
 save.image(paste0(timestamp,".RData"))
 print(Sys.time()-printtime)
-
 

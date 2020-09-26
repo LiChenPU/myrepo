@@ -883,6 +883,10 @@ Multicharge_isotope_connection = function(EdgeSet, EdgeSet_oligomer_multicharge)
   
   EdgeSet_natural_abundance = bind_rows(EdgeSet) %>%
     filter(category == "Natural_abundance")
+  if(is.null(EdgeSet_oligomer_multicharge)|nrow(EdgeSet_oligomer_multicharge)==0){
+    return (EdgeSet_natural_abundance[0,])
+  }
+  
   
   EdgeSet_multicharge = EdgeSet_oligomer_multicharge %>%
     filter(category == "Multicharge") %>%
@@ -926,6 +930,10 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
     }
   }
   
+  if(length(hetero_dimer_ls) == 0){
+    return(NULL)
+  }
+  
   hetero_dimer_df1 = bind_rows(hetero_dimer_ls) %>% 
     mutate(inten1 = node_inten[node1], 
            inten2 = node_inten[node2]) %>%
@@ -933,12 +941,12 @@ Heterodimer_connection = function(peak_group, NodeSet, ppm_tol = 10, inten_thres
     filter(inten1 > inten2) %>% # Heterodimer parent has higher intensity
     filter(node1 != linktype) %>% # remove homo-dimer
     arrange(node1)
-  
   hetero_dimer_df2 = hetero_dimer_df1 %>%
     mutate(temp = linktype,
            linktype = node1,
            node1 = temp) %>%
     dplyr::select(-temp)
+  
   
   hetero_dimer_df = bind_rows(hetero_dimer_df1, hetero_dimer_df2) %>%
     distinct(node1, linktype, .keep_all =T)
@@ -1134,7 +1142,8 @@ Expand_edgeset = function(EdgeSet,
     EdgeSet_oligomer_multicharge = Oligomer_multicharge_connection(peak_group, ppm_tol = 10)
     EdgeSet_multicharge_isotope = Multicharge_isotope_connection(EdgeSet, EdgeSet_oligomer_multicharge)
     
-    print(paste("oligomer_multicharge", nrow(EdgeSet_oligomer_multicharge)+nrow(EdgeSet_multicharge_isotope)))
+    print(paste("oligomer_multicharge", 
+                nrow(EdgeSet_oligomer_multicharge)+nrow(EdgeSet_multicharge_isotope)))
   }
   if("heterodimer" %in% types){
     EdgeSet_heterodimer = Heterodimer_connection(peak_group, NodeSet, ppm_tol = 10, inten_threshold = 1e6)
@@ -2175,7 +2184,11 @@ initiate_ilp_nodes = function(StructureSet_df){
     arrange(node_id, -sum_score, steps, category) %>%
     distinct(node_id, formula, class, .keep_all=T) %>%
     arrange(node_id) %>%
-    mutate(ilp_node_id = 1:nrow(.)) 
+    mutate(ilp_node_id = 1:nrow(.)) %>%
+    inner_join(Mset$Data %>% 
+                 dplyr::rename(node_id=id) %>%
+                 dplyr::select(node_id, Input_id, log10_inten, medMz, medRt)) %>%
+    dplyr::select(ilp_node_id, everything())
   
   # hist(ilp_nodes$score_sum)
 }
@@ -3040,7 +3053,6 @@ Initiate_cplexset = function(CplexSet){
                                       v=triplet_df$v)
     
     # CPLEX parameter
-    # Make sure disk space is enough (>16GB?), otherwise R will crash RANDOMLY!!!!
     
     nc <- max(mat$j)
     obj <- c(ilp_nodes$cplex_score, 
@@ -3095,7 +3107,9 @@ Initiate_cplexset = function(CplexSet){
                       ind = ind, 
                       val = val,
                       lb = lb,
-                      ub = ub
+                      ub = ub,
+                      ctype = ctype 
+                      # Without ctype the MIP may still run, but throw out error randomly
     )
   }
   
@@ -3156,32 +3170,26 @@ Initiate_cplexset_reduce = function(CplexSet){
     # e12 - n1 <= 0, e12 - n2 <= 0
     # Because triplet_node take max(triplet_node$i) rows, and max(triplet_node$j) columns
     {
-      triplet_edge_edge1 = ilp_edges %>%
-        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i), 
+      triplet_edge_edge = ilp_edges %>%
+        transmute(i = ilp_edge_id + max(triplet_node$i), 
                   j = ilp_edge_id + max(triplet_node$j),
-                  v = 1)
-      
-      triplet_edge_edge2 = ilp_edges %>%
-        transmute(i = ilp_edge_id * 2 + max(triplet_node$i), 
-                  j = ilp_edge_id + max(triplet_node$j),
-                  v = 1)
+                  v = 2)
       
       triplet_edge_node1 = ilp_edges %>%
-        transmute(i = ilp_edge_id * 2 - 1 + max(triplet_node$i),
+        transmute(i = ilp_edge_id + max(triplet_node$i),
                   j = ilp_nodes1,
                   v = -1)
       
       triplet_edge_node2 = ilp_edges %>%
-        transmute(i = ilp_edge_id * 2 + max(triplet_node$i),
+        transmute(i = ilp_edge_id + max(triplet_node$i),
                   j = ilp_nodes2,
                   v = -1)
       
-      triplet_edge = bind_rows(triplet_edge_edge1, 
-                               triplet_edge_edge2,
+      triplet_edge = bind_rows(triplet_edge_edge,
                                triplet_edge_node1,
                                triplet_edge_node2)
       
-      if(length(unique(triplet_edge$i))!=nrow(ilp_edges) * 2){
+      if(length(unique(triplet_edge$i))!=nrow(ilp_edges)){
         stop("Error in triplet_edge")
       }
     }
@@ -3193,44 +3201,32 @@ Initiate_cplexset_reduce = function(CplexSet){
     # e123 <= n1, e123 <= n2, e123 <= n3
     # Because triplet_edge take max(triplet_edge$i) rows, and max(triplet_edge$j) columns
     if(exist_heterodimer){
-      triplet_edge_edge1 = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 - 2 + max(triplet_edge$i), 
+      triplet_edge_edge = heterodimer_ilp_edges %>%
+        transmute(i = heterodimer_ilp_edge_id + max(triplet_edge$i), 
                   j = heterodimer_ilp_edge_id + max(triplet_edge$j),
-                  v = 1)
-      
-      triplet_edge_edge2 = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 - 1 + max(triplet_edge$i), 
-                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
-                  v = 1)
-      
-      triplet_edge_edge3 = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 + max(triplet_edge$i), 
-                  j = heterodimer_ilp_edge_id + max(triplet_edge$j),
-                  v = 1)
+                  v = 3)
       
       triplet_edge_node1 = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 - 2 + max(triplet_edge$i),
+        transmute(i = heterodimer_ilp_edge_id + max(triplet_edge$i),
                   j = ilp_nodes1,
                   v = -1)
       
       triplet_edge_node2 = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 - 1 + max(triplet_edge$i),
+        transmute(i = heterodimer_ilp_edge_id + max(triplet_edge$i),
                   j = ilp_nodes2,
                   v = -1)
       
       triplet_edge_node_link = heterodimer_ilp_edges %>%
-        transmute(i = heterodimer_ilp_edge_id * 3 + max(triplet_edge$i),
+        transmute(i = heterodimer_ilp_edge_id + max(triplet_edge$i),
                   j = ilp_nodes_link,
                   v = -1)
       
-      triplet_edge_heterodimer = bind_rows(triplet_edge_edge1, 
-                                           triplet_edge_edge2,
-                                           triplet_edge_edge3,
+      triplet_edge_heterodimer = bind_rows(triplet_edge_edge,
                                            triplet_edge_node1,
                                            triplet_edge_node2,
                                            triplet_edge_node_link) 
       
-      if(length(unique(triplet_edge_heterodimer$i))!=nrow_heterodimer_ilp_edges * 3){
+      if(length(unique(triplet_edge_heterodimer$i))!=nrow_heterodimer_ilp_edges){
         stop("Error in triplet_edge_heterodimer")
       }
       
@@ -3448,7 +3444,6 @@ Initiate_cplexset_reduce = function(CplexSet){
                                       v=triplet_df$v)
     
     # CPLEX parameter
-    # Make sure disk space is enough (>16GB?), otherwise R will crash RANDOMLY!!!!
     
     nc <- max(mat$j)
     obj <- c(ilp_nodes$cplex_score, 
@@ -3466,14 +3461,14 @@ Initiate_cplexset_reduce = function(CplexSet){
     # nrow_triplet_isotope = 0
     # nrow_triplet_double_edges = 0
     rhs = c(rep(1, max(ilp_rows)), # sum(ilp_node_id)=1
-            rep(0, nrow(ilp_edges) * 2), # e12-n1<=0;e12-n2<=0
-            rep(0, nrow_heterodimer_ilp_edges * 3), # e123-n1<=0;e123-n2<=0;e123-n3<=0
+            rep(0, nrow(ilp_edges)), # e12-n1<=0;e12-n2<=0
+            rep(0, nrow_heterodimer_ilp_edges), # e123-n1<=0;e123-n2<=0;e123-n3<=0
             rep(0, nrow_triplet_isotope), # e12-n_isotope=0
             rep(0, nrow_triplet_double_edges * 2) # e12+e12'+...-n1<=0;e12+e12'+...-n2<=0
     )
     sense <- c(rep("E", max(ilp_rows)), 
-               rep("L", nrow(ilp_edges) * 2),
-               rep("L", nrow_heterodimer_ilp_edges * 3),
+               rep("L", nrow(ilp_edges)),
+               rep("L", nrow_heterodimer_ilp_edges),
                rep("E", nrow_triplet_isotope),
                rep("L", nrow_triplet_double_edges * 2))
     
@@ -3503,7 +3498,8 @@ Initiate_cplexset_reduce = function(CplexSet){
                       ind = ind, 
                       val = val,
                       lb = lb,
-                      ub = ub
+                      ub = ub,
+                      ctype = ctype
     )
   }
   
@@ -4405,60 +4401,36 @@ Run_cplex = function(CplexSet, obj_cplex, para_option = "para",
   return(list(obj = obj_cplex, result_solution = result_solution))
 }
 
-# Add ilp_solution to CplexSet ####
-add_ilp_solution = function(CplexSet, Mset){
+# Add lp_solution to CplexSet ####
+add_CPLEX_solution = function(CplexSet, Mset, solution = "ilp_solution"){
   
-  CPLEX_x = CplexSet$ilp_solution$result_solution$x
+  CPLEX_x = CplexSet[[solution]]$result_solution$x
   if(is.null(CPLEX_x)){
-    warning(paste("No solution exists."))
+    warning(paste(solution, "does not exist."))
     return(CplexSet)
   }
   
-  CplexSet$ilp_nodes = suppressMessages(CplexSet$ilp_nodes %>%
-    inner_join(Mset$Data %>% 
-                 dplyr::rename(node_id=id) %>%
-                 dplyr::select(node_id, Input_id, log10_inten, medMz, medRt))) %>%
-    mutate(ilp_result = CPLEX_x[1:nrow(.)]) %>%
+  CplexSet$ilp_nodes[solution] = CPLEX_x[1:nrow(CplexSet$ilp_nodes)]
+  CplexSet$ilp_nodes = CplexSet$ilp_nodes %>%
     dplyr::select(ilp_node_id, everything())
   
+  CplexSet$ilp_edges[solution] = CPLEX_x[1:nrow(CplexSet$ilp_edges) + nrow(CplexSet$ilp_nodes)]
   CplexSet$ilp_edges = CplexSet$ilp_edges %>%
-    mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes)]) 
-  
-  if(!is.null(CplexSet$heterodimer_ilp_edges)){
-    CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
-      mutate(ilp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
-  }
-  return(CplexSet)
-}
-# Add lp_solution to CplexSet ####
-add_lp_solution = function(CplexSet, Mset){
-  
-  CPLEX_x = CplexSet$lp_solution$result_solution$x
-  if(is.null(CPLEX_x)){
-    warning(paste("No solution exists."))
-    return(CplexSet)
-  }
-  
-  CplexSet$ilp_nodes = suppressMessages(CplexSet$ilp_nodes %>%
-    mutate(lp_result = CPLEX_x[1:nrow(.)]) %>%
-    inner_join(Mset$Data %>% 
-                 dplyr::rename(node_id=id) %>%
-                 dplyr::select(node_id, Input_id, log10_inten, medMz, medRt)) %>%
-    dplyr::select(ilp_node_id, everything()))
-  CplexSet$ilp_edges = CplexSet$ilp_edges %>%
-    mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes)]) %>%
     dplyr::select(ilp_nodes1, ilp_nodes2, everything())
   
   if(!is.null(CplexSet$heterodimer_ilp_edges)){
-    CplexSet$heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
-      mutate(lp_result = CPLEX_x[1:nrow(.) + nrow(CplexSet$ilp_nodes) + nrow(CplexSet$ilp_edges)])
+    CplexSet$heterodimer_ilp_edges[solution] = CPLEX_x[1:nrow(CplexSet$heterodimer_ilp_edges) + 
+                                                         nrow(CplexSet$ilp_nodes) + 
+                                                         nrow(CplexSet$ilp_edges)]
   }
+
+  
   
   return(CplexSet)
 }
 # ------- Annotation functions -------- ####
 ## core_annotate ####
-core_annotate = function(CplexSet, StructureSet_df, LibrarySet){
+core_annotate = function(CplexSet, StructureSet_df, LibrarySet, solution = solution){
   
   # Make annotation to core peaks
 
@@ -4467,7 +4439,7 @@ core_annotate = function(CplexSet, StructureSet_df, LibrarySet){
                  dplyr::select(library_id, name, note, origin, SMILES, status) %>% 
                  dplyr::rename(parent_id = library_id)) %>%
     left_join(CplexSet$ilp_nodes %>%
-                 dplyr::select(node_id, formula, class, ilp_node_id, ilp_result)) %>%
+                 dplyr::select(node_id, formula, class, ilp_node_id, eval(solution))) %>%
     mutate(annotation = case_when(
       category == "Unknown" ~ "Unknown",
       steps == 0 & transform == "" ~ paste(name, parent_formula),
@@ -4490,18 +4462,16 @@ core_annotate = function(CplexSet, StructureSet_df, LibrarySet){
     mutate(rank_score = core_annotation %>% 
              dplyr::select(starts_with("score")) %>% 
              rowSums(na.rm = T)) %>%
-    arrange(ilp_node_id, -rank_score) 
+    arrange(ilp_node_id, -!!as.symbol(solution), -rank_score) 
   
   core_annotation_score %>% 
-    dplyr::select(ilp_node_id, ilp_result, annotation, everything())
-  
+    dplyr::select(ilp_node_id, eval(solution), annotation, everything())
 }
 
 ## initiate_g_met ####
 initiate_g_met = function(CplexSet){
   ilp_nodes_met = CplexSet$ilp_nodes %>%
     filter(class %in% c("Metabolite", "Putative metabolite")) %>%
-    arrange(-ilp_result) %>%
     dplyr::select(ilp_node_id, everything())
   ilp_edges_met = CplexSet$ilp_edges %>%
     filter(category == "Biotransform") %>%
@@ -4514,7 +4484,7 @@ initiate_g_met = function(CplexSet){
   
 }
 ## initiate_g_nonmet ####
-initiate_g_nonmet = function(CplexSet){
+initiate_g_nonmet = function(CplexSet, solution){
   
   ilp_edges_merge = merge(CplexSet$ilp_edges, CplexSet$heterodimer_ilp_edges, all = T) 
   
@@ -4531,7 +4501,7 @@ initiate_g_nonmet = function(CplexSet){
   ilp_edges_nonmet_directed = bind_rows(ilp_edges_nonmet_reorder1, ilp_edges_nonmet_reorder2)
   
   ilp_edges_weights = ilp_edges_nonmet_directed %>%
-    mutate(edge_weight = 2 - ilp_result - 0.1*cplex_score) %>%
+    mutate(edge_weight = 2 - !!as.symbol(solution) - 0.1*cplex_score) %>%
     mutate(edge_weight = ifelse(category == "Heterodimer", edge_weight + 1.5, edge_weight)) %>%
     arrange(edge_weight)
   
@@ -4544,10 +4514,6 @@ initiate_g_nonmet = function(CplexSet){
 
 ## initiate_met_dist_mat ####
 initiate_met_dist_mat = function(g_met, CplexSet, core_annotation){
-  
-  # ilp_nodes_met = CplexSet$ilp_nodes %>%
-  #   filter(class %in% c("Metabolite","Putative metabolite")) %>%
-  #   arrange(-ilp_result)
   
   met_annotation_unique = core_annotation %>%
     filter(steps == 0) %>%
@@ -4570,15 +4536,17 @@ initiate_met_dist_mat = function(g_met, CplexSet, core_annotation){
 }
 
 ## initiate_nonmet_dist_mat ####
-initiate_nonmet_dist_mat = function(g_nonmet, CplexSet, core_annotation, only_ilp_result = T){
+initiate_nonmet_dist_mat = function(g_nonmet, CplexSet, core_annotation, 
+                                    solution,
+                                    only_solution_result = T){
   
   ilp_nodes_nonmet = CplexSet$ilp_nodes %>%
     filter(class == "Artifact") %>%
-    arrange(-ilp_result)
+    arrange(-!!as.symbol(solution))
   
-  if(only_ilp_result){
+  if(only_solution_result){
     ilp_nodes_nonmet = ilp_nodes_nonmet %>%
-      filter(ilp_result > 0.01)
+      filter(!!as.symbol(solution) > 0.01)
   }
   
   target_names = ilp_nodes_nonmet %>% pull(ilp_node_id) %>% as.character()
@@ -4765,17 +4733,19 @@ track_annotation_met = function(query_ilp_id,
 }
 
 # path_annotation ####
-path_annotation = function(CplexSet, StructureSet_df, LibrarySet){
+path_annotation = function(CplexSet, StructureSet_df, LibrarySet, 
+                           solution = "ilp_solution"){
 
-  core_annotation = core_annotate(CplexSet, StructureSet_df, LibrarySet)
+  core_annotation = core_annotate(CplexSet, StructureSet_df, LibrarySet, solution = solution)
   # prepare tracking graph for biotransform network and abiotic network
   # pre-calculate distance
   {
     g_met = initiate_g_met(CplexSet)
     met_dist_mat = initiate_met_dist_mat(g_met, CplexSet, core_annotation)
     
-    g_nonmet = initiate_g_nonmet(CplexSet)
-    nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, CplexSet, core_annotation, only_ilp_result = T)
+    g_nonmet = initiate_g_nonmet(CplexSet, solution = solution)
+    nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, CplexSet, core_annotation, 
+                                               solution = solution, only_solution_result = T)
     
     ilp_edges_annotate_met = igraph::as_data_frame(g_met)
     ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet)
@@ -4795,9 +4765,9 @@ path_annotation = function(CplexSet, StructureSet_df, LibrarySet){
   path_annotation = rep("", nrow(ilp_nodes))
   # profvis::profvis({
   for(i in 1:nrow(ilp_nodes)){
-    # if(i %% 1000 == 0) print(i)
+    # if(i %% 10000 == 0) print(i)
     # skip ilp_nodes if not selected by ilp
-    if(ilp_nodes$ilp_result[i] < 0.01){next}
+    if(ilp_nodes[,solution][i] < 0.01){next}
     
     temp_ilp_node_id = ilp_nodes$ilp_node_id[i]
     if(ilp_nodes$class[i] == "Artifact"){
@@ -4815,7 +4785,6 @@ path_annotation = function(CplexSet, StructureSet_df, LibrarySet){
   # })
   CplexSet$ilp_nodes = ilp_nodes %>%
     mutate(path = path_annotation) %>%
-    # filter(ilp_result != 0) %>%
     filter(T)
   
   return(CplexSet)
