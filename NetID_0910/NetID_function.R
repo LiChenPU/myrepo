@@ -4733,19 +4733,17 @@ track_annotation_met = function(query_ilp_id,
 }
 
 # path_annotation ####
-path_annotation = function(CplexSet, StructureSet_df, LibrarySet, 
-                           solution = "ilp_solution"){
+path_annotation = function(CplexSet, NetworkSet){
 
-  core_annotation = core_annotate(CplexSet, StructureSet_df, LibrarySet, solution = solution)
+  
   # prepare tracking graph for biotransform network and abiotic network
   # pre-calculate distance
   {
-    g_met = initiate_g_met(CplexSet)
-    met_dist_mat = initiate_met_dist_mat(g_met, CplexSet, core_annotation)
-    
-    g_nonmet = initiate_g_nonmet(CplexSet, solution = solution)
-    nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, CplexSet, core_annotation, 
-                                               solution = solution, only_solution_result = T)
+    core_annotation = NetworkSet$core_annotation
+    g_met = NetworkSet$g_met
+    met_dist_mat = NetworkSet$met_dist_mat
+    g_nonmet = NetworkSet$g_nonmet
+    nonmet_dist_mat = NetworkSet$nonmet_dist_mat
     
     ilp_edges_annotate_met = igraph::as_data_frame(g_met)
     ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet)
@@ -4790,4 +4788,24 @@ path_annotation = function(CplexSet, StructureSet_df, LibrarySet,
   return(CplexSet)
 }
 
+# Initiate_networkset ####
+Initiate_networkset = function(CplexSet, StructureSet_df, LibrarySet, 
+                               solution = "ilp_solution"){
+  core_annotation = core_annotate(CplexSet, StructureSet_df, LibrarySet, solution = solution)
+  # prepare tracking graph for biotransform network and abiotic network
+  # pre-calculate distance
+  
+  g_met = initiate_g_met(CplexSet)
+  met_dist_mat = initiate_met_dist_mat(g_met, CplexSet, core_annotation)
+  
+  g_nonmet = initiate_g_nonmet(CplexSet, solution = solution)
+  nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, CplexSet, core_annotation, 
+                                             solution = solution, only_solution_result = T)
+  
+  return(list(core_annotation = core_annotation,
+              g_met = g_met,
+              met_dist_mat = met_dist_mat,
+              g_nonmet = g_nonmet, 
+              nonmet_dist_mat = nonmet_dist_mat))
+}
 # ---- End ---- ####

@@ -50,7 +50,7 @@
                                             ppm_tol = 5e-6)
 }
 
-## Adjust measured mass by matching to known metabolites ####
+# Adjust measured mass by matching to known metabolites ####
 {
   measured_mz_adjust = T 
   if(measured_mz_adjust){
@@ -74,7 +74,7 @@
   }
 }
 
-## Setting up EdgeSet ####
+# Setting up EdgeSet ####
 {
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
                              mz_tol_abs = 0, mz_tol_ppm = 10, 
@@ -92,7 +92,7 @@
   EdgeSet_all = merge_edgeset(EdgeSet, EdgeSet_expand)
 }
 
-## Candidate formula pool propagation and scoring ####
+# Candidate formula pool propagation and scoring ####
 {
   StructureSet = Propagate_structureset(Mset, 
                                         NodeSet,
@@ -110,7 +110,7 @@
   StructureSet_df = Score_structure_propagation(StructureSet_df, artifact_decay = -0.5)                         
 }
 
-## CplexSet and ilp_nodes and ilp_edges #### 
+# CplexSet and ilp_nodes and ilp_edges #### 
 {
   CplexSet = list()
   
@@ -142,7 +142,7 @@
 print(Sys.time()-printtime)
 save.image(paste0(timestamp,".RData"))
 
-## Run optimization ####
+# Run optimization ####
 {
   CplexSet[["ilp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
                                          optimization = c("ilp"),
@@ -159,16 +159,27 @@ save.image(paste0(timestamp,".RData"))
 
 # Path annotation ####
 {
-  CplexSet = path_annotation(CplexSet, StructureSet_df, LibrarySet, 
-                             solution = c("ilp_solution"))
+  NetworkSet = list()
+  NetworkSet = Initiate_networkset(CplexSet, StructureSet_df, LibrarySet, 
+                                   solution = "ilp_solution")
   
-  saveRDS(list(CplexSet = CplexSet,
-               StructureSet_df = StructureSet_df,
-               LibrarySet = LibrarySet),
-          paste(timestamp, "output.rds", sep="_"))
+  
+  CplexSet = path_annotation(CplexSet, NetworkSet)
+  
+  save(CplexSet,StructureSet_df,LibrarySet,NetworkSet,
+          file = paste(timestamp, "output.RData", sep="_"))
 }
 
-print("total run time")
+
 save.image(paste0(timestamp,".RData"))
+print("total run time")
 print(Sys.time()-printtime)
 
+
+
+# Test 
+{
+  NetID_output =  dt$CplexSet$ilp_nodes %>% 
+    filter(ilp_solution == 1)
+  write.csv(NetID_output,"NetID_output.csv", row.names = F, na="")
+}
