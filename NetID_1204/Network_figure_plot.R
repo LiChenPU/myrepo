@@ -158,7 +158,7 @@ fancy_scientific <- function(l) {
     ) + 
     labs(x = NULL,
          # title = "U13C-glucose",
-         y = "TIC") +
+         y = "Total ion current") +
     guides(fill = guide_legend(
       title = NULL,
       reverse = F
@@ -1373,8 +1373,8 @@ fancy_scientific <- function(l) {
       coord_cartesian(ylim = c(0.5, 1.05)) + # Zoom in without discarding data
       scale_x_discrete(limits = c("serum\nglucose", 
                                   "liver\nglucose",
-                                  "liver\nG6P",
-                                  "liver\nglucosyl-taurine"
+                                  # "liver\nG6P",
+                                  "liver\nN-glucosyl\n-taurine"
                                   )) +
       scale_fill_manual(values = c(my_palette2)) + 
       scale_color_manual(values = "grey") + 

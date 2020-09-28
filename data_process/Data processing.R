@@ -17,14 +17,14 @@
   hmdb_df = read_csv("hmdb_unique.csv")
   # put the peak table file directory here
   setwd("./sample files") 
-  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/NetID_1204/matt")
+  setwd("C:/Users/Li Chen/Desktop/Github local/myrepo/NetID_0910/matt")
 
   # Filename
   filename = "raw_data.csv"
 
-  # specify sample cohorts, if auto, then the code will try to find patterns
-  # Otherwise, specify sample cohorts
-  sample_cohort = "auto"
+  # Sample cohorts, if auto, then the code will try to find patterns
+  # Otherwise, switch to "manual" and specify sample cohorts
+  sample_cohort_option = "auto" 
   # sample_cohort = c(rep("MS_pos_mp",30),rep("MS_neg", 32), rep("MS_neg_mp", 32))
   
   # Other parameters
@@ -43,7 +43,7 @@
     dplyr::rename(ID = groupId)
   ms_dif_ppm = ms_dif_ppm/10^6
   
-  first_sample_col_num = 15
+  first_sample_col_num = 16
   raw = raw %>% 
     filter(complete.cases(.[, first_sample_col_num:ncol(.)]))
   # Data quality control
@@ -60,7 +60,7 @@
     sample_names=all_names
   }
   blank_names=all_names[grep("blank|blk", all_names, ignore.case = T)]
-  if(sample_cohort[[1]] == "auto"){
+  if(sample_cohort_option[1] == "auto"){
     sample_cohort=stri_replace_last_regex(sample_names,'[:punct:]?[:alnum:]+', '')
   }
   
@@ -273,7 +273,6 @@ if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1){
 ## Output files for MetaboAnalyst ####
 if(min(table(sample_cohort)) >= 3 & length(table(sample_cohort)) > 1 & require(MetaboAnalystR)){
   {
-    
     mSet <- InitDataObjects("pktable", "stat", FALSE)
     mSet<-Read.TextData(mSet, MetaboAnalyst_filename, "colu", "disc");
     mSet<-Normalization(mSet, "NULL", "NULL", "NULL", ratio=FALSE, ratioNum=20)
