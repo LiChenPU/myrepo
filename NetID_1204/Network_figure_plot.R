@@ -486,7 +486,7 @@ fancy_scientific <- function(l) {
 ## plot_2_sup2 - predicted MS2 for thiamine ####
 {
   setwd(rel_path)
-  setwd("plot_2_sup2_predicte MS2")
+  setwd("plot_2_sup2_predict MS2")
   ## Function ####
   plot_MS2_spectra = function(df_ggplot){
     colnames(df_ggplot) = c("mz", "Intensity")
@@ -667,28 +667,11 @@ fancy_scientific <- function(l) {
              log10_inten = round(log10_inten, 2),
              ppm_error = round(ppm_error, 2))
     
-    ilp_nodes_ilp = ilp_nodes %>%
-      filter(ilp_result == 1) %>%
-      filter(class != "Unknown") %>%
-      filter(T)
-    
     ilp_edges = dt$ilp_edges
     
     g_met = initiate_g_met(ilp_nodes, ilp_edges)
     
-    core_met = ilp_nodes %>%
-      filter(steps == 0) %>%
-      filter(class == "Metabolite")
-    
-    core_nonmet = ilp_nodes %>%
-      filter(steps %% 1 == 0) %>%
-      filter(class != "Unknown") 
-    
     g_nonmet = initiate_g_nonmet(ilp_nodes, dt$ilp_edges, dt$heterodimer_ilp_edges)
-    
-    # ilp_edges_annotate_met = igraph::as_data_frame(g_met, "edges")
-    # ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet, "edges")
-    core_rank = core_annotate(ilp_nodes, dt$FormulaSet_df, dt$LibrarySet)
     
   }
   
@@ -846,7 +829,201 @@ fancy_scientific <- function(l) {
     dev.off()
   }
 }
+## plot_3_0928data - overview newtork plot for yeast neg data ####
+{
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  setwd("../NetID_0910/Sc_neg")
+  filename = "20200925170537_output.RData" # Sc_neg
+  load(filename)
+  
+  
+  # Global parameter in the background ####
+  {
+    ilp_nodes = CplexSet$ilp_nodes %>%
+      mutate(medMz = signif(medMz, 7),
+             medRt = round(medRt, 2),
+             log10_inten = round(log10_inten, 2),
+             ppm_error = (mass - medMz)/medMz * 1e6,
+             ppm_error = round(ppm_error, 2))
+    
+    ilp_edges = CplexSet$ilp_edges
+    
+  }
+  
+  # Network palette ####
+  {
+    
+    new_purple = colorRampPalette(c(my_palette[3], "#FFFFFF"))(10)
+    new_green = colorRampPalette(c(my_palette[1], "#8DFFC7"))(10)
+    new_yellow = colorRampPalette(c(my_palette[2], "#FFFF00"))(10)
+    my_palette_network = c(change_HSL(new_green[6], S_change = 0.8), 
+                           change_HSL(new_yellow[3], S_change = 0.8),
+                           change_HSL(new_purple[2], S_change = 0.8),
+                           my_palette[4])
+    
+    
+    test = my_palette_network
+    image(1:length(test), 1, as.matrix(1:length(test)),
+          col=test,
+          xlab="", ylab = "", xaxt = "n", yaxt = "n", bty = "n")
+  }
+ 
+  # coloring nodes and edges ####
+  {
+    g_nodes = igraph::as_data_frame(NetworkSet$g_all_valid, "vertices") %>%
+      mutate(color = case_when(
+        class == "Metabolite" ~ my_palette_network[1],
+        class == "Putative metabolite" ~ my_palette_network[2],
+        class == "Artifact" ~ my_palette_network[3],
+        class == "Unknown" ~ "#666666"
+      )) 
+    
+    g_edges = igraph::as_data_frame(NetworkSet$g_all_valid, "edges") %>%
+      mutate(color = case_when(
+        category == "Biotransform" ~ my_palette[1],
+        T ~ new_purple[6]
+      ))
+    
+    g_interest = graph_from_data_frame(g_edges,
+                                       directed = F,
+                                       vertices = g_nodes)
+  }
+  
+  
+  # Plots ####
+  {
+    g_interest = g_interest %>% # g_all
+      # set_vertex_attr("color", value = my_palette[1]) %>%
+      set_vertex_attr("size", value = 2) %>%
+      set_vertex_attr("label", value = NA) %>%
+      set_vertex_attr("frame.color", value = "#AAAAAA") %>%
+      # set_edge_attr("color", value = "#CCCCCC") %>%
+      set_edge_attr("width", value = 1)
+    
+    # setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+    
+    pdf("network_plot_graphopt.pdf",
+        width = 40,
+        height = 40)
+    
+    # Plot various layout
+    # {
+    #   layouts <- grep("^layout_", ls("package:igraph"), value=TRUE)[-1] 
+    #   # Remove layouts that do not apply to our graph.
+    #   layouts <- layouts[!grepl("bipartite|merge|norm|sugiyama|tree", layouts)]
+    #   
+    #   for (layout in layouts) {
+    #     print(layout)
+    #     l <- do.call(layout, list(g_main)) 
+    #     plot(g_main, edge.arrow.mode=0, layout=l, main=layout) }
+    # }
+    
+    plot.igraph(g_interest,
+                # layout = layout_with_fr # Faster but not beautiful
+                # layout = layout_with_lgl
+                layout = layout_with_graphopt
+                
+    )
+    dev.off()
+  }
+}
 
+## plot_3_0928data_2 - network property of yeats neg data ####
+{
+  setwd(rel_path)
+  setwd("./plot_3_0928data")
+  filename = "20200925170537_output.RData" # Sc_neg
+  load(filename)
+  ## Data ####
+  {
+    g = NetworkSet$g_all_valid
+    
+    clu=components(g)
+    clu_group = igraph::groups(clu)
+    #subnetwork criteria 
+    mainnetwork = igraph::groups(clu)[table(clu$membership) == max(table(clu$membership))]
+    subnetwork = igraph::groups(clu)[table(clu$membership) < length(mainnetwork[[1]])]
+    
+    
+    # Data wrangling
+    clu_csize_sort = sort(clu$csize, decreasing = T)
+    pie_labels = c("The largest", "2-5 largest", "All others")
+    
+    df = data.frame(
+      group = factor(pie_labels, levels = pie_labels),
+      value = c(clu_csize_sort[1], sum(clu_csize_sort[2:5]), sum(clu_csize_sort[6:length(clu_csize_sort)]))
+    ) %>%
+      mutate(prop = value / sum(value) *100) %>%
+      mutate(ypos = cumsum(prop)- 0.5*prop ) %>%
+      mutate(ypos = 100-ypos) %>% # Because data entered from largest to smallest
+      filter(T)
+    
+  }
+  
+  ## Plot ####
+  {
+    pie_plot = ggplot(df, aes(x="", y=prop, fill=group)) +
+      geom_bar(stat="identity", width=1) +
+      guides(fill = guide_legend(
+        title = "Number of nodes\nin respective network(s)",
+        reverse = F
+      )) +
+      coord_polar("y", start=0) +
+      theme_void() +
+      # theme(legend.position="none") +
+      
+      # geom_text_repel(aes(y = ypos, label = value, x=c(1, 1.5, 1.5)), # Add labels in PPT
+      #                 # x ranges from 0.5-1.5 due to width = 1
+      #                 # y ranges is 0-100 
+      #                 # arrow = arrow(length = unit(0.2, "npc")),
+      #                 color = "#333333", size=5) +
+      scale_fill_manual(values = my_palette)
+      
+    print(pie_plot)
+  }
+  
+  ## Output ####
+  {
+    ggpubr::ggarrange(
+      pie_plot,
+      
+      common.legend = T, legend = "right",
+      # align = "hv",
+      nrow = 1, ncol = 1
+    ) %>%
+      ggexport(filename = "plot_3_0928data_2.pdf", width = 3.5, height = 3.5)
+  }
+}
+
+## plot_3_0928data_3 - nickel compounds ####
+{
+  setwd(rel_path)
+  setwd("./plot_3_0928data")
+  filename = "20200925170537_output.RData" # Sc_neg
+  load(filename)
+  ## Data ####
+  {
+    ilp_nodes_ni = CplexSet$ilp_nodes %>%
+      filter(grepl("Ni", formula)) %>%
+      filter( ilp_solution != 0)
+  }
+  
+  ## Plot ####
+  {
+    
+  }
+  
+  ## Output ####
+  {
+    ggpubr::ggarrange(
+      pie_plot,
+      common.legend = T, legend = "right",
+      # align = "hv",
+      nrow = 1, ncol = 1
+    ) %>%
+      ggexport(filename = "plot_3_0928data_2.pdf", width = 3.5, height = 3.5)
+  }
+}
 
 ## plot_4 - statistics of global networks ####
 {
@@ -880,29 +1057,13 @@ fancy_scientific <- function(l) {
     
     g_met = initiate_g_met(ilp_nodes, dt$ilp_edges)
     
-    core_met = ilp_nodes %>%
-      filter(steps == 0) %>%
-      filter(class == "Metabolite")
-    
-    core_nonmet = ilp_nodes %>%
-      filter(steps %% 1 == 0) %>%
-      filter(class != "Unknown")
-    
     g_nonmet = initiate_g_nonmet(ilp_nodes, dt$ilp_edges, dt$heterodimer_ilp_edges)
-    
-    # ilp_edges_annotate_met = igraph::as_data_frame(g_met, "edges")
-    # ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet, "edges")
-    core_rank = core_annotate(ilp_nodes, dt$FormulaSet_df, dt$LibrarySet)
-    
-    data(isotopes)
     
   }
   
   
   # Node ####
   {
-    
-    
     WL = readxl::read_xlsx(filename_wl,
                            # sheet = "Sheet1",
                            guess_max = 1e6
@@ -931,31 +1092,6 @@ fancy_scientific <- function(l) {
     tabyl(test3_filter, class, Background)
     # print(c(nrow(test3), nrow(test3)-nrow(test3_filter)))
 
-    
-    # Plot ####
-    # {
-    #   class_info = as.data.frame(table(test3_filter$class), stringsAsFactors = F) %>%
-    #     transmute(Class = Var1, `Number of peaks` = Freq) 
-    #   
-    #   plot4_node = ggplot(class_info, aes(x = Class)) +
-    #     geom_bar(aes(y = `Number of peaks`), stat = 'identity', fill = my_palette[1:4]) + 
-    #     # scale_x_discrete(limits = temp_position) +
-    #     # geom_point(aes(y = Total.metabolites/4)) + 
-    #     # geom_line(aes(y = Total.metabolites/4), group=1) +
-    #     # geom_text(aes(y = Total.metabolites/4, label = Total.metabolites), vjust = -.5) +
-    #     scale_y_continuous(# sec.axis = sec_axis(~.*4, name = "Total.metabolites"), 
-    #       limits = c(0,4000), expand = c(0,0)) +
-    #     theme(legend.position = "right") + 
-    #     theme_classic(base_size = 11 # edit font size for all non-data text
-    #     ) +
-    #     theme(plot.title = element_text(size = 11, hjust = 0.5),
-    #           plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
-    #           legend.position = "none"
-    #           # axis.text.x = element_text(angle = 30, hjust = .5, vjust = .5)
-    #     )
-    #   
-    # }
-    
   }
   # Edge ####
   {
@@ -1001,21 +1137,8 @@ fancy_scientific <- function(l) {
     
     g_met = initiate_g_met(ilp_nodes, dt$ilp_edges)
     
-    core_met = ilp_nodes %>%
-      filter(steps == 0) %>%
-      filter(class == "Metabolite")
-    
-    core_nonmet = ilp_nodes %>%
-      filter(steps %% 1 == 0) %>%
-      filter(class != "Unknown")
-    
     g_nonmet = initiate_g_nonmet(ilp_nodes, dt$ilp_edges, dt$heterodimer_ilp_edges)
     
-    # ilp_edges_annotate_met = igraph::as_data_frame(g_met, "edges")
-    # ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet, "edges")
-    core_rank = core_annotate(ilp_nodes, dt$FormulaSet_df, dt$LibrarySet)
-    
-    data(isotopes)
     
   }
   
@@ -1439,9 +1562,6 @@ fancy_scientific <- function(l) {
       filter(T)
       
     df_merge = merge(df, df_summary)
-    
-    
-    
   }
   
   ## Plot ####
@@ -1455,7 +1575,7 @@ fancy_scientific <- function(l) {
                fill = "#888888",
                colour = "#333333"
       ) +
-      geom_errorbar(aes(ymin=mean-se, ymax=mean+se),
+      geom_errorbar(aes(ymin=pmax(0,mean-sd), ymax=mean+sd),
                     width = 0.2,
                     # size = 2,
                     # width = 0.5,
@@ -1652,148 +1772,23 @@ fancy_scientific <- function(l) {
   }
   
 }
-## plot_6 - network property of yeats neg data ####
-{
-  setwd(rel_path)
-  setwd("plot_6_network property")
-  filename = "20200704085443_output.rds" # Sc_neg
-  
-  # Global parameter in the background ####
-  {
-    dt = readRDS(filename)
-    
-    ilp_nodes = dt$ilp_nodes %>%
-      mutate(medMz = signif(medMz, 7),
-             medRt = round(medRt, 2),
-             log10_inten = round(log10_inten, 2),
-             ppm_error = round(ppm_error, 2))
-    
-    ilp_nodes_ilp = ilp_nodes %>%
-      filter(ilp_result == 1) %>%
-      filter(class != "Unknown") %>%
-      filter(T)
-    
-    ilp_edges = dt$ilp_edges
-    
-    g_met = initiate_g_met(ilp_nodes, ilp_edges)
-    
-    core_met = ilp_nodes %>%
-      filter(steps == 0) %>%
-      filter(class == "Metabolite")
-    
-    core_nonmet = ilp_nodes %>%
-      filter(steps %% 1 == 0) %>%
-      filter(class != "Unknown") 
-    
-    g_nonmet = initiate_g_nonmet(ilp_nodes, dt$ilp_edges, dt$heterodimer_ilp_edges)
-    
-    # ilp_edges_annotate_met = igraph::as_data_frame(g_met, "edges")
-    # ilp_edges_annotate_nonmet = igraph::as_data_frame(g_nonmet, "edges")
-    core_rank = core_annotate(ilp_nodes, dt$FormulaSet_df, dt$LibrarySet)
-    
-  }
-  
-  # Further filtering ####
-  {
-    g_met2_node = igraph::as_data_frame(g_met, "vertices") %>%
-      filter(ilp_result > 0.01)
-    
-    g_met2_edges = igraph::as_data_frame(g_met, "edges") %>%
-      filter(from %in% g_met2_node$name & to %in% g_met2_node$name)
-    
-    g_met2 = graph_from_data_frame(g_met2_edges,
-                                   vertices = g_met2_node,
-                                   directed = F)
-    
-    g_nonmet2_node = igraph::as_data_frame(g_nonmet, "vertices") %>%
-      filter(ilp_result > 0.01)
-    g_nonmet2_edges = igraph::as_data_frame(g_nonmet, "edges") %>%
-      filter(from %in% g_nonmet2_node$name & to %in% g_nonmet2_node$name,
-             ilp_result > 0.01) 
-    g_nonmet2 = graph_from_data_frame(g_nonmet2_edges,
-                                      vertices = g_nonmet2_node,
-                                      directed = F)
-    
-    g_all_nodes = bind_rows(g_met2_node, g_nonmet2_node) %>%
-      distinct(name, .keep_all = T) %>%
-      # filter(log10_inten >= 5) %>%
-      filter(class != "Unknown")
-    g_all_edges = bind_rows(g_met2_edges, g_nonmet2_edges) %>%
-      distinct() %>%
-      filter(from %in% g_all_nodes$name & to %in% g_all_nodes$name)
-  }
-  
-  # Sub-graph ####
-  {
-    # Problem 1 - many single node in the output
-    # Reason - Heterodimer edge score enables nodes without regular connections
-    # Solutions - Remove nodes do not have regular connections
-    
-    g_all_nodes = g_all_nodes %>%
-      filter(name %in% g_all_edges$from | name %in% g_all_edges$to)
-    
-    g_all = graph_from_data_frame(g_all_edges,
-                                  directed = F,
-                                  vertices = g_all_nodes)
-    
-    # Problem 2 - Putative metabolites in network without connecting to metabolites
-    # Reason - Edge score by connection with isotope/adduct etc.
-    # Solutions - Only retain subnetwork where step=0 annotation exist
-    g_sub=g_all
-    clu=components(g_sub)
-    #subnetwork criteria 
-    mainnetwork = igraph::groups(clu)[table(clu$membership) == max(table(clu$membership))]
-    subnetwork = igraph::groups(clu)[table(clu$membership) < length(mainnetwork[[1]])]
-    
-    
-    step0 = g_all_nodes %>%
-      filter(steps == 0) %>%
-      pull(name)
-    subnetwork_valid = sapply(subnetwork, function(x){
-      any(x %in% step0)
-    })
-    nodes_invalid = unlist(subnetwork[!subnetwork_valid])
-    
-    g_all_nodes_valid = g_all_nodes %>%
-      filter(!name %in% nodes_invalid)
-    g_all_edges_valid = g_all_edges %>%
-      filter(from %in% g_all_nodes_valid$name & to %in% g_all_nodes_valid$name)
-    g_all_valid = graph_from_data_frame(g_all_edges_valid,
-                                        directed = F,
-                                        vertices = g_all_nodes_valid)
-    
-    nodes_metabolite = g_all_nodes %>%
-      filter(class == "Metabolite") %>%
-      pull(name)
-    
-    subnetwork_valid_nonmet = sapply(subnetwork, function(x){
-      (any(x %in% step0)) & (all(x %in% nodes_metabolite))
-    })
-    test = subnetwork[subnetwork_valid_nonmet]
-    
-    test2 = g_all_nodes_valid %>%
-      filter(name %in% test$`22`)
-    
-    
-    # g_main = make_ego_graph(graph=g_sub,
-    #                         order=diameter(g_sub),
-    #                         nodes = mainnetwork[[1]][1],
-    #                         mode="all")[[1]]
-    
-  }
-  
-  
-  
-}
 
-## Merge graphs ####
-{
-  
-  
-}
 
-## Good ggplot graph ####
+## ggplot graphs ####
 {
+  
+  # multiple column/rows bar graph, each graph does not have stack bar - plot_2_sup1
+  
+  # one graph containing stack bar for isotope labeling, with errorbars - plot_5_3
+  # one graph containing multiple bars, with errorbars and data points - plot_5_4
+  
+  # merge MS2 spectra graph - plot_2_sup2
+  
+  # pie chart - plot_3_0928data_2
+  
+  
   ggplot(diamonds, aes(x=cut, y=price, group=cut))+
     geom_boxplot(aes(fill=cut))+scale_fill_brewer(palette="OrRd")
+  
+  
 }
