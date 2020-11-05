@@ -17,7 +17,7 @@ server <- function(input, output, session) {
       peak_list()
     }, options = list(pageLength = 5,
                       aoColumnDefs = list(list(sClass="alignLeft"))
-                      ),
+    ),
     
     filter = 'bottom',
     rownames = FALSE
@@ -33,7 +33,7 @@ server <- function(input, output, session) {
       req(is.numeric(as.numeric(input$peak_id)))
       node_selected = ilp_nodes %>%
         filter(node_id == input$peak_id) %>%
-        arrange(-ilp_result, -cplex_score)
+        arrange(-ilp_solution, -cplex_score)
       if(input$optimized_only){
         node_selected = node_selected %>%
           slice(1)
@@ -102,20 +102,20 @@ server <- function(input, output, session) {
       g_parent <- reactive({
         print("enter g_parent")
         g_interest = NULL
-        if(input$class %in% c("Metabolite", "Putative Metabolite")){
+        if(input$class %in% c("Metabolite", "Putative metabolite")){
           g_interest = network_partner_met(query_ilp_id = query_ilp_id(),
                                            search_degree = input$connect_degree,
-                                              g_annotation = g_met,
-                                              core_ilp_node = core_met,
-                                              optimized_only = isolate(input$optimized_only))
+                                           g_annotation = g_met,
+                                           core_ilp_node = core_met,
+                                           optimized_only = isolate(input$optimized_only))
         }
         if(input$class == "Artifact"){
           g_interest = network_partner_nonmet(query_ilp_id = query_ilp_id(),
                                               search_degree = input$connect_degree,
-                                                 g_annotation = g_nonmet,
-                                                 core_ilp_node = core_nonmet,
-                                                 weight_tol = 1,
-                                                 optimized_only = isolate(input$optimized_only))
+                                              g_annotation = g_nonmet,
+                                              core_ilp_node = core_nonmet,
+                                              weight_tol = 1,
+                                              optimized_only = isolate(input$optimized_only))
         }
         g_interest
       })
@@ -123,9 +123,9 @@ server <- function(input, output, session) {
       g_child_met <- reactive({
         print("enter g_child_met")
         g_child_met = network_child_met(query_ilp_id = query_ilp_id(),
-                                           g_annotation = g_met,
-                                           connect_degree = input$connect_degree,
-                                           optimized_only = isolate(input$optimized_only))
+                                        g_annotation = g_met,
+                                        connect_degree = input$connect_degree,
+                                        optimized_only = isolate(input$optimized_only))
       })
       g_child_nonmet <- reactive({
         print("enter g_child_nonmet")
@@ -135,14 +135,11 @@ server <- function(input, output, session) {
                                                 optimized_only = isolate(input$optimized_only))
       })
       
-      
-      
-      
       g_interest <- eventReactive(input$plot_network, {
         print("enter g_interest")
         merge_nodes = NULL
         merge_edges = NULL
-        if(input$biochemical_graph & input$class %in% c("Metabolite", "Putative Metabolite")){
+        if(input$biochemical_graph & input$class %in% c("Metabolite", "Putative metabolite")){
           # req(g_parent())
           if(!is.null(g_parent())){
             g_nodes = igraph::as_data_frame(g_parent(), "vertices")
@@ -186,8 +183,10 @@ server <- function(input, output, session) {
         }
         
         if(is.null(merge_edges)){
+          print("merge_edges is null.")
           return(NULL)
         }
+        
         
         merge_nodes = merge_nodes %>%
           distinct()
@@ -204,7 +203,8 @@ server <- function(input, output, session) {
         Plot_g_interest(g_interest(), 
                         query_ilp_node = isolate(query_ilp_id()), 
                         show_node_labels = input$node_labels, 
-                        show_edge_labels = input$edge_labels
+                        show_edge_labels = input$edge_labels,
+                        log_inten_cutoff = 0
         )
       })
       
@@ -232,10 +232,10 @@ server <- function(input, output, session) {
         req(query_ilp_id())
         if(structure_table_trigger() == "plot_network"){
           print(query_ilp_id())
-          core_rank %>%
+          core_annotation %>%
             filter(ilp_node_id == query_ilp_id())
         } else if(structure_table_trigger() == "click"){
-          core_rank %>%
+          core_annotation %>%
             filter(ilp_node_id == input$click)
         }
       })
@@ -243,7 +243,7 @@ server <- function(input, output, session) {
       output$structure_list <- DT::renderDataTable({
         print("enter output$structure_list")
         structure_table() %>%
-          dplyr::select(class, core_annotate, origin, note)
+          dplyr::select(class, annotation, origin, note)
       }, options = list(pageLength = 5),
       fillContainer = F,
       rownames = TRUE
@@ -307,7 +307,7 @@ server <- function(input, output, session) {
       output$struct_annotation <- renderText({
         print("enter output$struct_annotation")
         struct_annotation = structure_table() %>%
-          pull(core_annotate)
+          pull(annotation)
         struct_annotation[structure_plot_counter()]
       })
       
