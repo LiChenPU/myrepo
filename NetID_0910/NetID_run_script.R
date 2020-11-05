@@ -3,7 +3,7 @@
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
   source("NetID_function.R")
   
-  work_dir = "matt"
+  work_dir = "Sc_neg"
   setwd(work_dir)
   printtime = Sys.time()
   timestamp = paste(unlist(regmatches(printtime, gregexpr("[[:digit:]]+", printtime))),collapse = '')
@@ -17,13 +17,13 @@
                     ion_mode = -1 # 1 for pos mode and -1 for neg mode
                     )
   Mset = read_MS2data(Mset,
-                      MS2_folder = "MS2_neg_200524") # MS2_neg_200524_test
+                      MS2_folder = "") # MS2_neg_200524_test
 }
 
 # Data cleaning ####
 {
   # Analyze cohort info, identify blank samples
-  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 16)
+  Mset[["Cohort"]]=Cohort_Info(Mset, first_sample_col_num = 15)
   print(Mset$Cohort)
   
   # Clean up duplicate peaks 
@@ -31,10 +31,11 @@
                                 mz_tol=2/10^6, rt_tol=0.1, # merge peaks within mz_tol and rt_tol
                                 inten_cutoff=0e4,
                                 high_blank_cutoff = 0,
-                                first_sample_col_num = 16)
+                                first_sample_col_num = 15)
   
   print(c(nrow(Mset$raw_data), nrow(Mset$Data)))
 }
+
 # Setting up NodeSet, LibrarySet and StructureSet ####
 {
   NodeSet = Initiate_nodeset(Mset)
@@ -47,7 +48,7 @@
                                             LibrarySet_expand,
                                             StructureSet, 
                                             NodeSet,
-                                            ppm_tol = 5e-6)
+                                            ppm_tol = 10e-6)
 }
 
 # Adjust measured mass by matching to known metabolites ####
@@ -69,7 +70,7 @@
                                                 LibrarySet_expand,
                                                 StructureSet, 
                                                 NodeSet,
-                                                ppm_tol = 5e-6)
+                                                ppm_tol = 10e-6)
     }
   }
 }
@@ -77,7 +78,7 @@
 # Setting up EdgeSet ####
 {
   EdgeSet = Initiate_edgeset(Mset, NodeSet, 
-                             mz_tol_abs = 0, mz_tol_ppm = 10, 
+                             mz_tol_abs = 2e-4, mz_tol_ppm = 10, 
                              rt_tol_bio = Inf, rt_tol_nonbio = 0.2)
   
   EdgeSet_expand = Expand_edgeset(EdgeSet,
@@ -100,14 +101,13 @@
                                         EdgeSet_all,
                                         biotransform_step = 2,
                                         artifact_step = 3,
-                                        propagation_ppm_threshold = 5e-6,
-                                        propagation_abs_threshold = 2e-4,
-                                        record_RT_tol = 0.15,
+                                        propagation_ppm_threshold = 10e-6,
+                                        propagation_abs_threshold = 0e-4,
+                                        record_RT_tol = 0.2,
                                         record_ppm_tol = 5e-6)
   
-  
   StructureSet_df = Score_structureset(StructureSet)
-  StructureSet_df = Score_structure_propagation(StructureSet_df, artifact_decay = -0.5)                         
+  StructureSet_df = Score_structure_propagation(StructureSet_df, artifact_decay = -0.5)   
 }
 
 # CplexSet and ilp_nodes and ilp_edges #### 
@@ -129,7 +129,8 @@
   
   CplexSet[["ilp_edges"]] = score_ilp_edges(CplexSet, NodeSet)
   
-  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, rule_score_heterodimer = 0,
+  CplexSet[["heterodimer_ilp_edges"]] = score_heterodimer_ilp_edges(CplexSet, 
+                                                                    type_score_heterodimer = 0,
                                                                     MS2_score_experiment_fragment = 0.5)
   print("Finish CplexSet scoring")
   
@@ -147,14 +148,15 @@ save.image(paste0(timestamp,".RData"))
   CplexSet[["ilp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj, 
                                          optimization = c("ilp"),
                                          relative_gap = 1e-3, total_run_time = 5000)
-  CplexSet[["lp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
-                                        optimization = c("lp"),
-                                        total_run_time = 5000)
-  
   CplexSet = add_CPLEX_solution(CplexSet, Mset, 
                                 solution = "ilp_solution")
-  CplexSet = add_CPLEX_solution(CplexSet, Mset, 
-                                solution = "lp_solution")
+  # 
+  # CplexSet[["lp_solution"]] = Run_cplex(CplexSet, obj_cplex = CplexSet$para$obj,
+  #                                       optimization = c("lp"),
+  #                                       total_run_time = 5000)
+  # CplexSet = add_CPLEX_solution(CplexSet, Mset,
+  #                               solution = "lp_solution")
+
 }
 
 # Path annotation ####
@@ -163,23 +165,28 @@ save.image(paste0(timestamp,".RData"))
   NetworkSet = Initiate_networkset(CplexSet, StructureSet_df, LibrarySet, 
                                    solution = "ilp_solution")
   
-  
-  CplexSet = path_annotation(CplexSet, NetworkSet)
+  CplexSet = path_annotation(CplexSet, NetworkSet, solution = "ilp_solution")
   
   save(CplexSet,StructureSet_df,LibrarySet,NetworkSet,
           file = paste(timestamp, "output.RData", sep="_"))
 }
 
-
 save.image(paste0(timestamp,".RData"))
 print("total run time")
 print(Sys.time()-printtime)
 
-
-
 # Test 
 {
-  NetID_output =  dt$CplexSet$ilp_nodes %>% 
+  test = CplexSet$ilp_nodes %>%
+    filter(node_id == 5115)
+  NetID_output =  CplexSet$ilp_nodes %>% 
     filter(ilp_solution == 1)
   write.csv(NetID_output,"NetID_output.csv", row.names = F, na="")
+  test = NetID_output %>%
+    filter(grepl("Ni", formula))
+  
+  
 }
+
+
+

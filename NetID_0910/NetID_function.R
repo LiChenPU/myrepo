@@ -1700,15 +1700,16 @@ Score_structureset_database_origin = function(StructureSet_df,
 }
 ## Score_structureset_mz ####
 Score_structureset_mz = function(StructureSet_df, NodeSet, 
-                                 mass_dist_gamma_rate = 1){
+                                 score_ppm_error_rate = -0.5){
   
   node_mass = sapply(NodeSet, "[[", "mz")
   
   structureset_mz = StructureSet_df %>%
     mutate(msr_mass = node_mass[node_id],
            ppm_error = (mass - msr_mass) / mass * 1e6) %>%
-    mutate(score_mz = dgamma(abs(ppm_error), 1, scale = mass_dist_gamma_rate) * mass_dist_gamma_rate) %>%
-    mutate(score_mz = log10(score_mz)) %>%
+    mutate(score_mz = abs(ppm_error) * score_ppm_error_rate) %>%
+    # mutate(score_mz = dgamma(abs(ppm_error), 1, scale = mass_dist_gamma_rate) * mass_dist_gamma_rate) %>%
+    # mutate(score_mz = log10(score_mz)) %>%
     dplyr::select(struct_set_id, score_mz)
   
 }
@@ -1861,8 +1862,8 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
     b[mz_parent_position] = b[mz_parent_position]/5
   }
   
-  spec_score = a%*%b / sqrt(a%*%a * b%*%b)
-  
+  spec_score = a%*%b / (sqrt(a%*%a) * sqrt(b%*%b))
+    
   return(as.numeric(spec_score))
 }
 
@@ -1871,7 +1872,7 @@ Score_merge_MS2 = function(spec_merge_df, mz_parent = 0){
 ## Score_structureset_MS2 ####
 Score_structureset_MS2 = function(StructureSet_df, NodeSet, Mset,
                                   # only spectra matching/similarity score > cutoff, then nodes get bonus
-                                  MS2_match = 1, MS2_match_cutoff = 0.8, 
+                                  MS2_match = 1, MS2_match_cutoff = 0.5, 
                                   MS2_similarity = 0.5, MS2_similarity_cutoff = 0.5 
                                   ){ 
   
@@ -2076,7 +2077,7 @@ Score_structureset = function(StructureSet){
   structureset_database_origin = Score_structureset_database_origin(StructureSet_df, 
                                                                     database_match = 0.5, manual_match = 1)
   structureset_mz = Score_structureset_mz(StructureSet_df, NodeSet, 
-                                          mass_dist_gamma_rate = 1)
+                                          score_ppm_error_rate = -.5)
   
   structureset_RT = Score_structureset_RT(StructureSet_df, NodeSet, LibrarySet, 
                                           rt_match = 1, known_rt_tol = 0.5)
@@ -2340,28 +2341,28 @@ score_ilp_nodes = function(CplexSet,
 
 
 
-## Score_rule_category ####
-Score_rule_category = function(ilp_edges, 
-                               rule_score_biotransform = 0, rule_score_adduct = 0.5, 
-                               rule_score_natural_abundance = 1, rule_score_fragment = 0.3, 
-                               rule_score_radical = 0.2, rule_score_oligomer = 0.5, 
-                               rule_score_multicharge = 0.5, rule_score_multicharge_isotope = 1, 
-                               rule_score_ring_artifact = 2,
-                               rule_score_experiment_MS2_fragment = 1, 
-                               rule_score_library_MS2_fragment = 0.3){
+## Score_type_category ####
+Score_type_category = function(ilp_edges, 
+                               type_score_biotransform = 0, type_score_adduct = 0.5, 
+                               type_score_natural_abundance = 1, type_score_fragment = 0.3, 
+                               type_score_radical = 0.2, type_score_oligomer = 0.5, 
+                               type_score_multicharge = 0.5, type_score_multicharge_isotope = 1, 
+                               type_score_ring_artifact = 2,
+                               type_score_experiment_MS2_fragment = 1, 
+                               type_score_library_MS2_fragment = 0.3){
   # Score rule category 
   ilp_edges = ilp_edges %>%
     mutate(score_category = case_when(
-      category == "Biotransform" ~ rule_score_biotransform,
-      category == "Adduct" ~ rule_score_adduct, 
-      category == "Natural_abundance" ~ rule_score_natural_abundance,
-      category == "Fragment" ~ rule_score_fragment,
-      category == "Radical" ~ rule_score_radical,
-      category == "Oligomer" ~ rule_score_oligomer,
-      category == "Multicharge" ~ rule_score_multicharge, 
-      category == "Multicharge_isotope" ~ rule_score_multicharge_isotope,
-      category == "Ring_artifact" ~ rule_score_ring_artifact,
-      category == "Experiment_MS2_fragment" ~ rule_score_experiment_MS2_fragment,
+      category == "Biotransform" ~ type_score_biotransform,
+      category == "Adduct" ~ type_score_adduct, 
+      category == "Natural_abundance" ~ type_score_natural_abundance,
+      category == "Fragment" ~ type_score_fragment,
+      category == "Radical" ~ type_score_radical,
+      category == "Oligomer" ~ type_score_oligomer,
+      category == "Multicharge" ~ type_score_multicharge, 
+      category == "Multicharge_isotope" ~ type_score_multicharge_isotope,
+      category == "Ring_artifact" ~ type_score_ring_artifact,
+      category == "Experiment_MS2_fragment" ~ type_score_experiment_MS2_fragment,
       category == "Library_MS2_fragment" ~ 0 # special handling below
     )) %>%
     dplyr::select(ilp_edge_id, score_category) %>%
@@ -2382,15 +2383,14 @@ Score_rt_penalty = function(ilp_edges, NodeSet,
     mutate(score_rt_artifact = case_when(
       category %in% c("Biotransform") ~ 0,
       abs(rt_dif) < rt_cutoff_artifact ~ 0,
-      T ~ (abs(rt_dif) - rt_cutoff_artifact) * rt_score_artifact_multiplier)) %>%
+      T ~ (abs(rt_dif)) * rt_score_artifact_multiplier)) %>%
     dplyr::select(ilp_edge_id, score_rt_artifact) %>%
     filter(T)
 }
 ## Score_inten_isotope ####
 Score_inten_isotope = function(ilp_edges, NodeSet, 
-                               inten_score_isotope = 1,
                                inten_cutoff_isotope = 3,
-                               score_sigma = 0.2
+                               score_sigma_isotope = 0.2
                                ){
   
   node_inten = sapply(NodeSet, "[[", "inten") %>% as.numeric()
@@ -2401,9 +2401,9 @@ Score_inten_isotope = function(ilp_edges, NodeSet,
     mutate(inten_ratio_measured = inten2 - inten1, 
            inten_ratio_calculated = log10(mapply(isotopic_abundance, .$formula1, .$linktype)),
            measured_calculated_ratio = 10^(inten_ratio_measured-inten_ratio_calculated)) %>%
-    mutate(p_obs = dnorm(measured_calculated_ratio, 1, score_sigma+10^(inten_cutoff_isotope-pmin(inten1, inten2))),
-           p_theory = dnorm(1, 1, score_sigma+10^(inten_cutoff_isotope-pmin(inten1, inten2)))) %>%
-    mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10) + inten_score_isotope) %>%
+    mutate(p_obs = dnorm(measured_calculated_ratio, 1, score_sigma_isotope+10^(inten_cutoff_isotope-pmin(inten1, inten2))),
+           p_theory = dnorm(1, 1, score_sigma_isotope+10^(inten_cutoff_isotope-pmin(inten1, inten2)))) %>%
+    mutate(score_inten_isotope = log10(p_obs/p_theory+1e-10)) %>%
     dplyr::select(ilp_edge_id, score_inten_isotope) %>%
     mutate(score_inten_isotope = as.numeric(score_inten_isotope)) # remove names for score_inten_isotope
 }
@@ -2425,10 +2425,10 @@ Score_MS2_library_fragment = function(ilp_edges, NodeSet,
 
 ## Score_MS2_experiment_biotransform ####
 Score_MS2_experiment_biotransform = function(ilp_edges, NodeSet, 
-                                           MS2_score_similarity = 1, 
-                                           MS2_similarity_cutoff = 0.3,
-                                           ppmTol = 10E-6, 
-                                           absTol = 1e-3) 
+                                             MS2_score_similarity = 1, 
+                                             MS2_similarity_cutoff = 0.3,
+                                             ppmTol = 10E-6, 
+                                             absTol = 1e-3) 
 {
   # Score Experiment MS2 similarity
   # It compares Biotransform connection in edge list where both experiment MS2 exist
@@ -2529,14 +2529,14 @@ Score_MS2_abiotic_mz_appearance = function(ilp_edges, NodeSet,
 score_ilp_edges = function(CplexSet, NodeSet){
   ilp_edges = CplexSet$ilp_edges
 
-  ilp_edges_rule_category = Score_rule_category(ilp_edges, 
-                                                rule_score_biotransform = 0, rule_score_adduct = 0.5, 
-                                                rule_score_natural_abundance = 1, rule_score_fragment = 0.3, 
-                                                rule_score_radical = 0.2, rule_score_oligomer = 0.5, 
-                                                rule_score_multicharge = 0.5, rule_score_multicharge_isotope = 1, 
-                                                rule_score_ring_artifact = 2,
-                                                rule_score_experiment_MS2_fragment = 1, 
-                                                rule_score_library_MS2_fragment = 0.3)
+  ilp_edges_type_category = Score_type_category(ilp_edges, 
+                                                type_score_biotransform = 0, type_score_adduct = 0.5, 
+                                                type_score_natural_abundance = 1, type_score_fragment = 0.3, 
+                                                type_score_radical = 0.2, type_score_oligomer = 0.5, 
+                                                type_score_multicharge = 0.5, type_score_multicharge_isotope = 1, 
+                                                type_score_ring_artifact = 2,
+                                                type_score_experiment_MS2_fragment = 1, 
+                                                type_score_library_MS2_fragment = 0.3)
   
   ilp_edges_rt_penalty = Score_rt_penalty(ilp_edges, NodeSet,
                                           rt_cutoff_artifact = 0.05, 
@@ -2544,7 +2544,6 @@ score_ilp_edges = function(CplexSet, NodeSet){
   
   
   ilp_edges_inten_isotope = Score_inten_isotope(ilp_edges, NodeSet, 
-                                                inten_score_isotope = 1,
                                                 inten_cutoff_isotope = 3,
                                                 score_sigma = 0.2)
   
@@ -2558,7 +2557,7 @@ score_ilp_edges = function(CplexSet, NodeSet){
                                                                         MS2_score_abiotic_mz_appearance = 0.3)
   
   ilp_edges_list = list(ilp_edges, 
-                        ilp_edges_rule_category,
+                        ilp_edges_type_category,
                         ilp_edges_rt_penalty,
                         ilp_edges_inten_isotope,
                         ilp_edges_MS2_library_fragment,
@@ -2666,7 +2665,7 @@ initiate_heterodimer_ilp_edges = function(EdgeSet_all, CplexSet, NodeSet){
 
 
 # score_heterodimer_ilp_edges ####
-score_heterodimer_ilp_edges = function(CplexSet, rule_score_heterodimer = 1,
+score_heterodimer_ilp_edges = function(CplexSet, type_score_heterodimer = 1,
                                        MS2_score_experiment_fragment = 0.5){
   
   if(is.null(CplexSet$heterodimer_ilp_edges )){
@@ -2676,7 +2675,7 @@ score_heterodimer_ilp_edges = function(CplexSet, rule_score_heterodimer = 1,
   heterodimer_ilp_edges = CplexSet$heterodimer_ilp_edges %>%
     mutate(ilp_edge_id = 1:nrow(.) + nrow(CplexSet$ilp_edges)) %>%
     mutate(score_category = case_when(
-      category == "Heterodimer" ~ rule_score_heterodimer,
+      category == "Heterodimer" ~ type_score_heterodimer,
       T ~ 0
     )) %>%
     filter(T)
@@ -4733,7 +4732,7 @@ track_annotation_met = function(query_ilp_id,
 }
 
 # path_annotation ####
-path_annotation = function(CplexSet, NetworkSet){
+path_annotation = function(CplexSet, NetworkSet, solution = "ilp_solution"){
 
   
   # prepare tracking graph for biotransform network and abiotic network
@@ -4788,6 +4787,94 @@ path_annotation = function(CplexSet, NetworkSet){
   return(CplexSet)
 }
 
+## all_network ####
+all_network = function(g_met, g_nonmet){
+  
+  g_met2_node = igraph::as_data_frame(g_met, "vertices") 
+  
+  g_met2_edges = igraph::as_data_frame(g_met, "edges") 
+  
+  g_met2 = graph_from_data_frame(g_met2_edges,
+                                 vertices = g_met2_node,
+                                 directed = F)
+  
+  g_nonmet2_node = igraph::as_data_frame(g_nonmet, "vertices") 
+  
+  g_nonmet2_edges = igraph::as_data_frame(g_nonmet, "edges") 
+  
+  g_nonmet2 = graph_from_data_frame(g_nonmet2_edges,
+                                    vertices = g_nonmet2_node,
+                                    directed = F)
+  
+  g_all_nodes = bind_rows(g_met2_node, g_nonmet2_node) %>%
+    distinct(name, .keep_all = T) %>%
+    filter(class != "Unknown")
+  
+  g_all_edges = bind_rows(g_met2_edges, g_nonmet2_edges) %>%
+    distinct() %>%
+    filter(from %in% g_all_nodes$name & to %in% g_all_nodes$name)
+  
+  g_all = graph_from_data_frame(g_all_edges,
+                                directed = F,
+                                vertices = g_all_nodes)
+  
+}
+## valid_network ####
+valid_network = function(g_all){
+  
+  g_all_nodes = igraph::as_data_frame(g_all, "vertices")
+  g_all_edges = igraph::as_data_frame(g_all, "edges")
+  
+  # Retain only ilp_solution nodes
+  {
+    g_all_nodes = g_all_nodes %>%
+      filter(ilp_solution > 0.01)
+    
+    g_all_edges = g_all_edges %>%
+      filter(from %in% g_all_nodes$name, to %in% g_all_nodes$name)
+  }
+  
+  # Problem 1 - many single node in the output
+  # Reason - Heterodimer edge score enables nodes without regular connections
+  # Solutions - Remove nodes do not have regular connections
+  {
+    g_all_nodes = g_all_nodes %>%
+      filter(name %in% g_all_edges$from | name %in% g_all_edges$to)
+    
+    g_all = graph_from_data_frame(g_all_edges,
+                                  directed = F,
+                                  vertices = g_all_nodes)
+  }
+
+  # Problem 2 - Putative metabolites in network without connecting to knwon metabolites
+  # Reason - Edge score by connection with isotope/adduct etc.
+  # Solutions - Only retain subnetwork where step=0 annotation exist
+  {
+    
+    clu=components(g_all)
+    #subnetwork criteria 
+    mainnetwork = igraph::groups(clu)[table(clu$membership) == max(table(clu$membership))]
+    subnetwork = igraph::groups(clu)[table(clu$membership) < length(mainnetwork[[1]])]
+    
+    step0 = g_all_nodes %>%
+      filter(steps == 0) %>%
+      pull(name)
+    subnetwork_valid = sapply(subnetwork, function(x){
+      any(x %in% step0)
+    })
+    nodes_invalid = unlist(subnetwork[!subnetwork_valid])
+    
+    g_all_nodes_valid = g_all_nodes %>%
+      filter(!name %in% nodes_invalid)
+    g_all_edges_valid = g_all_edges %>%
+      filter(from %in% g_all_nodes_valid$name & to %in% g_all_nodes_valid$name)
+    g_all_valid = graph_from_data_frame(g_all_edges_valid,
+                                        directed = F,
+                                        vertices = g_all_nodes_valid)
+  }
+  
+  g_all_valid
+}
 # Initiate_networkset ####
 Initiate_networkset = function(CplexSet, StructureSet_df, LibrarySet, 
                                solution = "ilp_solution"){
@@ -4801,11 +4888,16 @@ Initiate_networkset = function(CplexSet, StructureSet_df, LibrarySet,
   g_nonmet = initiate_g_nonmet(CplexSet, solution = solution)
   nonmet_dist_mat = initiate_nonmet_dist_mat(g_nonmet, CplexSet, core_annotation, 
                                              solution = solution, only_solution_result = T)
+  g_all = all_network(g_met, g_nonmet)
+  g_all_valid = valid_network(g_all)
   
   return(list(core_annotation = core_annotation,
               g_met = g_met,
               met_dist_mat = met_dist_mat,
               g_nonmet = g_nonmet, 
-              nonmet_dist_mat = nonmet_dist_mat))
+              nonmet_dist_mat = nonmet_dist_mat,
+              g_all = g_all,
+              g_all_valid = g_all_valid))
 }
+
 # ---- End ---- ####
