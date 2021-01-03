@@ -11,7 +11,8 @@
   library(janitor)
   library(readxl)
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-  rel_path = "C:/Users/Li Chen/Desktop/Network paper/network_figure_R"
+  data(isotopes)
+  rel_path = "C:/Users/Li Chen/OneDrive/Network paper/network_figure_R"
   source('R_shiny_functions.R')
 }
 
@@ -1115,6 +1116,143 @@ fancy_scientific <- function(l) {
     print(nrow(ilp_edges_filter %>% filter(category != "Biotransform")))
   }
   
+}
+## plot_5 - validate CN num
+{
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+  datapath = "./Unknown in IO RT/Sc_neg"
+  setwd(datapath)
+  filename = "20200704085443_output.rds" # Sc_neg
+  filename_wl = "../Lu-Table-S4-final_Sc_neg.xlsx"
+  # Global parameter in the background ####
+  {
+    dt = readRDS(filename)
+    
+    ilp_nodes = dt$ilp_nodes %>%
+      mutate(medMz = signif(medMz, 7),
+             medRt = round(medRt, 2),
+             log10_inten = round(log10_inten, 2),
+             ppm_error = round(ppm_error, 2))
+    
+    ilp_edges = dt$ilp_edges
+    
+    g_met = initiate_g_met(ilp_nodes, dt$ilp_edges)
+    
+    g_nonmet = initiate_g_nonmet(ilp_nodes, dt$ilp_edges, dt$heterodimer_ilp_edges)
+    
+    
+  }
+  
+  
+  # Node ####
+  {
+    WL = readxl::read_xlsx(filename_wl,
+                           # sheet = "Sheet1",
+                           guess_max = 1e6
+    ) %>%
+      dplyr::rename(medRt = rt,
+                    medMz = mz) %>%
+      dplyr::rename(Formula = Formula...32,
+                    Feature = Feature...33,
+                    Background = Background...25) %>%
+      filter(T)
+    
+    
+    test = ilp_nodes %>% 
+      filter(ilp_result > 0.01)
+    test2 = merge(WL, test, by.x = "Index", by.y = "Input_id", all.x = T, suffixes = c("",".y")) %>%
+      dplyr::select(colnames(WL), node_id, class, path, formula, ppm_error, parent_id, parent_formula, transform, category, mass)
+    
+    test3 = test2 %>%
+      mutate(Formula = ifelse(is.na(Formula), "", Formula)) %>%
+      mutate(Formula = check_chemform(isotopes, Formula)$new_formula)
+    
+    test3_filter = test3 %>%
+      filter(is.na(Background)) %>%
+      filter(class != "Unknown") %>%
+      filter(C != 0 | N != 0) %>%
+      filter(T) 
+  }
+  
+  ## Evaluatoin ####
+  {
+    test4 = test3_filter %>%
+      filter(sig > log10(1e5)) %>%
+      mutate(new_C = sapply(formula,elem_num_query, "C")) %>%
+      mutate(new_N = sapply(formula,elem_num_query, "N")) %>%
+      mutate(CN_match = new_C == C & new_N == N)
+    tabyl(test4, class, CN_match)
+    
+    test4_filter = test4 %>%
+      # filter(class == "Putative Metabolite") %>%
+      filter(class == "Metabolite") %>%
+      filter(!CN_match) %>%
+      filter(T)
+    
+    
+  }
+}
+## plot_4_2_210102update - statistics of global networks ####
+{
+  setwd(rel_path)
+  setwd("./table_1_global network statistics summary")
+  datapath = "./Sc_neg"
+  datapath = "./Sc_pos"
+  # datapath = "./Mouse_liver_neg"
+  # datapath = "./Mouse_liver_pos"
+  setwd(datapath)
+  filename = "NetID_output.RData" # Sc_neg
+  load(filename)
+  
+  # Global parameter in the background ####
+  {
+    ilp_nodes = CplexSet$ilp_nodes %>%
+      mutate(medMz = signif(medMz, 7),
+             medRt = round(medRt, 2),
+             log10_inten = round(log10_inten, 2),
+             ppm_error = (mass-medMz)/medMz*1e6,
+             ppm_error = round(ppm_error, 2))
+    
+    ilp_edges = CplexSet$ilp_edges
+    
+    g_met = NetworkSet$g_met
+    
+    g_nonmet = NetworkSet$g_nonmet
+    
+  }
+  
+  
+  # Node ####
+  {
+
+    test = ilp_nodes %>% 
+      filter(ilp_solution > 0.01)
+
+    tabyl(test, class)
+    # print(c(nrow(test3), nrow(test3)-nrow(test3_filter)))
+    
+  }
+  # Edge ####
+  {
+    ilp_edges_filter = ilp_edges %>%
+      arrange(-ilp_solution) %>%
+      distinct(edge_id, .keep_all = T) %>%
+      filter(ilp_nodes1 %in% test$ilp_node_id, 
+             ilp_nodes2 %in% test$ilp_node_id) %>%
+      filter(!(category != "Biotransform" & ilp_solution == 0))
+    
+    
+  }
+  # Network ####
+  
+  # Output ####
+  {
+    print(c(nrow(test)))
+    print(tabyl(test$class))
+    print(nrow(ilp_edges_filter))
+    print(nrow(ilp_edges_filter %>% filter(category == "Biotransform")))
+    print(nrow(ilp_edges_filter %>% filter(category != "Biotransform")))
+  }
 }
 ## plot_5 - validate CN num
 {
