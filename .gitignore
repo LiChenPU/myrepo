@@ -20,5 +20,6 @@
 *.html
 *.sdf
 *.docx
+*.mxXML
 .Rproj.user
 prob.lp
